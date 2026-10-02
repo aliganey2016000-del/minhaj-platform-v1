@@ -70,6 +70,9 @@ jobs:
       - name: Cloudflare client IP resolution tests
         run: npm run test:cloudflare-client-ip
 
+      - name: Manage list search/pagination tests
+        run: npm run test:list-search
+
       - name: Teacher CRUD & import tests
         run: npm run test:teacher-crud
 

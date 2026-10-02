@@ -61,4 +61,9 @@ teacherSchema.pre('save', async function (next) {
   next();
 });
 
+// Every teacher list/report query scopes by school first — this had no
+// index at all, so GET /teachers (and the search aggregation above it) ran
+// a full collection scan on every call.
+teacherSchema.index({ school: 1, status: 1 });
+
 export default mongoose.model<ITeacher>('Teacher', teacherSchema);

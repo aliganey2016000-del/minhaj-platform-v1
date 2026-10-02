@@ -20,6 +20,8 @@ import path from 'path';
 import crypto from 'crypto';
 import { persistStudentPhoto } from './student-documents.controller';
 import TeacherDocument from '../models/teacher-document.model';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { escapeRegex } from '../utils/escape-regex';
 
 // ---------------------------------------------------------------------------
 // GET /teachers — List all teachers with optional filters
@@ -43,34 +45,54 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 10));
   const skip = (pageNum - 1) * limitNum;
-
-  let query = Teacher.find(scopedFilter)
+  const populateTeachers = (q: ReturnType<typeof Teacher.find>) => q
     .populate('user', 'email phone isVerified isActive')
     .populate('profile', 'firstName lastName gender avatar')
     .populate('school', 'name')
-    .populate('courses', 'title.en slug')
-    .sort({ createdAt: -1 });
+    .populate('courses', 'title.en slug');
 
-  const [teachers, total] = await Promise.all([
-    query.skip(skip).limit(limitNum).lean(),
-    Teacher.countDocuments(scopedFilter),
-  ]);
+  let teachers: any[];
+  let total: number;
 
-  let filteredTeachers = teachers;
   if (search) {
-    const s = (search as string).toLowerCase();
-    filteredTeachers = teachers.filter((t: any) => {
-      const fullName = `${t.profile?.firstName || ''} ${t.profile?.lastName || ''}`.toLowerCase();
-      const email = (t.user?.email || '').toLowerCase();
-      const tid = (t.teacherId || '').toLowerCase();
-      return fullName.includes(s) || email.includes(s) || tid.includes(s);
-    });
+    // Previously: paginate first (skip/limit), THEN filter that one page by
+    // search in memory — so a matching teacher outside the current page
+    // never showed up, and `total` reported only how many of that one page
+    // matched. Matched and paginated at the database level instead, same as
+    // students (see student.controller.ts getAll).
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const aggregateMatch = castObjectIdFilter(scopedFilter, ['school']);
+    const [facetResult] = await Teacher.aggregate([
+      { $match: aggregateMatch },
+      { $lookup: { from: 'profiles', localField: 'profile', foreignField: '_id', as: 'profileDoc' } },
+      { $unwind: { path: '$profileDoc', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'users', localField: 'user', foreignField: '_id', as: 'userDoc' } },
+      { $unwind: { path: '$userDoc', preserveNullAndEmptyArrays: true } },
+      { $addFields: { fullName: { $concat: [{ $ifNull: ['$profileDoc.firstName', ''] }, ' ', { $ifNull: ['$profileDoc.lastName', ''] }] } } },
+      { $match: { $or: [{ fullName: regex }, { 'userDoc.email': regex }, { teacherId: regex }] } },
+      { $sort: { createdAt: -1 } },
+      { $facet: {
+          data: [{ $skip: skip }, { $limit: limitNum }, { $project: { _id: 1 } }],
+          totalCount: [{ $count: 'count' }],
+        } },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const pageDocs = orderedIds.length
+      ? await populateTeachers(Teacher.find({ _id: { $in: orderedIds } })).lean()
+      : [];
+    const docById = new Map(pageDocs.map((doc: any) => [String(doc._id), doc]));
+    teachers = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    [teachers, total] = await Promise.all([
+      populateTeachers(Teacher.find(scopedFilter).sort({ createdAt: -1 }))
+        .skip(skip).limit(limitNum).lean(),
+      Teacher.countDocuments(scopedFilter),
+    ]);
   }
 
-  return ApiResponse.paginated(res, filteredTeachers, {
-    page: pageNum, limit: limitNum,
-    total: search ? filteredTeachers.length : total,
-  });
+  return ApiResponse.paginated(res, teachers, { page: pageNum, limit: limitNum, total });
 };
 
 // ---------------------------------------------------------------------------
