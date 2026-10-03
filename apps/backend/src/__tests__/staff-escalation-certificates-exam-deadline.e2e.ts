@@ -60,7 +60,11 @@ async function main() {
     const schoolB = await makeSchool('Phase1 School B', 'p1-b@test.local');
 
     const orgAdminA = await User.create({ email: 'p1-orgadmin-a@test.local', password: 'Password123!', role: 'org_admin', organizationId: schoolA._id });
-    const staffA = await User.create({ email: 'p1-staff-a@test.local', password: 'Password123!', role: 'staff', organizationId: schoolA._id });
+    // The token's permissions must match the account's (live token check).
+    const staffA = await User.create({
+      email: 'p1-staff-a@test.local', password: 'Password123!', role: 'staff', organizationId: schoolA._id,
+      permissions: [{ module: 'organization', actions: ['read', 'edit', 'create', 'delete'] }, { module: 'exams', actions: ['read'] }],
+    });
     const staffA2 = await User.create({ email: 'p1-staff-a2@test.local', password: 'Password123!', role: 'staff', organizationId: schoolA._id });
     const teacherUserA = await User.create({ email: 'p1-teacher-a@test.local', password: 'Password123!', role: 'teacher', organizationId: schoolA._id });
     const userB = await User.create({ email: 'p1-teacher-b@test.local', password: 'Password123!', role: 'teacher', organizationId: schoolB._id });
@@ -122,7 +126,8 @@ async function main() {
     res = await request(app).patch(`/api/v1/schools/${schoolA._id}`).set(auth(staffToken)).send({ adminPassword: 'NewPassword123!' });
     assert(res.status === 403, `staff cannot reset the org admin password (got ${res.status})`);
 
-    res = await request(app).get('/api/v1/users').set(auth(token(staffA2, [])));
+    const staffNoGrant = await User.create({ email: 'p1-staff-none@test.local', password: 'Password123!', role: 'staff', organizationId: schoolA._id });
+    res = await request(app).get('/api/v1/users').set(auth(token(staffNoGrant, [])));
     assert(res.status === 403, `staff without a grant is refused (got ${res.status})`);
 
     res = await request(app).patch(`/api/v1/users/${teacherUserA._id}`).set(auth(orgAdminToken)).send({ role: 'org_admin' });
