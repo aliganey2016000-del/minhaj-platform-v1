@@ -10,7 +10,7 @@ router.use(authMiddleware);
 
 router.get('/my', roleMiddleware(['student']), asyncHandler(certificateController.getMyCertificates));
 router.get('/', adminOrTeacher, asyncHandler(certificateController.getAll));
-router.get('/:id', asyncHandler(certificateController.getAll)); // fallback — detailed get is via getAll with params
+router.get('/:id', adminOrTeacher, asyncHandler(certificateController.getById));
 router.post('/', adminOnly, asyncHandler(certificateController.create));
 router.patch('/:id', adminOnly, asyncHandler(certificateController.update));
 router.patch('/:id/status', adminOnly, asyncHandler(certificateController.updateStatus));

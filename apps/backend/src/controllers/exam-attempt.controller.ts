@@ -323,11 +323,20 @@ export const saveAnswers = async (req: Request, res: Response): Promise<Response
   const { answers } = req.body as { answers: { questionId: string; value: unknown }[] };
   if (!Array.isArray(answers)) throw new BadRequestError('answers must be an array');
 
-  attempt.answers = answers.map((a) => ({ questionId: a.questionId as any, value: a.value as any }));
-  await attempt.save();
+  // Conditional write: an autosave that lands after the attempt was
+  // submitted must not change the answers that were graded.
+  const saved = await ExamAttempt.updateOne(
+    { _id: attempt._id, status: 'in_progress' },
+    { $set: { answers: answers.map((a) => ({ questionId: a.questionId as any, value: a.value as any })) } },
+    { runValidators: true },
+  );
+  if (saved.matchedCount === 0) throw new BadRequestError('This attempt has already been submitted.');
 
   return ApiResponse.success(res, { saved: true });
 };
+
+/** Network allowance for a submit sent right at the deadline. */
+const SUBMIT_GRACE_MS = 30_000;
 
 // POST /exams/:id/attempt/submit — finalize and auto-grade
 export const submit = async (req: Request, res: Response): Promise<Response> => {
@@ -336,8 +345,13 @@ export const submit = async (req: Request, res: Response): Promise<Response> => 
   if (!attempt) throw new NotFoundError('Exam attempt');
   if (attempt.status !== 'in_progress') throw new BadRequestError('This attempt has already been submitted.');
 
+  // Answers sent with the submit only count while time remains (plus a short
+  // grace for the request in flight). A late submit grades the answers that
+  // were autosaved before the deadline, so the timer can't be beaten by
+  // holding the submit back.
   const { answers } = req.body as { answers?: { questionId: string; value: unknown }[] };
-  if (Array.isArray(answers)) {
+  const acceptsBodyAnswers = Date.now() <= attempt.deadline.getTime() + SUBMIT_GRACE_MS;
+  if (Array.isArray(answers) && acceptsBodyAnswers) {
     attempt.answers = answers.map((a) => ({ questionId: a.questionId as any, value: a.value as any }));
   }
 
@@ -356,7 +370,19 @@ export const submit = async (req: Request, res: Response): Promise<Response> => 
   attempt.ungradedQuestionCount = 0;
   attempt.status = isLate ? 'auto_submitted' : 'submitted';
   attempt.submittedAt = new Date();
-  await attempt.save();
+  // Only one submit may finalize the attempt; a second concurrent request
+  // finds it no longer in progress.
+  const finalized = await ExamAttempt.updateOne(
+    { _id: attempt._id, status: 'in_progress' },
+    { $set: {
+      answers: attempt.toObject().answers,
+      autoGradedScore: attempt.autoGradedScore,
+      ungradedQuestionCount: attempt.ungradedQuestionCount,
+      status: attempt.status,
+      submittedAt: attempt.submittedAt,
+    } },
+  );
+  if (finalized.matchedCount === 0) throw new BadRequestError('This attempt has already been submitted.');
 
   // Bridge the auto-graded score into the Result collection so the Grading
   // Rules' exam-sourced categories (Mid Exam/Final) pick it up automatically

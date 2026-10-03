@@ -25,6 +25,13 @@ declare global {
         role: string;
         permissions: string[];
         organizationId?: string;
+        /**
+         * True for a `staff` account. Once a staff module permission check
+         * passes, `role` is switched to `org_admin` for the rest of that
+         * request (see requirePermission) so every existing org_admin tenant
+         * scope applies to staff too; this flag keeps the real role known.
+         */
+        isStaff?: boolean;
       };
     }
   }
@@ -39,6 +46,11 @@ export const authMiddleware = (
   _res: Response,
   next: NextFunction
 ): void => {
+  // Routers mounted behind an authMiddleware often run it again. The token
+  // was already verified for this request; keep the request's user as is,
+  // including a staff account's org_admin scope granted by requirePermission.
+  if (req.user) return next();
+
   try {
     // 1. Extract token from Authorization header
     const authHeader = req.headers.authorization;
@@ -71,6 +83,7 @@ export const authMiddleware = (
       role: decoded.role,
       permissions: decoded.permissions,
       organizationId: decoded.organizationId,
+      isStaff: decoded.role === 'staff',
     };
 
     next();
