@@ -43,8 +43,11 @@ async function assertOwnsCourseIfTeacher(req: Request, course: { teacher?: unkno
 // ---------------------------------------------------------------------------
 
 export const getAllPublic = async (req: Request, res: Response): Promise<Response> => {
-  const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 20;
+  // Unauthenticated, so bounded: an unbounded ?limit= let anyone pull every
+  // published course with three populates in one request, and a zero or
+  // negative page/limit reached Mongo as an invalid skip and 500'd.
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 20));
   const category = req.query.category as string | undefined;
   const level = req.query.level as string | undefined;
   const search = req.query.search as string | undefined;
@@ -87,8 +90,8 @@ export const getAllPublic = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const getAllAdmin = async (req: Request, res: Response): Promise<Response> => {
-  const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 100;
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit as string) || 100));
   const status = req.query.status as string | undefined;
   const category = req.query.category as string | undefined;
 
@@ -562,12 +565,12 @@ export const unenrollStudent = async (req: Request, res: Response): Promise<Resp
 // ---------------------------------------------------------------------------
 
 export const getEnrolledStudents = async (req: Request, res: Response): Promise<Response> => {
-  const page = parseInt(req.query.page as string) || 1;
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
   // Callers (Take Attendance, exam results) need the FULL roster to mark
   // every student, not a paginated slice — the old default of 20 silently
   // cut off classes/courses with more students than that (e.g. a 26-student
   // class-based roster only showing its first 20 in the attendance list).
-  const limit = parseInt(req.query.limit as string) || 1000;
+  const limit = Math.min(5000, Math.max(1, parseInt(req.query.limit as string) || 1000));
 
   const course = await Course.findById(req.params.id).select('school teacher class');
   if (!course) throw new NotFoundError('Course');

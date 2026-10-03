@@ -180,9 +180,19 @@ export function LearningSessionTracker() {
 
     const onAnnounced = () => syncLesson();
     window.addEventListener('learning:item', onAnnounced);
-    const observer = new MutationObserver(syncLesson);
+    // The DOM-heading fallback only needs checking a couple of times a
+    // second. Observing the whole body with characterData fires on every
+    // text change — a playing video's time display, a countdown — so calls
+    // are coalesced into at most one check per 500ms instead of one per
+    // mutation, which kept low-end phones busy for the whole lesson.
+    let syncPending: number | null = null;
+    const scheduleSync = () => {
+      if (syncPending !== null) return;
+      syncPending = window.setTimeout(() => { syncPending = null; syncLesson(); }, 500);
+    };
+    const observer = new MutationObserver(scheduleSync);
     observer.observe(document.body, { subtree: true, childList: true, characterData: true });
-    const initialTimer = window.setInterval(syncLesson, 500);
+    const initialTimer = window.setInterval(syncLesson, 2000);
     syncLesson();
 
     const heartbeat = async () => {
@@ -232,6 +242,7 @@ export function LearningSessionTracker() {
       observer.disconnect();
       window.removeEventListener('learning:item', onAnnounced);
       window.clearInterval(initialTimer);
+      if (syncPending !== null) window.clearTimeout(syncPending);
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
       void endCurrent();

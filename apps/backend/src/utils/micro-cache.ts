@@ -24,6 +24,26 @@ interface CacheEntry {
 
 const store = new Map<string, CacheEntry>();
 
+// Expired entries were only ever replaced when the same key was requested
+// again, and keys include per-user ids and query strings, so the map grew
+// for the life of the process. Sweep expired entries once it passes
+// SWEEP_AT, and never hold more than MAX_ENTRIES (oldest dropped first —
+// dropping one only means its next caller recomputes).
+const SWEEP_AT = 200;
+const MAX_ENTRIES = 1000;
+
+function makeRoom(now: number): void {
+  if (store.size < SWEEP_AT) return;
+  for (const [key, entry] of store) {
+    if (entry.expiresAt <= now) store.delete(key);
+  }
+  while (store.size >= MAX_ENTRIES) {
+    const oldest = store.keys().next().value;
+    if (oldest === undefined) break;
+    store.delete(oldest);
+  }
+}
+
 /**
  * Returns the cached value for `key` if still fresh; otherwise computes it
  * once and caches it for `ttlMs` milliseconds. Concurrent callers for the
@@ -36,6 +56,7 @@ export async function microCache<T>(key: string, ttlMs: number, compute: () => P
   if (hit && hit.expiresAt > now) return hit.promise as Promise<T>;
 
   const promise = compute();
+  makeRoom(now);
   store.set(key, { promise, expiresAt: now + ttlMs });
   try {
     return await promise;

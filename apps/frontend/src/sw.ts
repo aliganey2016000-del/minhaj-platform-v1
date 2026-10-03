@@ -57,6 +57,8 @@ registerRoute(
 registerRoute(
   ({ url }) => /\/api\/.*\/my\/.*/i.test(url.pathname),
   new NetworkFirst({
+    // Keyed by URL only, so it is shared by every account on this device.
+    // auth-context clears it on login and logout.
     cacheName: 'api-student-cache',
     networkTimeoutSeconds: 5,
     plugins: [

@@ -477,14 +477,22 @@ export const bulkCreate = async (req: Request, res: Response): Promise<Response>
   await Result.bulkWrite(ops);
 
   // Recalculate all affected students' GPAs
-  const studentIds = [...new Set(resultsArray.map((r: any) => r.student))];
-  for (const sid of studentIds) {
-    const all = await Result.find({ student: sid }).lean();
-    if (all.length > 0) {
-      const avgPct = all.reduce((sum, r) => sum + r.percentage, 0) / all.length;
-      await Student.findByIdAndUpdate(sid, { gpa: Math.round((avgPct / 100) * 4 * 10) / 10 });
-    }
+  // One read and one write for the whole batch, instead of a find + update
+  // per student (200 round trips for a 100-student class). Same formula.
+  const studentIds = [...new Set(resultsArray.map((r: any) => String(r.student)))];
+  const allResults = await Result.find({ student: { $in: studentIds } }).select('student percentage').lean();
+  const percentagesByStudent = new Map<string, number[]>();
+  for (const r of allResults) {
+    const key = String(r.student);
+    const list = percentagesByStudent.get(key) || [];
+    list.push(r.percentage);
+    percentagesByStudent.set(key, list);
   }
+  const gpaOps = [...percentagesByStudent].map(([sid, percentages]) => {
+    const avgPct = percentages.reduce((sum, pct) => sum + pct, 0) / percentages.length;
+    return { updateOne: { filter: { _id: sid }, update: { $set: { gpa: Math.round((avgPct / 100) * 4 * 10) / 10 } } } };
+  });
+  if (gpaOps.length) await Student.bulkWrite(gpaOps as any);
 
   const populated = await Result.find({ exam: examId })
     .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })

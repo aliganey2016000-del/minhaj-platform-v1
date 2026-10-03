@@ -95,6 +95,12 @@ function clearAuthStorage() {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
   });
+  // The service worker caches /my/ API responses by URL alone (see sw.ts).
+  // On a shared device the next person to sign in must never be served the
+  // previous account's dashboard, results or seating from that cache.
+  if ('caches' in window) {
+    void caches.delete('api-student-cache').catch(() => {});
+  }
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);

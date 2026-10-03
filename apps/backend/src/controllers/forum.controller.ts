@@ -215,19 +215,27 @@ export const getThread = async (req: Request, res: Response) => {
     if (!isParticipant) throw new ForbiddenError('You are not a participant in this private thread');
   }
 
-  const { page = '1', limit = '50' } = req.query;
+  const { page = '1', limit = '50', since } = req.query;
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(200, parseInt(limit as string, 10) || 50));
+  const sinceDate = typeof since === 'string' && since ? new Date(since) : null;
+  const useSince = !!sinceDate && !Number.isNaN(sinceDate.getTime());
 
-  const [messages, total] = await Promise.all([
-    ForumMessage.find({ threadId })
-      .sort({ createdAt: 1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .populate('senderId', 'email role preferredLanguage')
-      .lean(),
+  // Page 1 is the NEWEST `limit` messages (returned oldest-first for display).
+  // Sorting ascending before skip/limit used to return the thread's oldest
+  // messages, so any thread longer than one page never showed its latest.
+  // `since` returns only messages from the client's last one onward (>=, so a
+  // message sharing its millisecond isn't skipped; the client dedupes), for the
+  // forum page's refresh, instead of re-sending the whole page every time.
+  const messageQuery = useSince
+    ? ForumMessage.find({ threadId, createdAt: { $gte: sinceDate } }).sort({ createdAt: 1 }).limit(limitNum)
+    : ForumMessage.find({ threadId }).sort({ createdAt: -1 }).skip((pageNum - 1) * limitNum).limit(limitNum);
+
+  const [found, total] = await Promise.all([
+    messageQuery.populate('senderId', 'email role preferredLanguage').lean(),
     ForumMessage.countDocuments({ threadId }),
   ]);
+  const messages = useSince ? found : found.reverse();
 
   const enriched = await attachMeta(thread, userId);
 
