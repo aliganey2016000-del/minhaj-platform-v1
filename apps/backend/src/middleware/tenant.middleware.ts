@@ -9,13 +9,14 @@
  *   - Valid subdomain → attaches `req.tenant` with { slug, name, branding }
  *   - Invalid / unknown subdomain → returns 404 JSON error
  *
- * This middleware should be applied globally so every route can access
- * `req.tenant` to provide tenant-scoped behavior or branding.
+ * It is mounted per route (public website + /tenant routes), not globally;
+ * add it to any route that needs `req.tenant`.
  */
 
 import { Request, Response, NextFunction } from 'express';
 import School, { TenantBranding } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
+import { getBaseDomain, isLocalOrIpHost, resolveRequestHost } from '../utils/tenant-host';
 
 // ---------------------------------------------------------------------------
 // Augment Express Request
@@ -48,24 +49,14 @@ export async function tenantMiddleware(
 ): Promise<void> {
   try {
     // The frontend proxies API requests through the backend's public host,
-    // so the visitor-facing organization hostname must survive every proxy
-    // hop. X-Tenant-Host is our stable application header; X-Forwarded-Host
-    // remains a compatibility fallback for older deployments/direct proxies.
-    // This is intentionally generic: any school subdomain (foo.<base-domain>)
-    // or exact custom domain can resolve without school-specific code.
-    const host = (
-      req.get('x-tenant-host') ||
-      req.get('x-forwarded-host') ||
-      req.get('host') ||
-      ''
-    ).split(',')[0].trim();
-    const hostname = host.replace(/:\d+$/, '').toLowerCase();
+    // so the visitor-facing hostname travels in X-Tenant-Host (see
+    // resolveRequestHost for how the header is trusted). This is generic:
+    // any <slug>.<base-domain> or exact verified custom domain resolves
+    // without school-specific code.
+    const hostname = resolveRequestHost(req);
 
     // Fast-path: localhost or IP → main site (no tenant lookup)
-    if (
-      hostname === 'localhost' ||
-      /^\d+\.\d+\.\d+\.\d+$/.test(hostname)
-    ) {
+    if (isLocalOrIpHost(hostname)) {
       req.tenant = null;
       return next();
     }
@@ -73,14 +64,14 @@ export async function tenantMiddleware(
     // The platform's own root/www domain is always the main marketing
     // site — never a tenant lookup, even though a bare org customDomain
     // (e.g. "yourschool.edu") has the same two-label shape.
-    const baseDomain = (process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
+    const baseDomain = getBaseDomain();
     if (hostname === baseDomain || hostname === `www.${baseDomain}`) {
       req.tenant = null;
       return next();
     }
 
     // Look up tenant by custom domain, then by slug/subdomain.
-    const tenant = await School.findByHost(host);
+    const tenant = await School.findByHost(hostname);
 
     if (!tenant) {
       // Unrecognized subdomain or custom domain — return 404

@@ -1,4 +1,5 @@
 import WebsiteConfig from '../models/website-config.model';
+import { generateDomainVerificationToken, portalUrlForSchool } from '../utils/tenant-host';
 import { buildDefaultSite } from '../utils/website-starter';
 /**
  * School Controller
@@ -133,6 +134,7 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
   const { adminPassword, academicSystem, semestersPerAcademicYear, usesFaculty, ...schoolFields } = req.body;
+  stripDomainOwnershipFields(schoolFields);
 
   if (!adminPassword || String(adminPassword).length < 8) {
     throw new BadRequestError('Admin password is required and must be at least 8 characters');
@@ -165,8 +167,17 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const resolvedSemesters = semestersPerAcademicYear !== undefined ? Number(semestersPerAcademicYear) : defaults.semestersPerAcademicYear;
   validateAcademicConfig(resolvedAcademicSystem, resolvedSemesters, institutionType);
 
+  const customDomainFields = String(schoolFields.customDomain || '').trim()
+    ? {
+        customDomainVerified: true, // created by a platform admin
+        customDomainVerifiedAt: new Date(),
+        customDomainVerificationToken: generateDomainVerificationToken(),
+      }
+    : {};
+
   const payload = {
     ...schoolFields,
+    ...customDomainFields,
     institutionType,
     createdBy: new mongoose.Types.ObjectId(req.user!.userId),
     onboardingCompleted: false,
@@ -256,10 +267,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     .populate('createdBy', 'email')
     .lean();
 
-  const baseDomain = process.env.BASE_DOMAIN || 'sahaledu.com';
-  const portalUrl = school.customDomain
-    ? `https://${school.customDomain}`
-    : `https://${school.subdomain || school.slug}.${baseDomain}`;
+  const portalUrl = portalUrlForSchool(school);
 
   return ApiResponse.created(
     res,
@@ -373,11 +381,19 @@ export const completeOnboarding = async (req: Request, res: Response): Promise<R
 // PATCH /schools/:id — Update a school
 // ---------------------------------------------------------------------------
 
+/** Ownership-proof fields are server-controlled; never accept them from a client. */
+function stripDomainOwnershipFields(body: Record<string, unknown>): void {
+  delete body.customDomainVerified;
+  delete body.customDomainVerificationToken;
+  delete body.customDomainVerifiedAt;
+}
+
 export const update = async (req: Request, res: Response): Promise<Response> => {
   const previousDomainState = await School.findById(req.params.id).select('slug subdomain customDomain').lean();
   if (!previousDomainState) throw new NotFoundError('School not found');
 
   const updates = { ...req.body };
+  stripDomainOwnershipFields(updates);
   const adminPassword = updates.adminPassword as string | undefined;
   delete updates.adminPassword;
 
@@ -392,6 +408,23 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     delete updates.customDomain;
   } else if (Object.prototype.hasOwnProperty.call(updates, 'customDomain')) {
     updates.customDomain = String(updates.customDomain).trim().toLowerCase();
+  }
+
+  // Custom-domain ownership: platform admins vouch for the domain they set;
+  // an org admin must prove control via a DNS TXT record before the domain
+  // starts serving the organization (see Website Management -> Domain).
+  const customDomainChanged =
+    updates.customDomain !== undefined &&
+    String(updates.customDomain) !== String(previousDomainState.customDomain || '');
+  if (customDomainChanged) {
+    if (req.user?.role === 'admin') {
+      updates.customDomainVerified = true;
+      updates.customDomainVerifiedAt = new Date();
+      updates.customDomainVerificationToken = generateDomainVerificationToken();
+    } else {
+      updates.customDomainVerified = false;
+      updates.customDomainVerificationToken = generateDomainVerificationToken();
+    }
   }
 
   if (req.user?.role === 'org_admin') {
@@ -489,7 +522,12 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   const updateOperation: Record<string, unknown> = { $set: updates };
   if (clearCustomDomain) {
-    updateOperation.$unset = { customDomain: 1 };
+    updateOperation.$unset = {
+      customDomain: 1,
+      customDomainVerified: 1,
+      customDomainVerificationToken: 1,
+      customDomainVerifiedAt: 1,
+    };
   }
 
   const school = await School.findByIdAndUpdate(

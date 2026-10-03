@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
+import { BASE_DOMAIN, extractSubdomain } from '../lib/site-hosts';
 
 export interface TenantBranding {
   logo?: string;
@@ -42,13 +43,6 @@ const DEFAULT_BRANDING: TenantBranding = {
   themeColor: '#0d9488',
 };
 
-function extractSubdomain(hostname: string): string | null {
-  if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return null;
-  const parts = hostname.split('.');
-  if (parts.length <= 2 || parts[0].toLowerCase() === 'www') return null;
-  return parts[0].toLowerCase();
-}
-
 const TenantContext = createContext<TenantContextValue | undefined>(undefined);
 
 export function TenantProvider({ children }: { children: ReactNode }) {
@@ -74,11 +68,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       // reverse proxies may rewrite forwarded host headers before the API
       // receives the request. Tenant subdomains/custom domains still use the
       // authoritative backend resolver below.
-      const baseDomain = String(import.meta.env.VITE_BASE_DOMAIN || 'sahaledu.com')
-        .replace(/^https?:\/\//, '')
-        .replace(/:\d+$/, '')
-        .replace(/^www\./, '')
-        .toLowerCase();
+      const baseDomain = BASE_DOMAIN;
       const normalizedHost = hostname.replace(/^www\./, '');
       const isLocalMainHost =
         normalizedHost === baseDomain ||

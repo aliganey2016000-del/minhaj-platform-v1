@@ -12,9 +12,10 @@ import { TenantProvider } from './store/tenant-context';
 import { RealtimeProvider } from './store/realtime-context';
 import { router } from './routes';
 import { LearningSessionTracker } from './features/student/components/learning-session-tracker';
+import { currentCustomSite } from './lib/site-hosts';
 import './i18n';
 
-if (typeof window !== 'undefined' && window.location.hostname.replace(/^www\./, '') === 'suganhub.com') {
+if (typeof window !== 'undefined' && currentCustomSite() === 'suganhub') {
   document.title = 'Suganhub | Where Faith, Science, and Technology Converge';
 }
 

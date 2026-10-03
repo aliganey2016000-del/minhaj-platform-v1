@@ -272,7 +272,7 @@ export async function getManagedSchool(req: Request, requestedSchoolId?: unknown
     throw new BadRequestError('Select a valid organization.');
   }
 
-  const school = await School.findById(schoolId).select('name slug subdomain customDomain branding address phone email status institutionType').lean();
+  const school = await School.findById(schoolId).select('name slug subdomain customDomain customDomainVerified +customDomainVerificationToken branding address phone email status institutionType').lean();
   if (!school) throw new NotFoundError('Organization');
   return school;
 }
