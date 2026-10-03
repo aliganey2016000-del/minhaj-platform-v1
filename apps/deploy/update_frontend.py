@@ -2,8 +2,8 @@
 """Upload fresh frontend build and rebuild Docker container."""
 import paramiko, os, tarfile, io, time
 
-HOST = '158.220.120.83'
-USER = 'root'
+HOST = os.environ["VPS_HOST"]
+USER = os.environ["VPS_USER"]
 PASS = os.environ["VPS_PASS"]
 dist_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
 
@@ -71,4 +71,4 @@ print(f"Container status: {status}")
 
 c.close()
 print("\n=== Done! Landing page should now show the new design. ===")
-print("Visit: http://158.220.120.83/")
+print(f"Visit: http://{HOST}/")

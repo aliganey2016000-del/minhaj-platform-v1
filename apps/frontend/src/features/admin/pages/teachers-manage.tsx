@@ -78,11 +78,25 @@ function TeacherFormModal({ teacher, organizationId, organization, onClose, onSa
 function ViewModal({ teacher, assignedCourses, onClose }: { teacher: Teacher; assignedCourses: Course[]; onClose: () => void }) {
   const [documents, setDocuments] = useState<TeacherDocument[]>([]);
   useEffect(() => { api.get(`/teachers/${teacher._id}/documents`).then(response => setDocuments(dataOf<TeacherDocument[]>(response) || [])).catch(() => setDocuments([])); }, [teacher._id]);
+  // Teacher documents are private files: fetch them with the signed-in
+  // session and open the result, instead of linking to a public URL.
+  const openDocument = async (document: TeacherDocument) => {
+    const tab = window.open('', '_blank');
+    try {
+      const response = await api.get(`/teachers/${teacher._id}/documents/${document._id}/view`, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      if (tab) tab.location.href = url; else window.location.href = url;
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      tab?.close();
+      alert('Could not open this document.');
+    }
+  };
   return <Modal title="Teacher Profile" onClose={onClose}>
     <div className="mb-5 rounded-2xl bg-gradient-to-br from-primary-700 to-emerald-600 p-5 text-center text-white"><div className="mx-auto h-24 w-24 overflow-hidden rounded-2xl bg-white/20 text-2xl font-bold leading-[6rem] ring-4 ring-white/25">{teacher.profile?.avatar ? <img src={teacher.profile.avatar} alt={teacherName(teacher)} className="h-full w-full object-cover" /> : `${teacher.profile?.firstName?.[0] || ''}${teacher.profile?.lastName?.[0] || ''}`}</div><h3 className="mt-3 text-xl font-bold">{teacherName(teacher)}</h3><p className="font-mono text-xs text-white/80">{teacher.teacherId}</p><div className="mt-2"><StatusBadge status={teacher.status} /></div></div>
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Info label="Gender" value={teacher.profile?.gender || '—'} /><Info label="Joining Date" value={teacher.joiningDate?.slice(0, 10) || '—'} /><Info label="Email" value={teacher.user?.email || '—'} /><Info label="Phone" value={teacher.user?.phone || '—'} /><Info label="Organization" value={teacher.school?.name || 'Current organization'} /><Info label="Status" value={<StatusBadge status={teacher.status} />} /><Info label="Qualification" value={teacher.qualification || '—'} /><Info label="Experience" value={`${teacher.experience || 0} years`} /><Info label="Specialization" value={teacher.specialization?.join(', ') || '—'} /><Info label="Course Permission" value={teacher.coursePermission === 'STUDENT_VIEW' ? 'Student View' : 'Course Builder'} /></div>
     <div className="mt-4 rounded-xl border border-[var(--color-border-default)] p-3"><div className="mb-2 flex items-center gap-2 font-semibold"><BookOpen size={16} /> Assigned Courses ({assignedCourses.length})</div>{assignedCourses.length ? <div className="space-y-2">{assignedCourses.map(c => <div key={c._id} className="rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"><div className="font-medium">{c.title?.en || 'Untitled course'}</div>{c.class && <div className="text-xs text-[var(--color-text-tertiary)]">{c.class.title || 'Class'}{c.class.section ? ` • ${c.class.section}` : ''}</div>}</div>)}</div> : <p className="text-sm text-[var(--color-text-tertiary)]">No courses assigned.</p>}</div>
-    <div className="mt-4 rounded-xl border border-[var(--color-border-default)] p-3"><p className="mb-2 font-semibold">Documents</p>{documents.length ? <div className="space-y-2">{documents.map(document => <a key={document._id} href={document.fileUrl} target="_blank" rel="noreferrer" className="block rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-sm text-primary-700 hover:underline">{document.title || document.fileName}</a>)}</div> : <p className="text-sm text-[var(--color-text-tertiary)]">No documents attached.</p>}</div>
+    <div className="mt-4 rounded-xl border border-[var(--color-border-default)] p-3"><p className="mb-2 font-semibold">Documents</p>{documents.length ? <div className="space-y-2">{documents.map(document => <button key={document._id} type="button" onClick={() => openDocument(document)} className="block w-full rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-left text-sm text-primary-700 hover:underline">{document.title || document.fileName}</button>)}</div> : <p className="text-sm text-[var(--color-text-tertiary)]">No documents attached.</p>}</div>
     {teacher.bio && <p className="mt-4 text-sm text-[var(--color-text-secondary)]">{teacher.bio}</p>}
   </Modal>;
 }

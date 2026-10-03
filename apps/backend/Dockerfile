@@ -41,6 +41,13 @@ RUN npm ci --omit=dev \
 # Copy compiled output from builder
 COPY --from=builder /app/dist ./dist
 
+# Uploaded files (school logos, photos, documents, attachments) are written
+# to /app/uploads whenever R2/Cloudinary is not configured. A container's own
+# filesystem is replaced on every deploy, so this folder MUST be mounted as a
+# persistent volume (Coolify → this app → Persistent Storage → destination
+# path /app/uploads), or every upload disappears on the next deploy.
+RUN mkdir -p /app/uploads
+
 # Environment variables/secrets are injected by Coolify at runtime.
 # Do not bake application secrets into the image.
 

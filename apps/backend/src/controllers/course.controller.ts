@@ -21,6 +21,7 @@ import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { moveToTrash } from '../utils/trash';
+import { requestTenantSchool } from '../utils/request-tenant';
 import { escapeRegex } from '../utils/escape-regex';
 import { tenantSlug } from '../utils/tenant-slug';
 
@@ -53,6 +54,10 @@ export const getAllPublic = async (req: Request, res: Response): Promise<Respons
   const search = req.query.search as string | undefined;
 
   const filter: Record<string, unknown> = { status: 'published' };
+  // A school's own website lists only that school's courses; the platform
+  // domain keeps the full catalog.
+  const tenant = await requestTenantSchool(req);
+  if (tenant) filter.school = tenant._id;
 
   if (category) filter.category = category;
   if (level) filter.level = level;
@@ -168,7 +173,8 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
 // ---------------------------------------------------------------------------
 
 export const getBySlug = async (req: Request, res: Response): Promise<Response> => {
-  const course = await Course.findOne({ slug: req.params.slug, status: 'published' })
+  const tenant = await requestTenantSchool(req);
+  const course = await Course.findOne({ slug: req.params.slug, status: 'published', ...(tenant ? { school: tenant._id } : {}) })
     .populate({
       path: 'teacher',
       select: 'teacherId profile',

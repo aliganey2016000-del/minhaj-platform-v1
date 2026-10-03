@@ -7,6 +7,7 @@ export interface IGallery extends Document {
   album: string;
   status: 'active' | 'inactive';
   uploadedBy: mongoose.Types.ObjectId;
+  school?: mongoose.Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,6 +20,8 @@ const schema = new Schema<IGallery>(
     album: { type: String, default: 'general', trim: true },
     status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    // Owning school. null = platform-wide content only the platform admin manages.
+    school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
   },
   { timestamps: true, toJSON: { transform(_d: any, r: any) { delete r.__v; return r; } } }
 );

@@ -86,6 +86,7 @@ async function startServer() {
     await import('./services/attendance-notification-automation');
     const { sendInstallmentReminders } = await import('./services/installment-reminder.service');
     const { repairStudentRegistrationIndex } = await import('./scripts/repair-student-registration-index');
+    const { backfillContentSchools } = await import('./utils/content-school-backfill');
 
     const appModule = await import('./app');
     const app = appModule.default;
@@ -102,6 +103,11 @@ async function startServer() {
     // have the old sparse unique index, which incorrectly blocks multiple
     // students whose registration number is absent.
     await repairStudentRegistrationIndex();
+
+    // Give pre-existing announcements/news/events/gallery items an owning
+    // school (idempotent; only items without one are touched).
+    const contentBackfill = await backfillContentSchools();
+    console.log('Content school backfill:', JSON.stringify(contentBackfill));
 
     // Start Express server (wrapped in a raw http.Server so Socket.IO can
     // share the same port instead of needing a separate one)

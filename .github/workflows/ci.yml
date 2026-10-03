@@ -51,6 +51,18 @@ jobs:
       - name: Forum newest-messages and course list limit regression
         run: npx ts-node src/__tests__/forum-latest-messages-and-course-limits.e2e.ts
 
+      - name: Staff escalation, certificate scope and exam deadline security regression
+        run: npx ts-node src/__tests__/staff-escalation-certificates-exam-deadline.e2e.ts
+
+      - name: Tenant isolation phase 2 regression (staff, content, resources, login domain, pending students, catalog)
+        run: npx ts-node src/__tests__/tenant-isolation-phase2.e2e.ts
+
+      - name: Upload safety regression (file types, private documents, traversal, headers)
+        run: npx ts-node src/__tests__/upload-safety.e2e.ts
+
+      - name: Ops hardening regression (Telegram webhook, per-account rate limit, TTL, live token checks, deploy scripts)
+        run: npx ts-node src/__tests__/ops-hardening-phase4.e2e.ts
+
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
 

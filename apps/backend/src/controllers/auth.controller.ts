@@ -12,10 +12,14 @@ import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import Student from '../models/student.model';
 import School from '../models/school.model';
+import Teacher from '../models/teacher.model';
+import Parent from '../models/parent.model';
+import { requestTenantSchool } from '../utils/request-tenant';
 import ClassModel from '../models/class.model';
 import { generateTokenPair, verifyRefreshToken } from '../utils/jwt';
 import {
   BadRequestError,
+  ForbiddenError,
   UnauthorizedError,
   ConflictError,
   NotFoundError,
@@ -52,6 +56,11 @@ async function resolveEffectiveOrganization(user: any): Promise<OrganizationPayl
 
   if (user.role === 'student') {
     const student = await Student.findOne({ user: user._id }).populate('school', 'name').lean();
+    // A self-registered student waiting for (or refused) a school's approval
+    // is not a member of that school yet: their token carries no school, so
+    // nothing school-scoped (forum, members, content) opens up to them.
+    const approval = (student as any)?.approvalStatus;
+    if (student && (approval === 'pending' || approval === 'rejected')) return {};
     if (student?.school) {
       const school = student.school as any;
       return {
@@ -77,7 +86,45 @@ async function resolveEffectiveOrganization(user: any): Promise<OrganizationPayl
     };
   }
 
+  // Teachers and parents created from their own management pages are bound
+  // to a school through their Teacher/Parent record rather than the user.
+  // Carry that school in the token so every school-scoped check applies.
+  if (user.role === 'teacher' || user.role === 'parent') {
+    const Model: any = user.role === 'teacher' ? Teacher : Parent;
+    const record = await Model.findOne({ user: user._id }).select('school').populate('school', 'name').lean();
+    const school = record?.school as any;
+    if (school?._id) return { organizationId: school._id.toString(), organizationName: school.name };
+  }
+
   return {};
+}
+
+/** The school an account belongs to, whatever its approval state. */
+async function homeSchoolId(user: any): Promise<string | undefined> {
+  if (user.role === 'student') {
+    const student = await Student.findOne({ user: user._id }).select('school').lean();
+    if (student?.school) return student.school.toString();
+  }
+  if (user.organizationId) return (user.organizationId._id ?? user.organizationId).toString();
+  if (user.role === 'teacher' || user.role === 'parent') {
+    const Model: any = user.role === 'teacher' ? Teacher : Parent;
+    const record = await Model.findOne({ user: user._id }).select('school').lean();
+    if (record?.school) return record.school.toString();
+  }
+  return undefined;
+}
+
+/**
+ * On a school's own domain only that school's accounts (and the platform
+ * admin) may sign in. The platform domain keeps accepting every account.
+ */
+async function assertAccountMatchesDomain(req: Request, user: any): Promise<void> {
+  if (user.role === 'admin') return;
+  const tenant = await requestTenantSchool(req);
+  if (!tenant) return;
+  if ((await homeSchoolId(user)) !== tenant._id) {
+    throw new ForbiddenError(`This account is not registered with ${tenant.name}. Please sign in on your own school's website.`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -127,8 +174,18 @@ export const register = async (req: Request, res: Response): Promise<Response> =
 
     let targetSchool;
     let approvalStatus: 'pending' | 'approved';
+    const tenant = await requestTenantSchool(req);
 
-    if (trimmedOrgId) {
+    if (tenant) {
+      // Registering on a school's own website always joins that school and
+      // waits for its approval, like joining with its Organization ID.
+      targetSchool = await School.findById(tenant._id);
+      if (!targetSchool) throw new BadRequestError('This school is not available for registration');
+      if (trimmedOrgId && targetSchool.orgId !== trimmedOrgId) {
+        throw new BadRequestError("That Organization ID does not belong to this school's website");
+      }
+      approvalStatus = 'pending';
+    } else if (trimmedOrgId) {
       // Case A — joining a specific organization by its Organization ID.
       // Requires that org's admin (or super admin) to review before the
       // student gets full access, since they're requesting to join someone
@@ -292,6 +349,8 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
 
     throw new UnauthorizedError('Invalid email or password');
   }
+
+  await assertAccountMatchesDomain(req, user);
 
   // 5. Reset failed attempts on successful login
   user.failedLoginAttempts = 0;
@@ -473,6 +532,8 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
 
     throw new UnauthorizedError('Token reuse detected — all sessions invalidated');
   }
+
+  await assertAccountMatchesDomain(req, user);
 
   // 6. Remove old token, generate new pair (token rotation)
   const effectiveOrg = await resolveEffectiveOrganization(user);

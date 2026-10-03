@@ -17,6 +17,7 @@ import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/t
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import fs from 'fs';
 import path from 'path';
+import { UPLOADS_ROOT, assertAllowedUpload, safeStoredName, sendStoredFile } from '../utils/upload-safety';
 import crypto from 'crypto';
 import { persistStudentPhoto } from './student-documents.controller';
 import TeacherDocument from '../models/teacher-document.model';
@@ -132,13 +133,24 @@ export const uploadDocument = async (req: Request, res: Response): Promise<Respo
   if (!teacher) throw new NotFoundError('Teacher');
   assertOwnsOrg(req, teacher, 'school');
   if (!req.file) throw new BadRequestError('Document file is required');
-  const directory = path.join(process.cwd(), 'uploads', 'teacher-documents', String(teacher.school || 'unassigned'), String(teacher._id));
+  assertAllowedUpload(req.file);
+  const directory = path.join(UPLOADS_ROOT, 'teacher-documents', String(teacher.school || 'unassigned'), String(teacher._id));
   fs.mkdirSync(directory, { recursive: true });
-  const safeName = (req.file.originalname || 'document').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const filename = `${crypto.randomUUID()}-${safeName}`;
+  const filename = safeStoredName(req.file.originalname || 'document', crypto.randomUUID());
   fs.writeFileSync(path.join(directory, filename), req.file.buffer);
-  const document = await TeacherDocument.create({ teacher: teacher._id, school: teacher.school, title: String(req.body.title || safeName), fileUrl: `/uploads/teacher-documents/${teacher.school || 'unassigned'}/${teacher._id}/${filename}`, fileName: req.file.originalname || filename, mimeType: req.file.mimetype, fileSize: req.file.size });
+  const document = await TeacherDocument.create({ teacher: teacher._id, school: teacher.school, title: String(req.body.title || filename), fileUrl: `/uploads/teacher-documents/${teacher.school || 'unassigned'}/${teacher._id}/${filename}`, fileName: req.file.originalname || filename, mimeType: req.file.mimetype, fileSize: req.file.size });
   return ApiResponse.created(res, document, 'Teacher document uploaded');
+};
+
+// GET /teachers/:id/documents/:documentId/view — teacher documents are
+// private; they are only streamed here, after the school check.
+export const viewDocument = async (req: Request, res: Response): Promise<void> => {
+  const teacher: any = await Teacher.findById(req.params.id).select('school').lean();
+  if (!teacher) throw new NotFoundError('Teacher');
+  assertOwnsOrg(req, teacher, 'school');
+  const document: any = await TeacherDocument.findOne({ _id: req.params.documentId, teacher: teacher._id }).lean();
+  if (!document) throw new NotFoundError('Teacher document');
+  sendStoredFile(res, document.fileUrl, { fileName: document.fileName, mimeType: document.mimeType });
 };
 
 // ---------------------------------------------------------------------------

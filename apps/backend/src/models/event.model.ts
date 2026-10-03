@@ -10,6 +10,7 @@ export interface IEvent extends Document {
   image?: string;
   status: 'upcoming' | 'ongoing' | 'completed' | 'cancelled';
   createdBy: mongoose.Types.ObjectId;
+  school?: mongoose.Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,6 +26,8 @@ const schema = new Schema<IEvent>(
     image: { type: String, default: '' },
     status: { type: String, enum: ['upcoming', 'ongoing', 'completed', 'cancelled'], default: 'upcoming', index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    // Owning school. null = platform-wide content only the platform admin manages.
+    school: { type: Schema.Types.ObjectId, ref: 'School', default: null, index: true },
   },
   { timestamps: true, toJSON: { transform(_d: any, r: any) { delete r.__v; return r; } } }
 );

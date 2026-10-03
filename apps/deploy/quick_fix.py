@@ -5,7 +5,7 @@ import paramiko, time
 
 c = paramiko.SSHClient()
 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-c.connect('158.220.120.83', username='root', password=os.environ["VPS_PASS"], timeout=30)
+c.connect(os.environ["VPS_HOST"], username=os.environ["VPS_USER"], password=os.environ["VPS_PASS"], timeout=30)
 
 # Step 1: Find where the files went and fix
 cmds = [

@@ -106,5 +106,8 @@ learningActivitySchema.index({ student: 1, loginSessionId: 1, createdAt: -1 });
 learningActivitySchema.index({ school: 1, createdAt: -1 });
 learningActivitySchema.index({ course: 1, createdAt: -1 });
 learningActivitySchema.index({ type: 1, createdAt: -1 });
+// Retention: learning activity events are kept for 12 months, then MongoDB
+// removes them automatically.
+learningActivitySchema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60, name: 'createdAt_ttl_12_months' });
 
 export default mongoose.model<ILearningActivity>('LearningActivity', learningActivitySchema);
