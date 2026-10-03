@@ -134,4 +134,13 @@ async function startServer() {
   }
 }
 
+// Last-resort safety net: a rejected promise that no handler caught (e.g. an
+// async route someone forgot to wrap in asyncHandler) would otherwise kill
+// the whole process on Node 15+, taking every school offline. Log it and
+// keep serving. Synchronous uncaught exceptions still exit, since process
+// state after one is undefined — the container restarts it.
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Unhandled promise rejection:', reason);
+});
+
 startServer();

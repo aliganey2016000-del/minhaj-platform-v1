@@ -38,7 +38,7 @@ export function FinanceCenter() {
       const [pnlRes, balanceRes, trialBalanceRes, arRes, cashRes] = await Promise.all([
         api.get('/finance/reports/profit-and-loss', { params: { dateFrom: from, dateTo: to } }),
         api.get('/finance/reports/balance-sheet', { params: { asOf } }),
-        api.get('/accounting/trial-balance', { params: { dateTo: asOf } }),
+        api.get('/finance/trial-balance', { params: { dateTo: asOf } }),
         api.get('/finance/reports/ar-aging', { params: { asOf } }),
         api.get('/finance/reports/cash-position', { params: { asOf } }),
       ]);
