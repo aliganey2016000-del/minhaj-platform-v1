@@ -1,6 +1,7 @@
 import express from 'express';
 import { ForbiddenError } from './utils/api-error';
 import path from 'path';
+import { verifyAccessToken } from './utils/jwt';
 import { PRIVATE_UPLOAD_PREFIXES, UPLOADS_ROOT, setUploadHeaders } from './utils/upload-safety';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -119,6 +120,21 @@ const limiter = rateLimit({
     errors: null,
   },
   skip: (req) => req.path === '/v1/health', // Skip health checks — req.path is relative to the '/api/' mount point
+  // Signed-in traffic is counted per account, not per IP: a whole campus or
+  // school office behind one NAT address would otherwise share one budget.
+  // The token's signature is checked, so a made-up user id cannot be used
+  // to dodge the per-IP limit. Everything else stays per IP.
+  keyGenerator: (req) => {
+    const header = req.headers.authorization;
+    if (header?.startsWith('Bearer ')) {
+      try {
+        return `user:${verifyAccessToken(header.slice(7)).userId}`;
+      } catch {
+        // fall through to the IP
+      }
+    }
+    return `ip:${req.ip}`;
+  },
 });
 
 // Authentication protection uses TWO independent limits:

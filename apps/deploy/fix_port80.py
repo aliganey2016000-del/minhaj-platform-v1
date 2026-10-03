@@ -3,8 +3,8 @@
 import os
 import paramiko, time
 
-HOST = "158.220.120.83"
-USER = "root"
+HOST = os.environ["VPS_HOST"]
+USER = os.environ["VPS_USER"]
 PASS = os.environ["VPS_PASS"]
 
 c = paramiko.SSHClient()

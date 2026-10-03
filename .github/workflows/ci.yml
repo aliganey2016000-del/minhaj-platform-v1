@@ -60,6 +60,9 @@ jobs:
       - name: Upload safety regression (file types, private documents, traversal, headers)
         run: npx ts-node src/__tests__/upload-safety.e2e.ts
 
+      - name: Ops hardening regression (Telegram webhook, per-account rate limit, TTL, live token checks, deploy scripts)
+        run: npx ts-node src/__tests__/ops-hardening-phase4.e2e.ts
+
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
 

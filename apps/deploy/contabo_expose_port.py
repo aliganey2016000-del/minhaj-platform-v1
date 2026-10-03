@@ -4,10 +4,10 @@
 import os
 import paramiko, time
 
-HOST = "158.220.120.83"
+HOST = os.environ["VPS_HOST"]
 c = paramiko.SSHClient()
 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-c.connect(HOST, username="root", password=os.environ["VPS_PASS"], timeout=30)
+c.connect(HOST, username=os.environ["VPS_USER"], password=os.environ["VPS_PASS"], timeout=30)
 
 def run(cmd, desc=""):
     if desc:
@@ -53,7 +53,7 @@ services:
       - NODE_ENV=production
       - PORT=5000
       - MONGODB_URI=mongodb://masjid-mongodb:27017/masjid-al-rahma
-      - CLIENT_URL=http://158.220.120.83
+      - CLIENT_URL=http://__VPS_HOST__
     depends_on:
       mongodb:
         condition: service_healthy
@@ -81,7 +81,7 @@ volumes:
 DOCKEREOF
 docker compose -f docker-compose.prod.yml up -d --force-recreate
 echo "Port 3000 mapped to frontend:80, 5000 mapped to backend:5000"
-""", "Update compose with port 3000:80")
+""".replace("__VPS_HOST__", HOST), "Update compose with port 3000:80")
 
 time.sleep(10)
 

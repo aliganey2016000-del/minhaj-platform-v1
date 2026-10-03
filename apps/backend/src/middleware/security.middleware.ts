@@ -9,6 +9,7 @@
  * - Response header stripping
  */
 
+import net from 'net';
 import { Request, Response, NextFunction } from 'express';
 
 /**
@@ -29,10 +30,59 @@ import { Request, Response, NextFunction } from 'express';
  * through Cloudflare (handled at the infrastructure/firewall level); it is
  * no more spoofable than the trust-proxy-only setup it replaces.
  */
+/**
+ * Networks allowed to hand us a CF-Connecting-IP header: Cloudflare's
+ * published edge ranges (https://www.cloudflare.com/ips/) plus private and
+ * loopback ranges (the Coolify/Traefik hop and local development). Extra
+ * ranges can be added with TRUSTED_PROXY_CIDRS (comma-separated CIDRs).
+ */
+const CLOUDFLARE_CIDRS = [
+  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18',
+  '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17',
+  '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+  '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32', '2405:8100::/32',
+  '2a06:98c0::/29', '2c0f:f248::/32',
+];
+const PRIVATE_CIDRS = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8', '::1/128', 'fc00::/7'];
+
+function buildTrustedProxies(): net.BlockList {
+  const list = new net.BlockList();
+  const extra = String(process.env.TRUSTED_PROXY_CIDRS || '').split(',').map((value) => value.trim()).filter(Boolean);
+  for (const cidr of [...CLOUDFLARE_CIDRS, ...PRIVATE_CIDRS, ...extra]) {
+    const [address, prefix] = cidr.split('/');
+    const family = net.isIPv6(address) ? 'ipv6' : 'ipv4';
+    try { list.addSubnet(address, Number(prefix), family); } catch { /* ignore a malformed extra range */ }
+  }
+  return list;
+}
+const trustedProxies = buildTrustedProxies();
+
+export function isTrustedProxyAddress(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const address = raw.trim().replace(/^::ffff:/i, '');
+  if (net.isIPv4(address)) return trustedProxies.check(address, 'ipv4');
+  if (net.isIPv6(address)) return trustedProxies.check(address, 'ipv6');
+  return false;
+}
+
+/**
+ * The address that connected to our edge proxy: the last X-Forwarded-For
+ * entry (appended by Traefik, the one hop `trust proxy` already trusts), or
+ * the socket peer when no proxy is in front.
+ */
+function immediatePeer(req: Request): string | undefined {
+  const forwarded = req.headers['x-forwarded-for'];
+  const chain = (Array.isArray(forwarded) ? forwarded.join(',') : forwarded || '').split(',').map((value) => value.trim()).filter(Boolean);
+  return chain.length ? chain[chain.length - 1] : req.socket?.remoteAddress;
+}
+
 export const resolveCloudflareClientIp = (req: Request, _res: Response, next: NextFunction): void => {
   const cfConnectingIp = req.headers['cf-connecting-ip'];
   const clientIp = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp;
-  if (clientIp && clientIp.trim()) {
+  // Only Cloudflare (or our own private proxy hop) may name the client. A
+  // request that reached the origin from anywhere else could otherwise pick
+  // any IP it liked and step around every per-IP rate limit.
+  if (clientIp && clientIp.trim() && isTrustedProxyAddress(immediatePeer(req))) {
     req.headers['x-forwarded-for'] = clientIp.trim();
   }
   next();

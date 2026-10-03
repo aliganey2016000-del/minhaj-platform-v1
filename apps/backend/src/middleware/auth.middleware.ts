@@ -12,6 +12,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { UnauthorizedError } from '../utils/api-error';
 import { verifyAccessToken } from '../utils/jwt';
+import { getAuthState, tokenMismatch } from '../utils/auth-state';
 
 // ---------------------------------------------------------------------------
 // Augment Express Request to include authenticated user payload
@@ -51,6 +52,7 @@ export const authMiddleware = (
   // including a staff account's org_admin scope granted by requirePermission.
   if (req.user) return next();
 
+  let decoded: ReturnType<typeof verifyAccessToken>;
   try {
     // 1. Extract token from Authorization header
     const authHeader = req.headers.authorization;
@@ -75,18 +77,7 @@ export const authMiddleware = (
     }
 
     // 2. Verify and decode the access token
-    const decoded = verifyAccessToken(token);
-
-    // 3. Attach decoded payload to request object
-    req.user = {
-      userId: decoded.userId,
-      role: decoded.role,
-      permissions: decoded.permissions,
-      organizationId: decoded.organizationId,
-      isStaff: decoded.role === 'staff',
-    };
-
-    next();
+    decoded = verifyAccessToken(token);
   } catch (error) {
     // If the error is already an ApiError (from verifyAccessToken), pass it through
     if (error instanceof UnauthorizedError) {
@@ -94,8 +85,29 @@ export const authMiddleware = (
     }
 
     // Otherwise wrap unexpected errors
-    next(new UnauthorizedError('Authentication failed'));
+    return next(new UnauthorizedError('Authentication failed'));
   }
+
+  // 3. The token must still match the account: deactivation, a role change
+  // or a staff permission change takes effect within AUTH_STATE_TTL_MS
+  // instead of lasting until the token expires. A 401 makes the client
+  // refresh, which issues a token with the current role and permissions.
+  getAuthState(decoded.userId)
+    .then((state) => {
+      const mismatch = tokenMismatch(state, decoded);
+      if (mismatch) return next(new UnauthorizedError(mismatch));
+
+      // 4. Attach decoded payload to request object
+      req.user = {
+        userId: decoded.userId,
+        role: decoded.role,
+        permissions: decoded.permissions,
+        organizationId: decoded.organizationId,
+        isStaff: decoded.role === 'staff',
+      };
+      next();
+    })
+    .catch(next);
 };
 
 // ---------------------------------------------------------------------------

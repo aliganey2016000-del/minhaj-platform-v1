@@ -19,6 +19,7 @@ import { normalizeStaffPermissions, STAFF_PERMISSION_CATALOG } from '../utils/st
 import { ADMIN_SIDEBAR_ITEMS, moduleForSidebarKey } from '../utils/sidebar-items';
 import * as XLSX from 'xlsx';
 import School from '../models/school.model';
+import { invalidateAuthState } from '../utils/auth-state';
 import Department from '../models/department.model';
 
 const PRIVILEGED_ROLES = new Set(['admin', 'org_admin']);
@@ -64,6 +65,7 @@ export const updatePermissions = async (req: Request, res: Response): Promise<Re
   }
   user.permissions = permissions as any;
   await user.save();
+  invalidateAuthState(user._id);
   return ApiResponse.success(res, { userId: user._id, permissions: user.permissions }, 'Staff permissions updated successfully');
 };
 
@@ -347,6 +349,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .lean();
 
   if (!updated) throw new NotFoundError('User');
+  invalidateAuthState(updated._id);
 
   if (req.body.password) {
     user.password = req.body.password;
@@ -415,6 +418,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     await Promise.all([
       Profile.deleteOne({ user: user._id }),
       User.deleteOne({ _id: user._id }),
+      Promise.resolve(invalidateAuthState(user._id)),
     ]);
     // A 204 must not carry a body — Node's http parser silently drops one if
     // sent, so the caller would never actually see which outcome happened.
@@ -426,6 +430,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   // Soft-delete: set isActive to false
   user.isActive = false;
   await user.save();
+  invalidateAuthState(user._id);
 
   return ApiResponse.success(res, null, 'User deactivated successfully');
 };
@@ -525,6 +530,7 @@ export const updateSidebarAccess = async (req: Request, res: Response): Promise<
   if (user.role !== 'staff') throw new BadRequestError('Sidebar access can only be assigned to Staff users');
   assertCanManageUser(req, user);
   const validKeys = new Set(ADMIN_SIDEBAR_ITEMS.map((item) => item.key));
+  invalidateAuthState(user._id);
   user.sidebarAccess = Array.isArray(req.body.keys) ? req.body.keys.filter((key: unknown) => typeof key === 'string' && validKeys.has(key)) : [];
   await user.save();
   return ApiResponse.success(res, { userId: user._id, keys: user.sidebarAccess }, 'Staff sidebar access updated successfully');

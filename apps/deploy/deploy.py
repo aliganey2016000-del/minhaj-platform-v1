@@ -14,8 +14,8 @@ from scp import SCPClient
 # Configuration
 # ───────────────────────────────────────────────────
 
-VPS_HOST = os.environ.get("VPS_HOST", "152.239.119.129")
-VPS_USER = os.environ.get("VPS_USER", "root")
+VPS_HOST = os.environ["VPS_HOST"]
+VPS_USER = os.environ["VPS_USER"]
 VPS_PASS = os.environ["VPS_PASS"]  # set before running, e.g. `VPS_PASS=... python deploy/deploy.py`
 DEPLOY_ROOT = "/var/www/masjid-al-rahma"
 LOCAL_BASE = r"c:\Users\Exam Office\Desktop\masjid-al-rahma-platform\apps"

@@ -12,15 +12,15 @@ Both apps are already built locally:
 Open PowerShell/CMD and run one line at a time. Authenticate using your SSH key or a password stored in your secret manager. Never put credentials in this document:
 
 ```bash
-scp -r backend\dist backend\package.json backend\package-lock.json backend\.env.production root@152.239.119.129:/root/
+scp -r backend\dist backend\package.json backend\package-lock.json backend\.env.production <user>@<vps-host>:/root/
 ```
 
 ```bash
-scp -r frontend\dist root@152.239.119.129:/root/frontend-dist/
+scp -r frontend\dist <user>@<vps-host>:/root/frontend-dist/
 ```
 
 ```bash
-scp -r deploy\nginx.conf deploy\ecosystem.config.js deploy\setup.sh root@152.239.119.129:/root/
+scp -r deploy\nginx.conf deploy\ecosystem.config.js deploy\setup.sh <user>@<vps-host>:/root/
 ```
 
 ---
@@ -28,7 +28,7 @@ scp -r deploy\nginx.conf deploy\ecosystem.config.js deploy\setup.sh root@152.239
 ## Step 2: SSH into VPS
 
 ```bash
-ssh root@152.239.119.129
+ssh <user>@<vps-host>
 ```
 Use your configured SSH authentication method. Do not share or commit the VPS password.
 
@@ -115,7 +115,7 @@ curl http://localhost/api/v1/health
 curl http://localhost/
 ```
 
-Visit `http://152.239.119.129` in your browser.
+Visit `http://<vps-host>` in your browser.
 
 ---
 

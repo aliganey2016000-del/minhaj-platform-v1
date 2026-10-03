@@ -15,8 +15,8 @@ import os
 from scp import SCPClient
 
 # ========== CONFIG ==========
-VPS_HOST = "158.220.120.83"
-VPS_USER = "root"
+VPS_HOST = os.environ["VPS_HOST"]
+VPS_USER = os.environ["VPS_USER"]
 VPS_PASS = os.environ["VPS_PASS"]
 VPS_PORT = 22
 MONGO_CONTAINER_PASSWORD = os.environ["MONGO_CONTAINER_PASSWORD"]
