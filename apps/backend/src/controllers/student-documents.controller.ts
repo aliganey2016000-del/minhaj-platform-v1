@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { sendStoredFile } from '../utils/upload-safety';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import Student from '../models/student.model';
@@ -193,12 +194,7 @@ export const view = async (req: Request, res: Response): Promise<void> => {
     res.redirect(getCloudinaryPrivateUrl(document.storagePublicId));
     return;
   }
-  const filePath = path.join(process.cwd(), document.fileUrl.replace(/^\//, ''));
-  if (!fs.existsSync(filePath)) throw new NotFoundError('Document file');
-  res.setHeader('Content-Type', document.mimeType);
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(document.fileName)}"`);
-  res.setHeader('Cache-Control', 'private, no-store');
-  fs.createReadStream(filePath).pipe(res);
+  sendStoredFile(res, document.fileUrl, { fileName: document.fileName, mimeType: document.mimeType });
 };
 
 export const uploadPhoto = async (req: Request, res: Response): Promise<Response> => {
