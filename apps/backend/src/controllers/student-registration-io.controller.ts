@@ -171,7 +171,6 @@ async function resolveSchoolId(req: Request, row: Record<string, unknown>): Prom
   return String(byName._id);
 }
 
-const classCache = new Map<string, Map<string, ClassCandidate[]>>();
 
 const AMBIGUOUS = Symbol('ambiguous-name-match');
 type ExistingStudentLite = { _id: mongoose.Types.ObjectId; user: mongoose.Types.ObjectId; studentId: string; class?: mongoose.Types.ObjectId };
@@ -180,8 +179,18 @@ type SchoolStudentIndex = {
   byUserId: Map<string, ExistingStudentLite>;
   byNameClass: Map<string, ExistingStudentLite | typeof AMBIGUOUS>;
 };
-const studentIndexCache = new Map<string, SchoolStudentIndex>();
-const userByEmailCache = new Map<string, { _id: mongoose.Types.ObjectId }>();
+
+/**
+ * Lookup caches for one parse of one uploaded file. Created fresh per
+ * request: these used to be module-level maps that every import cleared on
+ * start, so two admins importing at the same time wiped each other's email
+ * lookups mid-parse (letting an email already in use slip through as new).
+ */
+type ImportCaches = {
+  classes: Map<string, Map<string, ClassCandidate[]>>;
+  studentIndex: Map<string, SchoolStudentIndex>;
+  userByEmail: Map<string, { _id: mongoose.Types.ObjectId }>;
+};
 
 /**
  * Every "is this student already registered?" lookup a row needs, built once
@@ -201,8 +210,8 @@ const userByEmailCache = new Map<string, { _id: mongoose.Types.ObjectId }>();
  *    unresolved (AMBIGUOUS) and treated as new, rather than risking an
  *    overwrite of the wrong record.
  */
-async function getSchoolStudentIndex(schoolId: string): Promise<SchoolStudentIndex> {
-  const cached = studentIndexCache.get(schoolId);
+async function getSchoolStudentIndex(caches: ImportCaches, schoolId: string): Promise<SchoolStudentIndex> {
+  const cached = caches.studentIndex.get(schoolId);
   if (cached) return cached;
 
   const index: SchoolStudentIndex = { byStudentId: new Map(), byUserId: new Map(), byNameClass: new Map() };
@@ -229,12 +238,12 @@ async function getSchoolStudentIndex(schoolId: string): Promise<SchoolStudentInd
     index.byNameClass.set(key, index.byNameClass.has(key) ? AMBIGUOUS : lite);
   }
 
-  studentIndexCache.set(schoolId, index);
+  caches.studentIndex.set(schoolId, index);
   return index;
 }
 
 /** One query for every email the file mentions, replacing a per-row User.findOne. */
-async function primeUsersByEmail(rows: Record<string, unknown>[]): Promise<void> {
+async function primeUsersByEmail(caches: ImportCaches, rows: Record<string, unknown>[]): Promise<void> {
   const emails = new Set<string>();
   for (const row of rows) {
     const email = clean(getField(row, 'Email', 'Student Email')).toLowerCase();
@@ -242,11 +251,11 @@ async function primeUsersByEmail(rows: Record<string, unknown>[]): Promise<void>
   }
   if (!emails.size) return;
   const users = await User.find({ email: { $in: [...emails] } }).select('_id email').lean();
-  for (const user of users as any[]) userByEmailCache.set(String(user.email).toLowerCase(), { _id: user._id });
+  for (const user of users as any[]) caches.userByEmail.set(String(user.email).toLowerCase(), { _id: user._id });
 }
 
-async function getClassCandidates(schoolId: string): Promise<Map<string, ClassCandidate[]>> {
-  const cached = classCache.get(schoolId);
+async function getClassCandidates(caches: ImportCaches, schoolId: string): Promise<Map<string, ClassCandidate[]>> {
+  const cached = caches.classes.get(schoolId);
   if (cached) return cached;
 
   const byKey = new Map<string, ClassCandidate[]>();
@@ -271,11 +280,12 @@ async function getClassCandidates(schoolId: string): Promise<Map<string, ClassCa
     byKey.set(key, [...(byKey.get(key) || []), candidate]);
   }
 
-  classCache.set(schoolId, byKey);
+  caches.classes.set(schoolId, byKey);
   return byKey;
 }
 
 async function resolveClass(
+  caches: ImportCaches,
   schoolId: string,
   className: string,
   section: string,
@@ -283,7 +293,7 @@ async function resolveClass(
   legacyBatch: string,
   preferredClassId?: string,
 ): Promise<ClassCandidate> {
-  const byKey = await getClassCandidates(schoolId);
+  const byKey = await getClassCandidates(caches, schoolId);
   let matches = byKey.get(classKey(className, section)) || [];
   if (matches.length === 0) throw new Error(`Active class "${className} — Section ${section}" was not found`);
 
@@ -333,10 +343,8 @@ function readRows(req: Request): Record<string, unknown>[] {
 }
 
 async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise<ParsedRegistration[]> {
-  classCache.clear();
-  studentIndexCache.clear();
-  userByEmailCache.clear();
-  await primeUsersByEmail(rows);
+  const caches: ImportCaches = { classes: new Map(), studentIndex: new Map(), userByEmail: new Map() };
+  await primeUsersByEmail(caches, rows);
   const parsed: ParsedRegistration[] = [];
   const seen = new Set<string>();
 
@@ -382,10 +390,10 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
       // makes an exported workbook round-trip safely when two active cohorts
       // happen to share the same Class Name + Section: Student ID preserves
       // the exact current class instead of guessing.
-      const index = await getSchoolStudentIndex(schoolId);
+      const index = await getSchoolStudentIndex(caches, schoolId);
       let existingStudent: any = studentId ? index.byStudentId.get(studentId) || null : null;
 
-      const accountForEmail = email ? userByEmailCache.get(email) : undefined;
+      const accountForEmail = email ? caches.userByEmail.get(email) : undefined;
       if (!existingStudent && accountForEmail) {
         existingStudent = index.byUserId.get(String(accountForEmail._id)) || null;
         if (!existingStudent) throw new Error(`Email "${email}" belongs to another account and cannot be used for this student`);
@@ -415,6 +423,7 @@ async function parseRows(req: Request, rows: Record<string, unknown>[]): Promise
       let classCandidate: ClassCandidate;
       try {
         classCandidate = await resolveClass(
+          caches,
           schoolId,
           className,
           section,

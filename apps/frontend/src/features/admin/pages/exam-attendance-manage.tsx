@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, Clock, CalendarX, ClipboardCheck, Zap, Info, Printer, CheckSquare, FileText, BarChart3, QrCode, X, AlertTriangle, RotateCcw } from 'lucide-react';
-import { Html5Qrcode } from 'html5-qrcode';
+import type { Html5Qrcode } from 'html5-qrcode';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { BackButton } from '../../shared/components/back-button';
@@ -557,17 +557,31 @@ export function ExamAttendanceManage() {
 
   useEffect(() => {
     if (!scannerOpen) return;
-    const qr = new Html5Qrcode('exam-qr-reader');
-    qrRef.current = qr;
-    qr.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: 250 },
-      (decodedText) => handleScanSuccess(decodedText),
-      () => {}
-    ).catch(() => setScanMessage('⚠️ Could not access camera. Check permissions.'));
+    // The scanner library is ~350KB; load it only when the scanner opens
+    // instead of with the page, which most visits never use it on.
+    let cancelled = false;
+    let qr: Html5Qrcode | null = null;
+    import('html5-qrcode')
+      .then(({ Html5Qrcode }) => {
+        if (cancelled) return;
+        qr = new Html5Qrcode('exam-qr-reader');
+        qrRef.current = qr;
+        return qr.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: 250 },
+          (decodedText) => handleScanSuccess(decodedText),
+          () => {}
+        ).then(() => {
+          // Closed while the camera was still starting: release it now.
+          if (cancelled) qr?.stop().then(() => qr?.clear()).catch(() => {});
+        });
+      })
+      .catch(() => { if (!cancelled) setScanMessage('⚠️ Could not access camera. Check permissions.'); });
 
     return () => {
-      qr.stop().then(() => qr.clear()).catch(() => {});
+      cancelled = true;
+      const instance = qr;
+      if (instance) instance.stop().then(() => instance.clear()).catch(() => {});
       qrRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

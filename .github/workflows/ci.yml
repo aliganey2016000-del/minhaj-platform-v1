@@ -48,6 +48,9 @@ jobs:
       - name: Class-based attendance requires a schedule regression
         run: npx ts-node src/__tests__/class-based-attendance-requires-schedule.e2e.ts
 
+      - name: Forum newest-messages and course list limit regression
+        run: npx ts-node src/__tests__/forum-latest-messages-and-course-limits.e2e.ts
+
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
 

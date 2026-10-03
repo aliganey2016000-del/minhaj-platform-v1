@@ -41,5 +41,8 @@ const schema = new Schema<IAssignmentSubmission>(
 
 // One submission per student per assignment — resubmitting updates the existing record.
 schema.index({ assignment: 1, student: 1 }, { unique: true });
+// Teacher analytics, gradebook and report-card reads all filter by course;
+// without this each of them scanned every submission in the database.
+schema.index({ course: 1, student: 1 });
 
 export default mongoose.model<IAssignmentSubmission>('AssignmentSubmission', schema);

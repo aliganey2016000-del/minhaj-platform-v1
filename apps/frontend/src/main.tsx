@@ -10,6 +10,7 @@ import { App } from './App';
 import { PwaInstallPrompt } from './components/shared/pwa-install-prompt';
 import { PwaUpdatePrompt } from './components/shared/pwa-update-prompt';
 import { initOfflineSync } from './lib/offline-sync';
+import { reloadForNewBuild } from './components/shared/route-error-page';
 import './assets/styles/globals.css';
 import './assets/styles/timetable-mobile-fix.css';
 import './assets/styles/classes-alternating-colors.css';
@@ -22,6 +23,13 @@ import './features/teacher/components/modern-dashboard.css';
 // ---------------------------------------------------------------------------
 
 initOfflineSync();
+
+// Vite fires this when a lazy page's chunk (or its preloaded deps) can't be
+// fetched, almost always because a deploy replaced the build this tab was
+// loaded from. Reload once onto the new build instead of failing the route.
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadForNewBuild()) event.preventDefault();
+});
 
 const rootElement = document.getElementById('root');
 

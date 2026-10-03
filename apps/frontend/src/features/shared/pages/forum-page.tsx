@@ -245,7 +245,7 @@ export function ForumPage() {
     setMsgLoading(true);
     setMessages([]);
     try {
-      const { data } = await api.get(`/forum/threads/${thread._id}`);
+      const { data } = await api.get(`/forum/threads/${thread._id}`, { params: { limit: 200 } });
       setMessages(data.data.messages || []);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to load messages');
@@ -298,16 +298,54 @@ export function ForumPage() {
     }
   };
 
-  // Poll for new messages
+  // Poll for new messages. Only while the tab is visible, and only for
+  // messages newer than the last one shown; every 6th refresh (~1 minute)
+  // reloads the page in full so messages deleted by others drop out. The
+  // list is left untouched when nothing changed, so a reader who scrolled up
+  // isn't yanked back to the bottom every 10 seconds.
+  const messagesRef = useRef<Message[]>([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   useEffect(() => {
     if (!activeThread) return;
-    const interval = setInterval(async () => {
+    const threadId = activeThread._id;
+    let cancelled = false;
+    let ticks = 0;
+
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible') return;
+      ticks += 1;
+      const last = messagesRef.current[messagesRef.current.length - 1];
       try {
-        const { data } = await api.get(`/forum/threads/${activeThread._id}`, { params: { limit: 200 } });
-        setMessages(data.data.messages || []);
+        if (!last || ticks % 6 === 0) {
+          const { data } = await api.get(`/forum/threads/${threadId}`, { params: { limit: 200 } });
+          if (cancelled) return;
+          const next: Message[] = data.data.messages || [];
+          setMessages((prev) =>
+            prev.length === next.length && prev.every((m, i) => m._id === next[i]._id) ? prev : next
+          );
+        } else {
+          const { data } = await api.get(`/forum/threads/${threadId}`, { params: { since: last.createdAt, limit: 200 } });
+          if (cancelled) return;
+          const fresh: Message[] = data.data.messages || [];
+          if (fresh.length === 0) return;
+          setMessages((prev) => {
+            const seen = new Set(prev.map((m) => m._id));
+            const added = fresh.filter((m) => !seen.has(m._id));
+            return added.length ? [...prev, ...added] : prev;
+          });
+        }
       } catch { /* ignore */ }
-    }, 10_000);
-    return () => clearInterval(interval);
+    };
+
+    const interval = setInterval(refresh, 10_000);
+    const onVisibility = () => { if (document.visibilityState === 'visible') void refresh(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [activeThread]);
 
   // -------------------------------------------------------------------------
