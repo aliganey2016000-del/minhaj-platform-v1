@@ -42,7 +42,9 @@ async function resolveForumOrgId(req: Request): Promise<string | null> {
     return (teacher as any)?.school ? (teacher as any).school.toString() : null;
   }
   if (role === 'student') {
-    const student = await Student.findOne({ user: userId }).select('school').lean();
+    const student = await Student.findOne({ user: userId }).select('school approvalStatus').lean();
+    // Not a member until the school approves the self-registration.
+    if (['pending', 'rejected'].includes((student as any)?.approvalStatus)) return null;
     return (student as any)?.school ? (student as any).school.toString() : null;
   }
   if (role === 'parent') {
@@ -61,7 +63,7 @@ async function resolveForumOrgId(req: Request): Promise<string | null> {
 async function getOrgMemberUserIds(orgId: string): Promise<string[]> {
   const [orgAdmins, students, teachers, parents] = await Promise.all([
     User.find({ organizationId: orgId, isActive: true }).select('_id').lean(),
-    Student.find({ school: orgId }).select('user').lean(),
+    Student.find({ school: orgId, approvalStatus: { $nin: ['pending', 'rejected'] } }).select('user').lean(),
     Teacher.find({ school: orgId }).select('user').lean(),
     Parent.find({ school: orgId }).select('user').lean(),
   ]);
