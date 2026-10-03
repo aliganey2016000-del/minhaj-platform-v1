@@ -66,7 +66,10 @@ async function main() {
 
     const orgAdminA = await User.create({ email: 'p2-orgadmin-a@example.com', password: 'Password123!', role: 'org_admin', organizationId: schoolA._id });
     const orgAdminB = await User.create({ email: 'p2-orgadmin-b@example.com', password: 'Password123!', role: 'org_admin', organizationId: schoolB._id });
-    const staffA = await User.create({ email: 'p2-staff-a@example.com', password: 'Password123!', role: 'staff', organizationId: schoolA._id });
+    const staffA = await User.create({
+      email: 'p2-staff-a@example.com', password: 'Password123!', role: 'staff', organizationId: schoolA._id,
+      permissions: [{ module: 'organization', actions: ['read'] }],
+    });
     const financeA = await User.create({ email: 'p2-finance-a@example.com', password: 'Password123!', role: 'finance_manager', organizationId: schoolA._id });
     const teacherUserA = await User.create({ email: 'p2-teacher-a@example.com', password: 'Password123!', role: 'teacher' });
     const profileT = await Profile.create({ user: teacherUserA._id, firstName: 'T', lastName: 'A', gender: 'male' });
@@ -83,13 +86,14 @@ async function main() {
     const orgBToken = token(orgAdminB);
 
     section('C2: staff and other school roles stay inside their school');
-    let res = await request(app).get('/api/v1/search?q=Algebra').set(auth(token(staffA)));
+    let res = await request(app).get('/api/v1/search?q=Algebra').set(auth(token(staffA, ['organization.read'])));
     let slugs = (res.body?.data?.courses || []).map((c: any) => c.slug);
     assert(res.status === 200 && slugs.length === 1 && slugs[0] === 'p2-algebra-a', `staff search sees only their school (got ${slugs.join(',')})`);
     res = await request(app).get('/api/v1/search?q=Algebra').set(auth(token(financeA)));
     slugs = (res.body?.data?.courses || []).map((c: any) => c.slug);
     assert(res.status === 200 && slugs.length === 1 && slugs[0] === 'p2-algebra-a', `finance search sees only their school (got ${slugs.join(',')})`);
-    res = await request(app).get('/api/v1/search?q=Algebra').set(auth(token({ _id: new mongoose.Types.ObjectId(), role: 'cashier' })));
+    const cashierNoSchool = await User.create({ email: 'p2-cashier@example.com', password: 'Password123!', role: 'cashier' });
+    res = await request(app).get('/api/v1/search?q=Algebra').set(auth(token(cashierNoSchool)));
     assert(res.status === 200 && (res.body?.data?.courses || []).length === 0, 'a school role without a school sees nothing');
     res = await request(app).get('/api/v1/search?q=Algebra').set(auth(token(admin)));
     assert((res.body?.data?.courses || []).length === 2, 'the platform admin still searches everything');
