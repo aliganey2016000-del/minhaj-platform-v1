@@ -163,6 +163,9 @@ jobs:
       - name: Exam room capacity shrink regression (room edit/import vs seated students)
         run: npm run test:exam-room-capacity-shrink
 
+      - name: Password-reset token race regression (concurrent reset-password completions)
+        run: npm run test:password-reset-race
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
