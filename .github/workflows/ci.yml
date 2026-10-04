@@ -78,6 +78,12 @@ jobs:
       - name: List-query index coverage regression (teacher/class/fee-structure/content list+pagination endpoints)
         run: npm run test:list-query-index-coverage
 
+      - name: XLSX export Content-Type header regression
+        run: npx ts-node src/__tests__/xlsx-export-content-type.e2e.ts
+
+      - name: Gradebook teacherVisible bypass regression (single-entry grade endpoint)
+        run: npx ts-node src/__tests__/gradebook-teacher-visible-bypass.e2e.ts
+
       - name: Phase 6 regression (scheduler race-safety, auth-state/socket invalidation wiring)
         run: npx ts-node src/__tests__/scheduler-socket-pwa-phase6.e2e.ts
 

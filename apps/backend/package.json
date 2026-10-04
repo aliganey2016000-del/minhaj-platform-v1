@@ -72,7 +72,9 @@
     "test:csv-injection": "ts-node src/__tests__/csv-export-formula-injection.e2e.ts",
     "test:list-query-index-coverage": "ts-node --files src/__tests__/list-query-index-coverage.e2e.ts",
     "test:email-html-injection": "ts-node src/__tests__/email-template-html-injection.e2e.ts",
-    "test:seating-plan-import-capacity": "ts-node src/__tests__/seating-plan-import-capacity-advisory.e2e.ts"
+    "test:seating-plan-import-capacity": "ts-node src/__tests__/seating-plan-import-capacity-advisory.e2e.ts",
+    "test:xlsx-content-type": "ts-node src/__tests__/xlsx-export-content-type.e2e.ts",
+    "test:gradebook-teacher-visible-bypass": "ts-node src/__tests__/gradebook-teacher-visible-bypass.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

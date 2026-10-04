@@ -619,7 +619,7 @@ export const exportParents = async (req: Request, res: Response): Promise<void> 
 
   const buffer = buildXlsxBuffer(headers, rows, 'Parents');
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=parents-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
   res.end(buffer);
 };
@@ -639,7 +639,7 @@ export const downloadTemplate = async (_req: Request, res: Response): Promise<vo
   ]];
   const buffer = buildXlsxBuffer(headers, rows, 'Parent Template');
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=parents-template.xlsx');
   res.end(buffer);
 };

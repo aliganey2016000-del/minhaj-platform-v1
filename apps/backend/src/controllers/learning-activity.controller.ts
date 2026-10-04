@@ -481,7 +481,7 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   XLSX.utils.book_append_sheet(workbook, sheet, 'Activity Log');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=activity-${studentName}.xlsx`);
   res.end(buffer);
 };
