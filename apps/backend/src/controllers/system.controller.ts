@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import Setting from '../models/setting.model';
 import ActivityLog from '../models/activity-log.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
 
@@ -24,9 +24,23 @@ export const updateSettings = async (req: Request, res: Response) => {
 };
 
 // ── Activity Logs ──
+function activityLogTenantScope(req: Request): Record<string, unknown> {
+  if (req.user?.role === 'admin') return {};
+  if (req.user?.role !== 'org_admin') {
+    throw new ForbiddenError('Activity Logs are available only to administrators.');
+  }
+  if (!req.user.organizationId) {
+    throw new ForbiddenError('Your account is not assigned to an organization.');
+  }
+  // Never read tenant ownership from query/body/headers. The authenticated
+  // token context is the only source of scope for organization administrators.
+  return { organizationId: req.user.organizationId };
+}
+
 export const getLogs = async (req: Request, res: Response) => {
   const { action, user, page = '1', limit = '30', search } = req.query;
-  const filter: Record<string, unknown> = {};
+  const tenantScope = activityLogTenantScope(req);
+  const filter: Record<string, unknown> = { ...tenantScope };
   if (action) filter.action = action;
   if (user) filter.user = user;
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -44,7 +58,7 @@ export const getLogs = async (req: Request, res: Response) => {
     // certificates/exams/results/assignments (see student.controller.ts
     // getAll).
     const regex = new RegExp(escapeRegex(search as string), 'i');
-    const aggregateMatch = castObjectIdFilter(filter, ['user']);
+    const aggregateMatch = castObjectIdFilter(filter, ['user', 'organizationId']);
     const [facetResult] = await ActivityLog.aggregate([
       { $match: aggregateMatch },
       { $lookup: { from: 'users', localField: 'user', foreignField: '_id', as: 'userDoc' } },
@@ -76,7 +90,9 @@ export const getLogs = async (req: Request, res: Response) => {
   return ApiResponse.paginated(res, result, { page: pageNum, limit: limitNum, total });
 };
 
-export const clearLogs = async (_req: Request, res: Response) => {
-  await ActivityLog.deleteMany({});
-  return ApiResponse.success(res, null, 'All logs cleared');
+export const clearLogs = async (req: Request, res: Response) => {
+  const tenantScope = activityLogTenantScope(req);
+  const result = await ActivityLog.deleteMany(tenantScope);
+  const message = req.user?.role === 'admin' ? 'All logs cleared' : 'Organization activity logs cleared';
+  return ApiResponse.success(res, { deletedCount: result.deletedCount || 0 }, message);
 };
