@@ -12,6 +12,7 @@ import mongoose from 'mongoose';
 import Teacher from '../models/teacher.model';
 import ClassModel from '../models/class.model';
 import Course from '../models/course.model';
+import Student from '../models/student.model';
 import { BadRequestError } from './api-error';
 
 const blank = (value: unknown) => value === undefined || value === null || value === '';
@@ -41,4 +42,13 @@ export async function assertClassInSchool(classId: unknown, schoolId: unknown): 
 
 export async function assertCourseInSchool(course: unknown, schoolId: unknown): Promise<void> {
   await assertOwned(course, schoolId, 'course', (id, school) => Course.exists({ _id: id, school }));
+}
+
+/** Every listed student must belong to `schoolId` (skipped for a school-less record). */
+export async function assertStudentsInSchool(studentIds: unknown[], schoolId: unknown): Promise<void> {
+  const ids = [...new Set(studentIds.map((id) => String(id ?? '')))];
+  if (ids.some((id) => !mongoose.isValidObjectId(id))) throw new BadRequestError('Invalid student id.');
+  if (!schoolId || ids.length === 0) return;
+  const matching = await Student.countDocuments({ _id: { $in: ids }, school: schoolId as any });
+  if (matching !== ids.length) throw new BadRequestError('Every student must belong to the same organization as this record.');
 }

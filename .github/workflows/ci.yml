@@ -69,6 +69,9 @@ jobs:
       - name: Custom domain verification regression (ownership proof, canonical sitemap host, tenant header trust)
         run: npx ts-node --files src/__tests__/custom-domain-verification.e2e.ts
 
+      - name: Backup and restore round trip (encryption, tamper detection, confirmation, retention)
+        run: npx ts-node src/__tests__/backup-roundtrip.e2e.ts
+
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
 

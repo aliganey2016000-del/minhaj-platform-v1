@@ -3,6 +3,7 @@
  * Invigilator portal for marking exam-day attendance ("Exam Attendance").
  */
 
+import { assertStudentsInSchool } from '../utils/tenant-refs';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Exam from '../models/exam.model';
@@ -141,6 +142,7 @@ export const bulkMark = async (req: Request, res: Response): Promise<Response> =
   if (!Array.isArray(records) || records.length === 0) {
     throw new BadRequestError('records is required and must be a non-empty array');
   }
+  await assertStudentsInSchool(records.map((r) => r?.student), exam.school);
   for (const r of records) {
     if (!VALID_STATUSES.includes(r.status)) {
       throw new BadRequestError(`Invalid status "${r.status}" — must be one of ${VALID_STATUSES.join(', ')}`);

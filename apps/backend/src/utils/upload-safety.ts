@@ -105,3 +105,18 @@ export function sendStoredFile(res: Response, url: string, options: { fileName: 
   res.setHeader('Cache-Control', 'private, no-store');
   fs.createReadStream(filePath).pipe(res);
 }
+
+/**
+ * Deletes a stored upload by its `/uploads/...` URL, never anything outside
+ * the uploads folder. Remote (e.g. Cloudinary) URLs and missing files are
+ * ignored, so a bad stored value cannot turn a delete into a path traversal.
+ */
+export function removeStoredFile(url: string | undefined | null): void {
+  if (!url || /^https?:\/\//i.test(url) && !String(url).includes('/uploads/')) return;
+  try {
+    const filePath = resolveUploadPath(url);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // not a stored upload (or already gone): nothing to delete
+  }
+}

@@ -16,8 +16,8 @@
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import crypto from 'crypto';
 import dotenv from 'dotenv';
+import { encryptFile, decryptFile, findDumpRoot, databaseNameFromUri, selectBackupsToDelete } from '../src/utils/backup-crypto';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
@@ -31,7 +31,7 @@ const ENCRYPTION_PASSWORD = process.env.BACKUP_ENCRYPTION_PASSWORD || '';
  */
 function ensureBackupDir(): void {
   if (!fs.existsSync(BACKUP_DIR)) {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
     console.log(`✅ Created backup directory: ${BACKUP_DIR}`);
   }
 }
@@ -43,53 +43,6 @@ function getBackupFilename(): string {
   const date = new Date();
   const timestamp = date.toISOString().replace(/[:.]/g, '-');
   return `backup-${timestamp}.tar.gz`;
-}
-
-/**
- * Encrypt file using AES-256
- */
-function encryptBackup(inputFile: string, outputFile: string, password: string): void {
-  if (!password) {
-    console.warn('⚠️  WARNING: No encryption password set. Backup will not be encrypted.');
-    return;
-  }
-
-  const data = fs.readFileSync(inputFile);
-  const salt = crypto.randomBytes(16);
-  const key = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-
-  const encryptedData = Buffer.concat([
-    Buffer.from('ENCRYPTED'), // Magic bytes
-    salt,
-    iv,
-    cipher.update(data),
-    cipher.final(),
-  ]);
-
-  fs.writeFileSync(outputFile, encryptedData);
-  console.log(`✅ Encrypted backup: ${path.basename(outputFile)}`);
-}
-
-/**
- * Decrypt backup file
- */
-function decryptBackup(inputFile: string, password: string): Buffer {
-  const data = fs.readFileSync(inputFile);
-
-  if (data.toString('utf-8', 0, 9) !== 'ENCRYPTED') {
-    throw new Error('Invalid encrypted backup file');
-  }
-
-  const salt = data.slice(9, 25);
-  const iv = data.slice(25, 41);
-  const encryptedData = data.slice(41);
-
-  const key = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
-  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-
-  return Buffer.concat([decipher.update(encryptedData), decipher.final()]);
 }
 
 /**
@@ -108,41 +61,40 @@ async function createBackup(): Promise<void> {
     const encryptedFile = `${backupFile}.enc`;
 
     console.log('📦 Creating database backup...');
+    const dbName = databaseNameFromUri(MONGODB_URI);
 
-    // Extract database name from URI
-    const dbName = new URL(MONGODB_URI).pathname.split('/')[1];
-
-    // Run mongodump
+    // Dump only this database so a restore can never touch another one.
     try {
       execFileSync('mongodump', ['--uri', MONGODB_URI, '--out', tempDir], { stdio: 'inherit' });
     } catch (error) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
       throw new Error('mongodump command failed. Ensure MongoDB tools are installed.');
     }
 
-    // Compress backup
+    // The archive holds `<dbName>/...` directly (not the temp folder name).
     console.log('🗜️  Compressing backup...');
     try {
-      execFileSync('tar', ['-czf', backupFile, '-C', path.dirname(tempDir), path.basename(tempDir)], { stdio: 'inherit' });
+      execFileSync('tar', ['-czf', backupFile, '-C', tempDir, dbName], { stdio: 'inherit' });
     } catch (error) {
       throw new Error('tar compression failed');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
+    fs.chmodSync(backupFile, 0o600);
 
-    // Clean up temp directory
-    fs.rmSync(tempDir, { recursive: true, force: true });
-
-    // Encrypt backup if password is set
+    let finalFile = backupFile;
     if (ENCRYPTION_PASSWORD) {
-      encryptBackup(backupFile, encryptedFile, ENCRYPTION_PASSWORD);
+      await encryptFile(backupFile, encryptedFile, ENCRYPTION_PASSWORD);
       fs.unlinkSync(backupFile); // Remove unencrypted backup
-      console.log(`✅ Backup created: ${path.basename(encryptedFile)}`);
+      finalFile = encryptedFile;
     } else {
-      console.log(`✅ Backup created: ${path.basename(backupFile)}`);
+      console.warn('⚠️  WARNING: BACKUP_ENCRYPTION_PASSWORD is not set. This backup contains personal data and password hashes and is NOT encrypted.');
     }
+    console.log(`✅ Backup created: ${path.basename(finalFile)}`);
 
-    // Log backup info
     const backupInfo = {
-      filename: ENCRYPTION_PASSWORD ? path.basename(encryptedFile) : path.basename(backupFile),
-      size: fs.statSync(ENCRYPTION_PASSWORD ? encryptedFile : backupFile).size,
+      filename: path.basename(finalFile),
+      size: fs.statSync(finalFile).size,
       timestamp: new Date().toISOString(),
       database: dbName,
       encrypted: !!ENCRYPTION_PASSWORD,
@@ -150,10 +102,7 @@ async function createBackup(): Promise<void> {
 
     console.log('\n📋 Backup Info:');
     console.log(JSON.stringify(backupInfo, null, 2));
-
-    // Log to file
-    const logFile = path.join(BACKUP_DIR, 'backups.log');
-    fs.appendFileSync(logFile, JSON.stringify(backupInfo) + '\n');
+    fs.appendFileSync(path.join(BACKUP_DIR, 'backups.log'), JSON.stringify(backupInfo) + '\n');
   } catch (error) {
     console.error('❌ Backup failed:', error instanceof Error ? error.message : error);
     process.exit(1);
@@ -163,62 +112,59 @@ async function createBackup(): Promise<void> {
 /**
  * Restore database from backup
  */
-async function restoreBackup(backupFile: string): Promise<void> {
+async function restoreBackup(backupFile: string, confirmed: boolean): Promise<void> {
+  let workDir = '';
   try {
     if (!fs.existsSync(backupFile)) {
       throw new Error(`Backup file not found: ${backupFile}`);
     }
-
     if (!MONGODB_URI) {
       throw new Error('MONGODB_URI environment variable not set');
     }
+    const dbName = databaseNameFromUri(MONGODB_URI);
+    // mongorestore --drop replaces every collection in the backup. Never do
+    // that by accident (wrong terminal, wrong MONGODB_URI).
+    if (!confirmed) {
+      throw new Error(`This replaces the data in database "${dbName}" with the backup. Run again with --yes to confirm.`);
+    }
 
-    console.log('🔄 Restoring database from backup...');
+    console.log(`🔄 Restoring database "${dbName}" from backup...`);
+    ensureBackupDir();
+    workDir = fs.mkdtempSync(path.join(BACKUP_DIR, '.restore-'));
 
-    const tempDir = path.join(BACKUP_DIR, `.temp-restore-${Date.now()}`);
-
-    // Decrypt if needed
-    let dataToExtract = backupFile;
+    let archive = backupFile;
     if (backupFile.endsWith('.enc')) {
       if (!ENCRYPTION_PASSWORD) {
         throw new Error('Backup is encrypted but BACKUP_ENCRYPTION_PASSWORD is not set');
       }
-
       console.log('🔓 Decrypting backup...');
-      const decrypted = decryptBackup(backupFile, ENCRYPTION_PASSWORD);
-      dataToExtract = path.join(BACKUP_DIR, '.temp-backup.tar.gz');
-      fs.writeFileSync(dataToExtract, decrypted);
+      archive = path.join(workDir, 'backup.tar.gz');
+      await decryptFile(backupFile, archive, ENCRYPTION_PASSWORD);
     }
 
-    // Extract backup
     console.log('📂 Extracting backup...');
+    const extracted = path.join(workDir, 'extracted');
+    fs.mkdirSync(extracted);
     try {
-      execFileSync('tar', ['-xzf', dataToExtract, '-C', BACKUP_DIR], { stdio: 'inherit' });
+      execFileSync('tar', ['-xzf', archive, '-C', extracted], { stdio: 'inherit' });
     } catch (error) {
       throw new Error('tar extraction failed');
     }
 
-    // Restore using mongorestore
-    const dbName = new URL(MONGODB_URI).pathname.split('/')[1];
-    const dumpDir = path.join(BACKUP_DIR, 'dump', dbName);
-
+    const dumpRoot = findDumpRoot(extracted, dbName);
     console.log('📥 Restoring to MongoDB...');
     try {
-      execFileSync('mongorestore', ['--uri', MONGODB_URI, '--drop', dumpDir], { stdio: 'inherit' });
+      execFileSync('mongorestore', ['--uri', MONGODB_URI, '--drop', '--nsInclude', `${dbName}.*`, dumpRoot], { stdio: 'inherit' });
     } catch (error) {
       throw new Error('mongorestore command failed');
-    }
-
-    // Cleanup
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    if (backupFile.endsWith('.enc')) {
-      fs.unlinkSync(dataToExtract);
     }
 
     console.log('✅ Database restored successfully');
   } catch (error) {
     console.error('❌ Restore failed:', error instanceof Error ? error.message : error);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    if (workDir) fs.rmSync(workDir, { recursive: true, force: true });
   }
 }
 
@@ -257,26 +203,19 @@ function listBackups(): void {
 function cleanupOldBackups(): void {
   ensureBackupDir();
 
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - BACKUP_RETENTION_DAYS);
+  const backups = fs.readdirSync(BACKUP_DIR)
+    .filter((f) => f.startsWith('backup-') && (f.endsWith('.tar.gz') || f.endsWith('.tar.gz.enc')))
+    .map((name) => ({ name, mtimeMs: fs.statSync(path.join(BACKUP_DIR, name)).mtimeMs }));
 
-  const files = fs.readdirSync(BACKUP_DIR)
-    .filter((f) => f.startsWith('backup-') && (f.endsWith('.tar.gz') || f.endsWith('.tar.gz.enc')));
-
-  let deletedCount = 0;
-
-  files.forEach((file) => {
-    const filePath = path.join(BACKUP_DIR, file);
-    const stat = fs.statSync(filePath);
-
-    if (stat.mtime < cutoffDate) {
-      fs.unlinkSync(filePath);
-      deletedCount++;
-      console.log(`🗑️  Deleted old backup: ${file}`);
-    }
-  });
-
-  console.log(`✅ Cleanup complete. Deleted ${deletedCount} old backup(s).`);
+  // The newest BACKUP_MIN_KEEP backups survive whatever their age, so a
+  // stopped backup job can never let cleanup delete the last good copies.
+  const minKeep = parseInt(process.env.BACKUP_MIN_KEEP || '3');
+  const toDelete = selectBackupsToDelete(backups, BACKUP_RETENTION_DAYS, minKeep);
+  for (const file of toDelete) {
+    fs.unlinkSync(path.join(BACKUP_DIR, file));
+    console.log(`🗑️  Deleted old backup: ${file}`);
+  }
+  console.log(`✅ Cleanup complete. Deleted ${toDelete.length} old backup(s).`);
 }
 
 /**
@@ -289,10 +228,10 @@ async function main(): Promise<void> {
   switch (command) {
     case '--restore':
       if (!args[1]) {
-        console.error('Usage: node backup.js --restore <backup_file>');
+        console.error('Usage: node backup.js --restore <backup_file> --yes');
         process.exit(1);
       }
-      await restoreBackup(args[1]);
+      await restoreBackup(args[1], args.includes('--yes'));
       break;
 
     case '--list':
@@ -309,7 +248,7 @@ Database Backup Script
 
 Usage:
   node backup.js                                    Create new backup
-  node backup.js --restore <backup_file>           Restore from backup
+  node backup.js --restore <backup_file> --yes     Restore from backup (replaces the database)
   node backup.js --list                            List all backups
   node backup.js --cleanup                         Remove old backups
 

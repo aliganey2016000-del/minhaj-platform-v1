@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { sendStoredFile } from '../utils/upload-safety';
+import { removeStoredFile, sendStoredFile } from '../utils/upload-safety';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import Student from '../models/student.model';
@@ -50,7 +50,7 @@ export async function persistStudentPhoto(profileId: any, schoolId: any, file: E
   const oldAvatar = profile.avatar;
   profile.avatar = `/uploads/student-photos/${schoolId || 'unassigned'}/${filename}`;
   await profile.save();
-  if (oldAvatar) { const oldPath = path.join(process.cwd(), oldAvatar.replace(/^\//, '')); if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); }
+  removeStoredFile(oldAvatar);
   return profile.avatar;
 }
 
@@ -142,7 +142,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   if (!document) throw new NotFoundError('Student document');
   await StudentDocument.deleteOne({ _id: document._id });
   if (document.storageProvider === 'cloudinary' && document.storagePublicId) await deleteFromCloudinary(document.storagePublicId);
-  else { const filePath = path.join(process.cwd(), document.fileUrl.replace(/^\//, '')); if (fs.existsSync(filePath)) fs.unlinkSync(filePath); }
+  else removeStoredFile(document.fileUrl);
   return ApiResponse.noContent(res, 'Student document deleted');
 };
 
@@ -170,7 +170,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       nextUrl = `/uploads/student-documents/${student.school}/${student._id}/${filename}`;
     }
     if (document.storageProvider === 'cloudinary' && document.storagePublicId) await deleteFromCloudinary(document.storagePublicId);
-    else { const oldPath = path.join(process.cwd(), document.fileUrl.replace(/^\//, '')); if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); }
+    else removeStoredFile(document.fileUrl);
     document.fileUrl = nextUrl;
     document.storageProvider = nextProvider;
     document.storagePublicId = nextPublicId;

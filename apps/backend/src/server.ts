@@ -112,7 +112,7 @@ async function startServer() {
     // Start Express server (wrapped in a raw http.Server so Socket.IO can
     // share the same port instead of needing a separate one)
     const httpServer = http.createServer(app);
-    initSocket(httpServer);
+    const socketServer = initSocket(httpServer);
 
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
@@ -126,14 +126,43 @@ async function startServer() {
     // — otherwise they stay 'active' forever and admin views showing their
     // duration keep growing indefinitely. See expireStaleSessions' own
     // comment for why endedAt isn't just "now".
-    setInterval(() => {
+    const staleSessionTimer = setInterval(() => {
       void expireStaleSessions().catch((error) => console.error('expireStaleSessions failed:', error));
     }, 60_000);
 
-    setInterval(() => {
+    const reminderTimer = setInterval(() => {
       void sendInstallmentReminders().catch((error) => console.error('sendInstallmentReminders failed:', error));
     }, 24 * 60 * 60 * 1000);
     void sendInstallmentReminders().catch((error) => console.error('initial installment reminders failed:', error));
+
+    // Graceful shutdown. Coolify/Docker stop a container with SIGTERM on
+    // every deploy; without this the process was killed mid-request (cut-off
+    // uploads and payments) and left MongoDB connections to time out. Stop
+    // accepting new connections, let in-flight requests finish, then close
+    // sockets and the database. A hard exit follows if that takes too long.
+    let shuttingDown = false;
+    const shutdown = (signal: string) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`${signal} received — shutting down gracefully`);
+      clearInterval(staleSessionTimer);
+      clearInterval(reminderTimer);
+      const forceExit = setTimeout(() => {
+        console.error('Graceful shutdown timed out — forcing exit');
+        process.exit(1);
+      }, 20_000);
+      forceExit.unref();
+      socketServer.close();
+      httpServer.close(() => {
+        mongoose.disconnect()
+          .catch((error) => console.error('MongoDB disconnect failed:', error))
+          .finally(() => process.exit(0));
+      });
+      // Idle keep-alive connections would otherwise hold close() open.
+      httpServer.closeIdleConnections?.();
+    };
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+    process.once('SIGINT', () => shutdown('SIGINT'));
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);

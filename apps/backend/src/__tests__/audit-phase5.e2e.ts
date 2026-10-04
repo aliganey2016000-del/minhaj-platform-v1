@@ -63,6 +63,7 @@ async function main() {
     const { default: Setting } = await import('../models/setting.model');
     const { default: Gamification } = await import('../models/gamification.model');
     const { default: ClassModel } = await import('../models/class.model');
+    const { default: Invoice } = await import('../models/invoice.model');
 
     const token = (user: any, organizationId?: string) => generateAccessToken({
       userId: user._id.toString(), role: user.role, permissions: [],
@@ -198,6 +199,87 @@ async function main() {
     const enrolledCount = await Student.countDocuments({ enrolledCourses: seatCourse._id });
     assert(enrolledCount === 1, `only one student actually holds the seat (got ${enrolledCount})`);
 
+
+    // ---------------------------------------------------------------- GR1 / EA1 / UP1
+    section('GR1: manual grades respect school, category and teacher visibility');
+    const { default: GradingScheme } = await import('../models/grading-scheme.model');
+    await GradingScheme.create({
+      course: courseA._id,
+      categories: [
+        { key: 'quiz', label: 'Quiz', weight: 50, sourceType: 'manual', teacherVisible: true },
+        { key: 'final', label: 'Final', weight: 50, sourceType: 'manual', teacherVisible: false },
+      ],
+    } as any);
+    const tTeacherA = token(tA.user);
+    res = await request(app).put(`/api/v1/gradebook/${courseA._id}/manual/${sA.student._id}`).set(auth(tTeacherA)).send({ categoryKey: 'quiz', score: 80 });
+    assert(res.status === 200, `a teacher can grade a visible category (got ${res.status} ${res.body?.message})`);
+    res = await request(app).put(`/api/v1/gradebook/${courseA._id}/manual/${sA.student._id}`).set(auth(tTeacherA)).send({ categoryKey: 'final', score: 80 });
+    assert(res.status === 403, `a teacher cannot grade an admin-only category (got ${res.status})`);
+    res = await request(app).put(`/api/v1/gradebook/${courseA._id}/manual/${sA.student._id}`).set(auth(tokA)).send({ categoryKey: 'final', score: 80 });
+    assert(res.status === 200, `the org admin can (got ${res.status})`);
+    res = await request(app).put(`/api/v1/gradebook/${courseA._id}/manual/${sA.student._id}`).set(auth(tokA)).send({ categoryKey: 'nope', score: 80 });
+    assert(res.status === 400, `an unknown category is refused (got ${res.status})`);
+    res = await request(app).put(`/api/v1/gradebook/${courseA._id}/manual/${sB.student._id}`).set(auth(tokA)).send({ categoryKey: 'quiz', score: 80 });
+    assert(res.status === 400, `another school's student is refused (got ${res.status})`);
+
+    section('EA1: exam attendance only for the exam\'s own students');
+    res = await request(app).post(`/api/v1/exams/${examA._id}/attendance`).set(auth(tokA)).send({ records: [{ student: sB.student._id, status: 'absent' }] });
+    assert(res.status === 400, `another school's student cannot be marked (got ${res.status})`);
+    res = await request(app).post(`/api/v1/exams/${examA._id}/attendance`).set(auth(tokA)).send({ records: [{ student: sA.student._id, status: 'present' }] });
+    assert(res.status === 200 || res.status === 201, `an own student can (got ${res.status} ${res.body?.message})`);
+
+    section('UP1: assignment attachments stay inside the organization\'s own uploads');
+    const mk = (attachments: any[]) => request(app).post('/api/v1/assignments').set(auth(tTeacherA))
+      .send({ title: 'A5 attach', course: courseA._id, dueDate: new Date(Date.now() + 86400000).toISOString(), attachments });
+    res = await mk([{ url: '/uploads/student-documents/x/y/secret.pdf', name: 's.pdf' }]);
+    assert(res.status === 400, `a private document folder is refused (got ${res.status})`);
+    res = await mk([{ url: `/uploads/assignments/${schoolB._id}/file.pdf`, name: 'f.pdf' }]);
+    assert(res.status === 400, `another school's upload folder is refused (got ${res.status})`);
+    res = await mk([{ url: `/uploads/assignments/${schoolA._id}/../../x.pdf`, name: 'f.pdf' }]);
+    assert(res.status === 400, `a traversal path is refused (got ${res.status})`);
+    res = await mk([{ url: `/uploads/assignments/${schoolA._id}/file.pdf`, name: 'f.pdf' }, { url: 'https://example.com/doc.pdf', name: 'doc.pdf' }]);
+    assert(res.status === 201, `own folder and external links are accepted (got ${res.status} ${res.body?.message})`);
+    res = await request(app).post('/api/v1/assignments').set(auth(tTeacherA))
+      .send({ title: 'A5 class', course: courseA._id, class: classB._id, dueDate: new Date(Date.now() + 86400000).toISOString() });
+    assert(res.status === 400, `a foreign class is refused for an assignment (got ${res.status})`);
+
+
+    section('R2: installment reminders are batched and sent once per day');
+    const { sendInstallmentReminders } = await import('../services/installment-reminder.service');
+    const { default: Notification } = await import('../models/notification.model');
+    const soon = new Date(Date.now() + 86400000);
+    for (const [student, period] of [[sA.student, 'r2-a'], [sA2.student, 'r2-b'], [sB.student, 'r2-c']] as const) {
+      await Invoice.create({
+        student: (student as any)._id, school: student === sB.student ? schoolB._id : schoolA._id, title: 'Term fees', period,
+        lineItems: [{ description: 'Fees', amount: 100 }], amount: 100, discount: 0, amountPaid: 0, status: 'pending', paymentType: 'tuition',
+        dueDate: soon, issueDate: new Date(), generatedBy: admin._id,
+        installments: [{ number: 1, dueDate: soon, amount: 50, paidAmount: 0, status: 'pending' }, { number: 10, dueDate: new Date(Date.now() + 40 * 86400000), amount: 50, paidAmount: 0, status: 'pending' }],
+      } as any);
+    }
+    const before = await Notification.countDocuments({ link: '/student/payments' });
+    const first = await sendInstallmentReminders();
+    const second = await sendInstallmentReminders();
+    const created = (await Notification.countDocuments({ link: '/student/payments' })) - before;
+    assert(first === 3 && created === 3, `one reminder per student on the first run (sent ${first}, created ${created})`);
+    assert(second === 0, `a second run the same day sends nothing (sent ${second})`);
+
+
+    section('R3: bulk fan-out is bounded');
+    const { mapLimit } = await import('../utils/map-limit');
+    let inFlight = 0;
+    let peak = 0;
+    const mapped = await mapLimit(Array.from({ length: 100 }, (_, i) => i), 7, async (n) => {
+      inFlight += 1; peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      inFlight -= 1;
+      return n * 2;
+    });
+    assert(peak <= 7 && peak > 1, `never more than 7 operations in flight (peak ${peak})`);
+    assert(mapped.length === 100 && mapped[99] === 198 && mapped[0] === 0, 'results keep their order');
+    let rejected = false;
+    await mapLimit([1, 2, 3], 2, async (n) => { if (n === 2) throw new Error('boom'); return n; }).catch(() => { rejected = true; });
+    assert(rejected, 'an error still rejects like Promise.all');
+
     // ---------------------------------------------------------------- S1
     section('S1: activity logs and settings are not shared between organizations');
     await ActivityLog.create([
@@ -252,7 +334,6 @@ async function main() {
     // ---------------------------------------------------------------- P1
     section('P1: an idempotency key cannot replay another student\'s payment');
     const key = 'a5-shared-key-0001';
-    const { default: Invoice } = await import('../models/invoice.model');
     const makeInvoice = (school: any, student: any, period: string) => Invoice.create({
       student: student._id, school: school._id, title: 'Fees', period, lineItems: [{ description: 'Fees', amount: 100 }],
       amount: 100, discount: 0, amountPaid: 0, status: 'pending', paymentType: 'tuition', dueDate: new Date(), issueDate: new Date(),
