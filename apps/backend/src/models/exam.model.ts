@@ -53,6 +53,11 @@ const examSchema = new Schema<IExam>(
     endTime: { type: String, match: /^([01]\d|2[0-3]):([0-5]\d)$/, required: function (this: IExam) { return !this.autoSchedule; } },
     duration: { type: Number, required: true, min: 1 },
     totalMarks: { type: Number, required: true, min: 1 },
+    // Cross-field "passingMarks <= totalMarks" is enforced in
+    // exam.controller.ts (create/update/bulkImport), not here — a
+    // findByIdAndUpdate validator's `this` does not reliably see the
+    // merged document (only the raw update payload), so it cannot be
+    // taught this rule as a path-level validator without re-querying.
     passingMarks: { type: Number, required: true, min: 1 },
     room: { type: String, default: '' },
     instructions: { type: String, default: '' },

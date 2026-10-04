@@ -155,15 +155,49 @@ async function createBackup(): Promise<void> {
     const logFile = path.join(BACKUP_DIR, 'backups.log');
     fs.appendFileSync(logFile, JSON.stringify(backupInfo) + '\n');
   } catch (error) {
+    // Logged here for a friendlier message, then re-thrown so callers (the
+    // CLI entrypoint, or a test importing this module) can handle/observe
+    // the failure instead of the whole process being killed out from under
+    // them by a `process.exit` buried inside a library function.
     console.error('❌ Backup failed:', error instanceof Error ? error.message : error);
-    process.exit(1);
+    throw error;
   }
+}
+
+/**
+ * Recursively search `root` for a directory named exactly `dbName` — this is
+ * what `mongodump --out <dir>` produces (`<dir>/<dbName>/*.bson`). We cannot
+ * assume a fixed path for it: `createBackup` tars up a timestamped temp
+ * directory (`.temp-<created-at>/<dbName>`), so the folder name inside the
+ * archive is different on every single backup. Searching for it by name,
+ * rather than hardcoding a path, is what makes restore work regardless of
+ * when/how the archive was produced.
+ */
+function findDumpDir(root: string, dbName: string, depth = 0): string | null {
+  if (depth > 6) return null;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const full = path.join(root, entry.name);
+    if (entry.name === dbName) return full;
+    const nested = findDumpDir(full, dbName, depth + 1);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 /**
  * Restore database from backup
  */
 async function restoreBackup(backupFile: string): Promise<void> {
+  const tempDir = path.join(BACKUP_DIR, `.temp-restore-${Date.now()}`);
+  let decryptedTempFile: string | null = null;
+
   try {
     if (!fs.existsSync(backupFile)) {
       throw new Error(`Backup file not found: ${backupFile}`);
@@ -175,8 +209,6 @@ async function restoreBackup(backupFile: string): Promise<void> {
 
     console.log('🔄 Restoring database from backup...');
 
-    const tempDir = path.join(BACKUP_DIR, `.temp-restore-${Date.now()}`);
-
     // Decrypt if needed
     let dataToExtract = backupFile;
     if (backupFile.endsWith('.enc')) {
@@ -186,21 +218,32 @@ async function restoreBackup(backupFile: string): Promise<void> {
 
       console.log('🔓 Decrypting backup...');
       const decrypted = decryptBackup(backupFile, ENCRYPTION_PASSWORD);
-      dataToExtract = path.join(BACKUP_DIR, '.temp-backup.tar.gz');
-      fs.writeFileSync(dataToExtract, decrypted);
+      decryptedTempFile = path.join(BACKUP_DIR, `.temp-backup-${Date.now()}.tar.gz`);
+      fs.writeFileSync(decryptedTempFile, decrypted);
+      dataToExtract = decryptedTempFile;
     }
 
-    // Extract backup
+    // Extract into a dedicated, disposable temp directory — never directly
+    // into BACKUP_DIR, which would otherwise permanently litter it with
+    // every restore's extracted dump.
+    fs.mkdirSync(tempDir, { recursive: true });
     console.log('📂 Extracting backup...');
     try {
-      execFileSync('tar', ['-xzf', dataToExtract, '-C', BACKUP_DIR], { stdio: 'inherit' });
+      execFileSync('tar', ['-xzf', dataToExtract, '-C', tempDir], { stdio: 'inherit' });
     } catch (error) {
       throw new Error('tar extraction failed');
     }
 
-    // Restore using mongorestore
+    // Locate the extracted dump directory by database name rather than
+    // assuming a fixed path (see findDumpDir above).
     const dbName = new URL(MONGODB_URI).pathname.split('/')[1];
-    const dumpDir = path.join(BACKUP_DIR, 'dump', dbName);
+    if (!dbName) {
+      throw new Error('Could not determine database name from MONGODB_URI');
+    }
+    const dumpDir = findDumpDir(tempDir, dbName);
+    if (!dumpDir) {
+      throw new Error(`Could not locate a "${dbName}" dump directory inside the extracted backup`);
+    }
 
     console.log('📥 Restoring to MongoDB...');
     try {
@@ -209,16 +252,17 @@ async function restoreBackup(backupFile: string): Promise<void> {
       throw new Error('mongorestore command failed');
     }
 
-    // Cleanup
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    if (backupFile.endsWith('.enc')) {
-      fs.unlinkSync(dataToExtract);
-    }
-
     console.log('✅ Database restored successfully');
   } catch (error) {
     console.error('❌ Restore failed:', error instanceof Error ? error.message : error);
-    process.exit(1);
+    throw error;
+  } finally {
+    // Cleanup always runs, success or failure, so a failed restore doesn't
+    // leave temp files behind either.
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    if (decryptedTempFile) {
+      fs.rmSync(decryptedTempFile, { force: true });
+    }
   }
 }
 
@@ -339,7 +383,24 @@ Examples:
   }
 }
 
-main().catch((error) => {
-  console.error('❌ Error:', error);
-  process.exit(1);
-});
+// Only run as a CLI when executed directly (`ts-node scripts/backup.ts ...`
+// or the compiled equivalent) — not when a test imports this module to
+// exercise its functions directly.
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('❌ Error:', error);
+    process.exit(1);
+  });
+}
+
+export {
+  createBackup,
+  restoreBackup,
+  listBackups,
+  cleanupOldBackups,
+  findDumpDir,
+  encryptBackup,
+  decryptBackup,
+  getBackupFilename,
+  ensureBackupDir,
+};

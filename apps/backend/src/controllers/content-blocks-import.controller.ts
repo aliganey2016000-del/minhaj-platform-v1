@@ -168,7 +168,7 @@ export const downloadContentBlocksTemplate = async (_req: Request, res: Response
   appendAiPromptSheets(workbook);
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=content-blocks-template.xlsx');
   res.end(buffer);
 };

@@ -15,6 +15,7 @@ import { notifyUsers } from '../utils/notify';
 import ensureStudentRecord from '../utils/ensure-student';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
+import { todaySchoolDateOnly } from '../utils/school-date';
 
 const INVOICE_STATUSES = ['pending', 'partial', 'paid', 'void'];
 
@@ -348,8 +349,12 @@ export const collectPayment = async (req: Request, res: Response): Promise<Respo
   let parsedPaymentDate: Date | undefined;
   if (paymentDate) {
     parsedPaymentDate = new Date(`${String(paymentDate).slice(0, 10)}T00:00:00.000`);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Use the school's local (Africa/Mogadishu) calendar day, not the
+    // server's UTC day — see utils/school-date.ts. Comparing against the
+    // server's UTC "today" wrongly rejects a same-day payment as
+    // future-dated during the ~3h window where Mogadishu has already
+    // rolled over to the next day but UTC has not.
+    const today = todaySchoolDateOnly();
     const oldestAllowed = new Date(today);
     oldestAllowed.setDate(oldestAllowed.getDate() - 30);
     if (Number.isNaN(parsedPaymentDate.getTime()) || parsedPaymentDate > today || parsedPaymentDate < oldestAllowed) {
@@ -395,7 +400,15 @@ export const createInstallmentPlan = async (req: Request, res: Response): Promis
   }));
   if (installments.some((item: any) => !Number.isFinite(item.amount) || item.amount <= 0 || Number.isNaN(item.dueDate.getTime()))) throw new BadRequestError('Each installment needs a valid amount and due date');
   const total = installments.reduce((sum: number, item: any) => sum + item.amount, 0);
-  if (Math.abs(total - invoice.amount) > 0.01) throw new BadRequestError(`Installments must total ${invoice.amount}`);
+  // The payable target is the invoice's NET amount (gross minus any discount
+  // already granted, e.g. via a FeeAdjustment/DiscountGrant applied before
+  // the plan was created) — not the raw gross `amount`. Validating against
+  // the gross amount forced a plan to either be rejected when it correctly
+  // summed to the real remaining balance, or to be accepted while
+  // overstating it, which later installments could never actually collect
+  // (applyInvoicePayment's atomic guard caps collection at amount - discount).
+  const netPayable = invoice.amount - (invoice.discount || 0);
+  if (Math.abs(total - netPayable) > 0.01) throw new BadRequestError(`Installments must total ${netPayable}`);
   invoice.installments = installments as any;
   await syncInvoiceInstallments(invoice);
   await invoice.save();

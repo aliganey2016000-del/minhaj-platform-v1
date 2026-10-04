@@ -12,6 +12,7 @@ import { buildReceiptPdf } from '../utils/receipt-pdf';
 import { escapeRegex } from '../utils/escape-regex';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { getFromR2, r2Enabled } from '../utils/r2-storage';
+import { todaySchoolDateOnly } from '../utils/school-date';
 
 // ---------------------------------------------------------------------------
 // POST /payments — Record an ad-hoc payment for a single student (walk-in
@@ -35,8 +36,12 @@ export const recordPayment = async (req: Request, res: Response): Promise<Respon
   let parsedPaymentDate: Date | undefined;
   if (paymentDate) {
     parsedPaymentDate = new Date(`${String(paymentDate).slice(0, 10)}T00:00:00.000`);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Use the school's local (Africa/Mogadishu) calendar day, not the
+    // server's UTC day — see utils/school-date.ts. Comparing against the
+    // server's UTC "today" wrongly rejects a same-day payment as
+    // future-dated during the ~3h window where Mogadishu has already
+    // rolled over to the next day but UTC has not.
+    const today = todaySchoolDateOnly();
     const oldestAllowed = new Date(today);
     oldestAllowed.setDate(oldestAllowed.getDate() - 30);
     if (Number.isNaN(parsedPaymentDate.getTime()) || parsedPaymentDate > today || parsedPaymentDate < oldestAllowed) {

@@ -19,6 +19,7 @@ import { computeCourseGrade, validateCategoryWeights } from '../utils/grade-calc
 import { computeCourseGradesBulk } from '../utils/bulk-grade-calculator';
 import ensureStudentRecord from '../utils/ensure-student';
 import { escapeRegex } from '../utils/escape-regex';
+import { buildCsv } from '../utils/csv-sanitize';
 
 async function assertOwnsCourseIfTeacher(req: Request, course: any): Promise<void> {
   if (req.user?.role !== 'teacher') return;
@@ -181,6 +182,19 @@ export const setManualGrade = async (req: Request, res: Response): Promise<Respo
 
   if (!categoryKey || typeof score !== 'number' || score < 0 || score > 100) {
     throw new BadRequestError('categoryKey and a score between 0 and 100 are required.');
+  }
+
+  // A teacher must not be able to write to a category the admin marked
+  // teacherVisible: false (e.g. an official invigilated exam score) just by
+  // calling this single-entry endpoint directly — bulkSetManualGrades and
+  // importManualEntryRoster already enforce this; this path must too, or a
+  // teacher could silently override a locked score the admin controls.
+  if (req.user?.role === 'teacher') {
+    const scheme = await GradingScheme.findOne({ course: courseId }).select('categories').lean();
+    const category = scheme?.categories?.find((c: any) => c.key === categoryKey);
+    if (category?.teacherVisible === false) {
+      throw new ForbiddenError('This category is locked to admin — a teacher cannot enter a score for it.');
+    }
   }
 
   const entry = await ManualGradeEntry.findOneAndUpdate(
@@ -430,10 +444,10 @@ export const exportClassGrades = async (req: Request, res: Response): Promise<vo
   const filename = `gradebook-${((course as any).title?.en || courseId).replace(/\s+/g, '-')}`;
 
   if (format === 'csv') {
-    const csv = [headers, ...rows].map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = buildCsv(headers, rows);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename=${filename}.csv`);
-    res.end('﻿' + csv);
+    res.end(csv);
     return;
   }
 
@@ -442,7 +456,7 @@ export const exportClassGrades = async (req: Request, res: Response): Promise<vo
   XLSX.utils.book_append_sheet(workbook, sheet, 'Gradebook');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=${filename}.xlsx`);
   res.end(buffer);
 };
@@ -721,7 +735,7 @@ export const exportManualEntryTemplate = async (req: Request, res: Response): Pr
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
   const filename = `enter-results-${(roster.courseTitle || (course as any).title?.en || courseId).replace(/\s+/g, '-')}`;
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=${filename}.xlsx`);
   res.end(buffer);
 };

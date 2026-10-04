@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import ExamRoom from '../models/exam-room.model';
 import ClassModel from '../models/class.model';
 import SeatAllocation from '../models/seat-allocation.model';
+import ExamSeatingPlan from '../models/exam-seating-plan.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
@@ -199,6 +200,28 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (req.body?.capacity !== undefined) {
     const capacity = Number(req.body.capacity);
     if (!Number.isFinite(capacity) || capacity < 1) throw new BadRequestError('capacity must be at least 1');
+
+    // Shrinking a room's capacity below the number of students already seated
+    // in it (for any single academic year + exam type session) would leave
+    // that room silently over capacity, since nothing re-validates existing
+    // ExamSeatingPlan rows after this edit. Block the edit instead.
+    if (capacity < Number(existing.capacity)) {
+      const seated = await ExamSeatingPlan.find({ room: existing._id })
+        .select('academicYear examType')
+        .lean() as any[];
+      const occupancyBySession = new Map<string, number>();
+      for (const row of seated) {
+        const sessionKey = `${row.academicYear}::${row.examType}`;
+        occupancyBySession.set(sessionKey, (occupancyBySession.get(sessionKey) || 0) + 1);
+      }
+      const maxOccupied = Math.max(0, ...occupancyBySession.values());
+      if (capacity < maxOccupied) {
+        throw new BadRequestError(
+          `Cannot reduce ${existing.name}'s capacity to ${capacity}: ${maxOccupied} student(s) are already seated there for an exam session. Reassign or remove those seats first.`
+        );
+      }
+    }
+
     updates.capacity = capacity;
     updates.capacityMode = 'manual';
   }
@@ -317,6 +340,21 @@ export const importRooms = async (req: Request, res: Response): Promise<Response
 
     const existing = await ExamRoom.findOne({ school, name, building });
     if (existing) {
+      if (capacity < Number(existing.capacity)) {
+        const seated = await ExamSeatingPlan.find({ room: existing._id })
+          .select('academicYear examType')
+          .lean() as any[];
+        const occupancyBySession = new Map<string, number>();
+        for (const seat of seated) {
+          const sessionKey = `${seat.academicYear}::${seat.examType}`;
+          occupancyBySession.set(sessionKey, (occupancyBySession.get(sessionKey) || 0) + 1);
+        }
+        const maxOccupied = Math.max(0, ...occupancyBySession.values());
+        if (capacity < maxOccupied) {
+          errors.push(`Row ${rowNumber}: Cannot reduce ${name}'s capacity to ${capacity}; ${maxOccupied} student(s) are already seated there for an exam session.`);
+          continue;
+        }
+      }
       existing.capacity = capacity;
       existing.capacityMode = 'manual';
       existing.building = building;

@@ -195,10 +195,8 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
   const byId = new Map(students.map((s) => [key(s.studentId).toUpperCase(), s]));
 
   let school: any = null, academicYear = '', type = '', docs: any[] = [], allRooms: any[] = [];
-  let scheduleRules: any = null;
   const preview: any[] = [];
   const seenStudents = new Set<string>(), seenSeats = new Set<string>();
-  const roomCounts = new Map<string, number>();
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -219,7 +217,6 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
       if (key(row.academicYear) !== key(academicYear) || t !== type) throw new Error('All rows must use the same Academic Year and Exam Type');
       if (!school) {
         school = student.school;
-        scheduleRules = await getExamSchedulingRulesForSchool(school?._id || school || null);
       }
       if (school && allRooms.length === 0) allRooms = await ExamRoom.find({ school: school._id || school, capacityMode: { $ne: 'auto' }, allocationEnabled: { $ne: false } }).sort({ name: 1 }).lean();
       if (school?.name && key(row.organization) !== key(school.name)) throw new Error('Organization does not match the student school');
@@ -234,14 +231,10 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
         if (suggestion) { row.suggestion = { room: suggestion.room, seat: suggestion.seat }; seenSeats.add(suggestion.seatKey); }
         throw new Error(`Duplicate seat ${row.seat} in ${row.room}`);
       }
-      const roomKey = roomDoc._id.toString();
-      const nextRoomCount = (roomCounts.get(roomKey) || 0) + 1;
-      if ((scheduleRules?.roomCapacityCheck ?? true) && nextRoomCount > Number(roomDoc.capacity || 0)) {
-        const suggestion = suggestSeat(allRooms, seenSeats);
-        if (suggestion) row.suggestion = { room: suggestion.room, seat: suggestion.seat };
-        throw new Error(`Room capacity exceeded: ${roomDoc.name} allows ${roomDoc.capacity} students`);
-      }
-      roomCounts.set(roomKey, nextRoomCount);
+      // Room capacity is a soft planning number for this bulk import — the
+      // admin may deliberately exceed it (overflow seating, temporary extra
+      // chairs, etc). Only a genuine room+seat collision above is blocked;
+      // see the module comment and seating-import-smart-fix.e2e.ts.
       seenSeats.add(seatKey);
       docs.push({ student: student._id, room: roomDoc._id, deskNumber: row.seat, academicYear: row.academicYear, examType: t, school: school?._id || null });
     } catch (e: any) {

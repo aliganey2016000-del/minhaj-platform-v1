@@ -26,4 +26,11 @@ const announcementSchema = new Schema<IAnnouncement>(
   { timestamps: true, toJSON: { transform(_d: any, r: any) { delete r.__v; return r; } } }
 );
 
+// GET / (content.controller.ts getAll, shared by Announcement/News/Event/
+// Gallery) filters by {school, status?} and always sorts by createdAt desc
+// for pagination. `school` and `status` only had separate single-field
+// indexes, so Mongo could use at most one of them for the filter and still
+// had to sort the matched set in memory on every page.
+announcementSchema.index({ school: 1, status: 1, createdAt: -1 });
+
 export default mongoose.model<IAnnouncement>('Announcement', announcementSchema);

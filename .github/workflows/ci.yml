@@ -39,6 +39,9 @@ jobs:
       - name: Class Schedule & Timetable A-Z QA
         run: npm run test:schedule-qa
 
+      - name: Legacy class-schedule conflict regression (teacher/room/class double-booking)
+        run: npm run test:legacy-schedule-conflicts
+
       - name: Class Schedule edge-case regressions
         run: npx ts-node src/__tests__/class-schedule-edge-cases.e2e.ts
 
@@ -81,8 +84,20 @@ jobs:
       - name: Reliability phase 5 regression (boot hardening, health check, TTL retention, balance pagination, host caching)
         run: npx ts-node src/__tests__/reliability-phase5.e2e.ts
 
+      - name: List-query index coverage regression (teacher/class/fee-structure/content list+pagination endpoints)
+        run: npm run test:list-query-index-coverage
+
+      - name: XLSX export Content-Type header regression
+        run: npx ts-node src/__tests__/xlsx-export-content-type.e2e.ts
+
+      - name: Gradebook teacherVisible bypass regression (single-entry grade endpoint)
+        run: npx ts-node src/__tests__/gradebook-teacher-visible-bypass.e2e.ts
+
       - name: Phase 6 regression (scheduler race-safety, auth-state/socket invalidation wiring)
         run: npx ts-node src/__tests__/scheduler-socket-pwa-phase6.e2e.ts
+
+      - name: Attendance notification duplicate-send race regression
+        run: npx ts-node src/__tests__/attendance-notification-race.e2e.ts
 
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
@@ -118,6 +133,9 @@ jobs:
       - name: Manage list search/pagination tests (batch 2)
         run: npm run test:list-search-2
 
+      - name: User search-by-name tests
+        run: npm run test:user-search
+
       - name: Dashboard micro-cache tests
         run: npm run test:dashboard-cache
 
@@ -129,6 +147,12 @@ jobs:
 
       - name: Financial core payment tests
         run: npm run test:financial-core
+
+      - name: Payment/invoice date school-timezone boundary regression
+        run: npm run test:payment-date-timezone-boundary
+
+      - name: Installment-plan vs. discount mismatch regression
+        run: npm run test:installment-plan-discount-mismatch
 
       - name: Parent portal privacy and authorization tests
         run: npm run test:parent-portal
@@ -145,6 +169,9 @@ jobs:
       - name: User Management orphan cleanup tests
         run: npm run test:user-orphan-cleanup
 
+      - name: Push subscription orphan cleanup regression
+        run: npm run test:push-subscription-cleanup
+
       - name: Student activity time-tracking tests
         run: npm run test:activity-tracking
 
@@ -159,6 +186,42 @@ jobs:
 
       - name: Dependency supply-chain regression (exceljs/uuid override)
         run: npx ts-node src/__tests__/dependency-supply-chain.e2e.ts
+
+      - name: Backup/restore regression (scripts/backup.ts packaging, encryption, and dump-dir resolution)
+        run: npx ts-node src/__tests__/backup-restore.e2e.ts
+
+      - name: Exam room capacity shrink regression (room edit/import vs seated students)
+        run: npm run test:exam-room-capacity-shrink
+
+      - name: Password-reset token race regression (concurrent reset-password completions)
+        run: npm run test:password-reset-race
+
+      - name: Finance payment-status race and upload-cleanup regression
+        run: npx ts-node src/__tests__/finance-upload-round4.e2e.ts
+
+      - name: AI routes rate-limit coverage
+        run: npm run test:ai-rate-limit
+
+      - name: Gamification integrity regression (quiz-attempt race, lesson-XP replay, XP-injection endpoint removal)
+        run: npm run test:gamification-integrity
+
+      - name: CSV export formula-injection regression
+        run: npm run test:csv-injection
+
+      - name: Email template HTML-injection regression (verification email)
+        run: npm run test:email-html-injection
+
+      - name: Exam seating-plan import capacity-advisory regression
+        run: npm run test:seating-plan-import-capacity
+
+      - name: Exam Seating smart-fix (capacity-advisory + duplicate-seat suggestion) regression
+        run: npm run test:seating-smart-fix
+
+      - name: Org-reassignment JWT revocation regression
+        run: npm run test:auth-org-reassignment
+
+      - name: Exam passing-marks-exceeds-total-marks regression
+        run: npm run test:exam-passing-marks-bound
 
   frontend:
     name: Frontend build and lint

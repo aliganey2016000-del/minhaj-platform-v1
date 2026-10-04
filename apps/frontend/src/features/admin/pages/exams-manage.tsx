@@ -1952,6 +1952,10 @@ function ExamModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (Number(form.passingMarks) > Number(form.totalMarks)) {
+      setError('Passing marks cannot exceed total marks');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -2144,7 +2148,8 @@ function ExamModal({
             </div>
             <div>
               <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Passing Marks *</label>
-              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={1} value={form.passingMarks} onChange={(e) => handleChange('passingMarks', Number(e.target.value))} required />
+              <input className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" type="number" min={1} max={form.totalMarks || undefined} value={form.passingMarks} onChange={(e) => handleChange('passingMarks', Number(e.target.value))} required />
+              {Number(form.passingMarks) > Number(form.totalMarks) && <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">Cannot exceed total marks</p>}
             </div>
           </div>
 

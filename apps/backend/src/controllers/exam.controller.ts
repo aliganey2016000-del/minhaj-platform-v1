@@ -1494,6 +1494,11 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   assertOwnsOrg(req, course, 'school');
   await assertOwnsExamIfTeacher(req, { course });
 
+  if (req.body.totalMarks !== undefined && req.body.passingMarks !== undefined
+    && Number(req.body.passingMarks) > Number(req.body.totalMarks)) {
+    throw new BadRequestError('Passing marks cannot exceed total marks');
+  }
+
   await validateFixedExamSchedule({
     schoolId: String(course.school || ''),
     classId: course.class ? String(course.class) : '',
@@ -1565,6 +1570,11 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   const existingCourse = existing.course as any;
   const nextAutoSchedule = updates.autoSchedule ?? existing.autoSchedule;
+  const nextTotalMarks = updates.totalMarks ?? existing.totalMarks;
+  const nextPassingMarks = updates.passingMarks ?? existing.passingMarks;
+  if (Number(nextPassingMarks) > Number(nextTotalMarks)) {
+    throw new BadRequestError('Passing marks cannot exceed total marks');
+  }
   await validateFixedExamSchedule({
     schoolId: String(existing.school || existingCourse?.school || ''),
     classId: existingCourse?.class ? String(existingCourse.class) : '',
@@ -2357,6 +2367,7 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
       if (!totalMarks || totalMarks <= 0) throw new Error('Total Marks must be a positive number');
       const passingMarks = Number(passingMarksRaw);
       if (!passingMarks || passingMarks <= 0) throw new Error('Passing Marks must be a positive number');
+      if (passingMarks > totalMarks) throw new Error('Passing Marks cannot exceed Total Marks');
 
       let periodDoc: any = forcedPeriodDoc || null;
       if (!periodDoc && periodName && academicYear) {

@@ -17,6 +17,7 @@ import Parent from '../models/parent.model';
 import School from '../models/school.model';
 import ClassModel from '../models/class.model';
 import Progress from '../models/progress.model';
+import PushSubscription from '../models/push-subscription.model';
 import CourseContent from '../models/course-content.model';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
@@ -900,6 +901,7 @@ async function deleteStudentToTrash(studentId: string, req: Request): Promise<vo
 
   await Promise.all([
     student.user ? User.findByIdAndDelete(student.user) : null,
+    student.user ? PushSubscription.deleteMany({ user: student.user }) : null,
     student.profile ? Profile.findByIdAndDelete(student.profile) : null,
     Student.findByIdAndDelete(student._id),
   ]);
@@ -1013,6 +1015,7 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
         ? Parent.updateMany({ _id: { $in: parentIds } }, { $pull: { children: { $in: allowedStudentIds } } })
         : Promise.resolve(null),
       userIds.length > 0 ? User.deleteMany({ _id: { $in: userIds } }) : Promise.resolve(null),
+      userIds.length > 0 ? PushSubscription.deleteMany({ user: { $in: userIds } }) : Promise.resolve(null),
       profileIds.length > 0 ? Profile.deleteMany({ _id: { $in: profileIds } }) : Promise.resolve(null),
       Student.deleteMany({ _id: { $in: allowedStudentIds } }),
     ]);
@@ -1274,7 +1277,7 @@ export const downloadTemplate = async (_req: Request, res: Response): Promise<vo
   ]];
   const buffer = buildXlsxBuffer(headers, rows, 'Student Template');
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=students-template.xlsx');
   res.end(buffer);
 };

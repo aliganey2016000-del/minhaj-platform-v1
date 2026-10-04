@@ -51,6 +51,16 @@ export function GlobalSearchBar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards against an older, slower request's response overwriting a newer
+  // one's: the debounce only delays when a request STARTS, not how long it
+  // takes to come back. If the user keeps typing, a later request (for the
+  // newer query) can resolve before an earlier, still in-flight one — e.g.
+  // the first request hits a slower replica or a larger result set. Without
+  // this guard, whichever response lands last wins regardless of which
+  // query it actually answers, so the dropdown can show results for text
+  // that's no longer in the box. Bumped on every new request; a response is
+  // only applied if it's still the most recent one requested.
+  const latestRequestIdRef = useRef(0);
 
   const flatResults = [...courses, ...assignments];
 
@@ -71,6 +81,7 @@ export function GlobalSearchBar() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = query.trim();
     if (q.length < 2) {
+      latestRequestIdRef.current += 1; // invalidate any still in-flight request
       setCourses([]);
       setAssignments([]);
       setLoading(false);
@@ -78,16 +89,19 @@ export function GlobalSearchBar() {
     }
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
+      const requestId = ++latestRequestIdRef.current;
       try {
         const { data } = await api.get('/search', { params: { q } });
+        if (requestId !== latestRequestIdRef.current) return; // a newer query has since been requested — discard this stale response
         setCourses(data.data?.courses || []);
         setAssignments(data.data?.assignments || []);
         setActiveIndex(-1);
       } catch {
+        if (requestId !== latestRequestIdRef.current) return;
         setCourses([]);
         setAssignments([]);
       } finally {
-        setLoading(false);
+        if (requestId === latestRequestIdRef.current) setLoading(false);
       }
     }, 300);
     return () => {

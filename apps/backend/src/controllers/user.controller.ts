@@ -14,7 +14,6 @@ import Parent from '../models/parent.model';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
-import { escapeRegex } from '../utils/escape-regex';
 import { allowedActionsForSidebarKey, normalizeStaffPermissions, STAFF_PERMISSION_CATALOG } from '../utils/staff-permissions';
 import { ADMIN_SIDEBAR_ITEMS, moduleForSidebarKey } from '../utils/sidebar-items';
 import * as XLSX from 'xlsx';
@@ -22,6 +21,7 @@ import School from '../models/school.model';
 import { invalidateAuthState } from '../utils/auth-state';
 import Department from '../models/department.model';
 import { nextFormattedId } from '../utils/id-sequence';
+import PushSubscription from '../models/push-subscription.model';
 
 const PRIVILEGED_ROLES = new Set(['admin', 'org_admin']);
 
@@ -106,14 +106,18 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (status === 'active') filter.isActive = true;
   if (status === 'inactive') filter.isActive = false;
 
-  if (search) {
-    filter.$or = [
-      { email: { $regex: escapeRegex(search as string), $options: 'i' } },
-    ];
-  }
-
   // When search is active, we need to find all matching users first (post-filter
   // on profile names), then paginate. Otherwise paginate at the DB level.
+  //
+  // `filter` here deliberately carries ONLY the role/status/org scoping —
+  // never an email `$or`. Earlier this also set `filter.$or = [{ email:
+  // regex }]` before the fetch below, which made `User.find(filter)` itself
+  // exclude any user whose email didn't match the search term — including
+  // ones whose NAME matches it. The in-memory filter a few lines down
+  // already re-checks both email AND full name, so the DB query must hand
+  // it every role/status/org-scoped user, not a pre-narrowed, email-only
+  // subset. Without this, searching "Search by name or email..." (see
+  // users-manage.tsx) by a user's name alone always returned zero rows.
   if (search) {
     // Fetch ALL users matching role/status/org filters (no pagination yet)
     const allUsers = await User.find(filter)
@@ -447,6 +451,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     await Promise.all([
       Profile.deleteOne({ user: user._id }),
       User.deleteOne({ _id: user._id }),
+      PushSubscription.deleteMany({ user: user._id }),
       Promise.resolve(invalidateAuthState(user._id)),
     ]);
     // A 204 must not carry a body — Node's http parser silently drops one if

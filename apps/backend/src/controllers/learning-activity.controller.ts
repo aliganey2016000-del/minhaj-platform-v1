@@ -23,6 +23,7 @@ import { logActivityFromRequest } from '../utils/learning-activity-logger';
 import { escapeRegex } from '../utils/escape-regex';
 import { assertCanViewStudent, visibleCourseIdsForStudent } from '../utils/student-visibility';
 import { isUserOnline } from '../realtime/socket';
+import { buildCsv } from '../utils/csv-sanitize';
 
 // ---------------------------------------------------------------------------
 // Shared scoping — the set of Student _ids the caller is allowed to see.
@@ -468,12 +469,10 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   const studentName = `${(student as any).profile?.firstName || ''}-${(student as any).profile?.lastName || ''}`.replace(/\s+/g, '');
 
   if (format === 'csv') {
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
+    const csv = buildCsv(headers, rows);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename=activity-${studentName}.csv`);
-    res.end('﻿' + csv);
+    res.end(csv);
     return;
   }
 
@@ -482,7 +481,7 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   XLSX.utils.book_append_sheet(workbook, sheet, 'Activity Log');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=activity-${studentName}.xlsx`);
   res.end(buffer);
 };

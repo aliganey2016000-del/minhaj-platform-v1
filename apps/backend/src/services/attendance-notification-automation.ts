@@ -9,6 +9,7 @@ import WhatsAppMessage from '../models/whatsapp-message.model';
 import TelegramMessage from '../models/telegram-message.model';
 import { getWhatsAppProvider, isWhatsAppConfigured, sendWhatsAppMessage } from '../utils/whatsapp';
 import { isTelegramConfigured, sendTelegramMessage } from '../utils/telegram';
+import { claimOnce } from '../utils/reminder-lock';
 
 type AttendanceOp = {
   updateOne?: {
@@ -104,14 +105,21 @@ async function sendForAttendance(ops: AttendanceOp[]) {
       const baileysReady = whatsappProvider === 'Baileys' && mongoose.isValidObjectId(organizationId);
       const metaReady = whatsappProvider !== 'Baileys' && Boolean(whatsappTemplate);
 
-      const startOfDay = new Date(event.date); startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(event.date); endOfDay.setHours(23, 59, 59, 999);
       const recipient = String(parent.phone || '').trim();
+      // Same event+channel key the outer `unique` map is built from, scoped
+      // per channel. Used as an atomic claim (see utils/reminder-lock.ts)
+      // instead of the previous `exists`-then-`create` check, which raced:
+      // two overlapping bulkWrite calls for the same attendance record (a
+      // double-submitted "mark attendance" request, or a retried request
+      // after a timeout) could both pass the `exists` check before either
+      // had inserted a message document, sending the same WhatsApp/Telegram
+      // alert twice — the same class of bug fixed for installment reminders.
+      const eventKey = `${event.studentId}:${event.courseId}:${event.scheduleId || 'none'}:${event.date.toISOString()}:${event.status}`;
 
       if (whatsappOn && (baileysReady || metaReady) && recipient) {
         const messageKind = whatsappProvider === 'Baileys' ? 'text' : 'template';
-        const duplicate = await WhatsAppMessage.exists({ organization: organizationId, recipient, kind: messageKind, ...(messageKind === 'template' ? { templateName: whatsappTemplate } : {}), body, createdAt: { $gte: startOfDay, $lte: endOfDay } });
-        if (!duplicate) {
+        const won = await claimOnce(`attendance-alert:whatsapp:${eventKey}`);
+        if (won) {
           const message = await WhatsAppMessage.create({ organization: organizationId, school: parent.school, recipient, parent: parent._id, direction: 'outbound', kind: messageKind, templateName: messageKind === 'template' ? whatsappTemplate : undefined, languageCode: messageKind === 'template' ? languageCode : undefined, body, status: 'queued' });
           try {
             const result = await sendWhatsAppMessage({
@@ -131,8 +139,8 @@ async function sendForAttendance(ops: AttendanceOp[]) {
 
       const chatId = String(parent.telegramChatId || '').trim();
       if (telegramOn && chatId) {
-        const duplicate = await TelegramMessage.exists({ chatId, body, createdAt: { $gte: startOfDay, $lte: endOfDay } });
-        if (!duplicate) {
+        const won = await claimOnce(`attendance-alert:telegram:${eventKey}`);
+        if (won) {
           const message = await TelegramMessage.create({ school: parent.school, chatId, parent: parent._id, body, status: 'queued' });
           try { const result = await sendTelegramMessage(chatId, body); message.status = 'sent'; message.providerMessageId = result.providerMessageId; await message.save(); }
           catch (error: any) { message.status = 'failed'; message.error = error?.response?.data?.description || error?.message || 'Telegram attendance alert failed'; await message.save(); console.error('[Telegram attendance] send failed:', message.error); }
@@ -145,7 +153,12 @@ async function sendForAttendance(ops: AttendanceOp[]) {
 const originalBulkWrite = (Attendance as any).bulkWrite.bind(Attendance);
 (Attendance as any).bulkWrite = async function wrappedBulkWrite(ops: AttendanceOp[], ...args: any[]) {
   const result = await originalBulkWrite(ops, ...args);
-  void sendForAttendance(ops);
+  // Everything inside sendForAttendance that touches a single event is
+  // already isolated in its own try/catch, but the setup before that (env
+  // checks, the batch-load queries) is not — an unguarded `void` call here
+  // would otherwise turn a transient DB hiccup into an unhandled promise
+  // rejection instead of a logged, attributable failure.
+  void sendForAttendance(ops).catch((error) => console.error('[Attendance notification] automation failed:', error));
   return result;
 };
 

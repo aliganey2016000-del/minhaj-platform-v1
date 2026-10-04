@@ -165,12 +165,31 @@ function monthLabel(key: string): string {
 // codebase, and charts can't be replayed into a raw print window anyway).
 // ---------------------------------------------------------------------------
 
+// SECURITY: this HTML is written into a popup window via document.write(),
+// completely outside React's JSX escaping. orgLabel/department/class/
+// organization/shift labels all ultimately come from admin- or
+// org-admin-entered names (school, department, class, shift) stored in the
+// backend — an org admin (a lower-privileged, potentially malicious or
+// compromised account) could name one of those `<img src=x onerror=...>`
+// and have it execute in a platform super-admin's browser the next time
+// they print a cross-org analytics report. Every interpolated string value
+// must go through escapeHtml; only pre-validated numbers (counts) are safe
+// to interpolate raw.
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function buildPrintHtml(stats: StudentStats, orgLabel: string, logoUrl = ''): string {
   const section = (title: string, rows: [string, number][]) => `
-    <h2>${title}</h2>
+    <h2>${escapeHtml(title)}</h2>
     <table>
       <thead><tr><th>Label</th><th>Count</th></tr></thead>
-      <tbody>${rows.map(([label, count]) => `<tr><td>${label}</td><td>${count.toLocaleString()}</td></tr>`).join('')}</tbody>
+      <tbody>${rows.map(([label, count]) => `<tr><td>${escapeHtml(label)}</td><td>${count.toLocaleString()}</td></tr>`).join('')}</tbody>
     </table>`;
 
   const genderLabels: Record<string, string> = { male: 'Male', female: 'Female' };
@@ -196,8 +215,8 @@ function buildPrintHtml(stats: StudentStats, orgLabel: string, logoUrl = ''): st
       </head>
       <body>
         <div class="brand">
-          ${logoUrl ? `<img class="brand-logo" src="${logoUrl}" alt="" />` : `<div class="brand-fallback">${orgLabel.slice(0, 2).toUpperCase()}</div>`}
-          <div><h1>Student Analytics Report</h1><p class="meta">${orgLabel} · Generated ${new Date().toLocaleString()}</p></div>
+          ${logoUrl ? `<img class="brand-logo" src="${escapeHtml(logoUrl)}" alt="" />` : `<div class="brand-fallback">${escapeHtml(orgLabel.slice(0, 2).toUpperCase())}</div>`}
+          <div><h1>Student Analytics Report</h1><p class="meta">${escapeHtml(orgLabel)} · Generated ${new Date().toLocaleString()}</p></div>
         </div>
         <p class="total">Total Students: ${stats.total.toLocaleString()}</p>
         ${section('Status Breakdown', Object.entries(stats.byStatus).map(([k, v]) => [k[0].toUpperCase() + k.slice(1), v]))}
@@ -320,7 +339,7 @@ export function StudentReport() {
           </div>
           <div className="flex flex-wrap gap-2 items-center flex-shrink-0">
             {isSuperAdmin && (
-              <select value={filterSchool} onChange={e => setFilterSchool(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm text-[var(--color-text-primary)]">
+              <select aria-label="Filter by organization" value={filterSchool} onChange={e => setFilterSchool(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm text-[var(--color-text-primary)]">
                 <option value="">All Organizations</option>
                 {schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
               </select>

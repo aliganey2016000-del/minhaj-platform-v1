@@ -14,8 +14,17 @@ import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role
 import { preventOrgAdminInstitutionTypeChange } from '../../middleware/institution-type-lock.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
+// Unlike every other multer instance in this codebase, this one previously
+// had no `limits.fileSize` at all — multer's default is Infinity, so an
+// org admin (or anyone holding that token) could POST an arbitrarily large
+// "logo" file. With memoryStorage() the whole body is buffered into process
+// RAM before uploadLogo even validates its content, and the local-disk
+// fallback path writes it to disk unbounded too. 10MB matches the cap this
+// project already uses for other single-image uploads (see e.g.
+// student.routes.ts's photoUpload).
 const upload = multer({
   storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 const router = Router();

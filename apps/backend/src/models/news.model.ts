@@ -26,4 +26,9 @@ const schema = new Schema<INews>(
   { timestamps: true, toJSON: { transform(_d: any, r: any) { delete r.__v; return r; } } }
 );
 
+// GET / (content.controller.ts getAll, shared by Announcement/News/Event/
+// Gallery) filters by {school, status?} and always sorts by createdAt desc
+// for pagination. See announcement.model.ts for the same gap.
+schema.index({ school: 1, status: 1, createdAt: -1 });
+
 export default mongoose.model<INews>('News', schema);

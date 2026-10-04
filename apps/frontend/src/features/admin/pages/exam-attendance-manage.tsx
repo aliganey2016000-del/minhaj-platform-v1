@@ -12,6 +12,23 @@ import { useAuth } from '../../../store/auth-context';
 import { BackButton } from '../../shared/components/back-button';
 import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
 
+// SECURITY: printAttendanceSheet() below writes raw template-literal HTML
+// into a popup window via document.write(), outside React's JSX escaping.
+// Student first/last names are learner- or guardian-entered data (set at
+// registration), and exam/course titles and school names are
+// teacher/admin-entered — any of them could contain
+// `<img src=x onerror=...>` and have it execute in the invigilator's/
+// admin's browser the next time they print a roster. Every interpolated
+// string must go through escapeHtml; only numbers (row index) are safe raw.
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 interface SchoolBrief { _id: string; name: string; }
 interface DepartmentBrief { _id: string; name: string; }
 interface ClassBrief { _id: string; title: string; section: string; }
@@ -105,7 +122,7 @@ const STATUS_OPTIONS: { value: string; letter: string; label: string; active: st
 
 function StatusButtons({ value, onChange }: { value: string; onChange: (status: string) => void }) {
   return (
-    <div className="inline-flex items-center gap-1" role="group">
+    <div className="inline-flex items-center gap-1.5" role="group">
       {STATUS_OPTIONS.map((opt) => (
         <button
           key={opt.value}
@@ -113,7 +130,7 @@ function StatusButtons({ value, onChange }: { value: string; onChange: (status: 
           title={opt.label}
           aria-pressed={value === opt.value}
           onClick={() => onChange(opt.value)}
-          className={`h-7 w-7 rounded-lg border text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
+          className={`h-11 w-11 sm:h-7 sm:w-7 rounded-lg border text-sm sm:text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
             value === opt.value ? opt.active : opt.idle
           }`}
         >
@@ -425,14 +442,14 @@ export function ExamAttendanceManage() {
       const schoolName = branding.name || exam.course?.school?.name || (user as any)?.organizationName || 'Organization';
       const logoUrl = branding.branding?.logo || '';
       const logoHtml = logoUrl
-        ? `<img class="org-logo" src="${logoUrl}" alt="" />`
-        : `<div class="org-logo-fallback">${String(schoolName).slice(0, 2).toUpperCase()}</div>`;
+        ? `<img class="org-logo" src="${escapeHtml(logoUrl)}" alt="" />`
+        : `<div class="org-logo-fallback">${escapeHtml(String(schoolName).slice(0, 2).toUpperCase())}</div>`;
       const rows = entries
         .map(
-          (r, i) => `<tr><td>${i + 1}</td><td>${r.student.profile?.firstName || ''} ${r.student.profile?.lastName || ''}</td><td>${r.student.studentId}</td><td>${r.seat ? `${r.seat.room?.name || ''} · ${r.seat.deskNumber}` : ''}</td><td></td></tr>`
+          (r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.student.profile?.firstName || '')} ${escapeHtml(r.student.profile?.lastName || '')}</td><td>${escapeHtml(r.student.studentId)}</td><td>${r.seat ? `${escapeHtml(r.seat.room?.name || '')} · ${escapeHtml(r.seat.deskNumber)}` : ''}</td><td></td></tr>`
         )
         .join('');
-      const html = `<!doctype html><html><head><title>${exam.title} — Attendance Sheet</title>
+      const html = `<!doctype html><html><head><title>${escapeHtml(exam.title)} — Attendance Sheet</title>
         <style>
           body { font-family: sans-serif; padding: 24px; color: #0f172a; }
           .org-header { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 14px; }
@@ -446,8 +463,8 @@ export function ExamAttendanceManage() {
           th { background: #f3f4f6; }
         </style>
       </head><body>
-        <div class="org-header">${logoHtml}<div><div class="org-name">${schoolName}</div><div>Exam Attendance Sheet</div></div></div>
-        <h1>${exam.title} — ${exam.course?.title?.en || ''}</h1>
+        <div class="org-header">${logoHtml}<div><div class="org-name">${escapeHtml(schoolName)}</div><div>Exam Attendance Sheet</div></div></div>
+        <h1>${escapeHtml(exam.title)} — ${escapeHtml(exam.course?.title?.en || '')}</h1>
         <p>${exam.examDate ? new Date(exam.examDate).toLocaleDateString() : 'Self-Paced'} ${exam.startTime ? `· ${exam.startTime} – ${exam.endTime}` : ''}</p>
         <table><thead><tr><th>#</th><th>Student Name</th><th>Student ID</th><th>Seat</th><th>Signature</th></tr></thead><tbody>${rows}</tbody></table>
         <script>window.onload = () => setTimeout(() => window.print(), 350);</script>

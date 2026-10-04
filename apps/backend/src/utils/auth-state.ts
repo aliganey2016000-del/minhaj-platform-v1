@@ -10,6 +10,9 @@
  */
 
 import User from '../models/user.model';
+import Student from '../models/student.model';
+import Teacher from '../models/teacher.model';
+import Parent from '../models/parent.model';
 
 export const AUTH_STATE_TTL_MS = 30_000;
 const MAX_ENTRIES = 5000;
@@ -19,6 +22,7 @@ export interface AuthState {
   isActive: boolean;
   role?: string;
   permissions: string[];
+  organizationId?: string;
 }
 
 const cache = new Map<string, { state: AuthState; expiresAt: number }>();
@@ -44,14 +48,41 @@ export function flattenPermissions(permissions: any[] | undefined): string[] {
     permission.page ? `page:${permission.page}.${action}` : `${permission.module}.${action}`));
 }
 
+// Mirrors auth.controller.ts's resolveEffectiveOrganization: teacher/parent
+// accounts carry no organizationId on the User document itself — their
+// school lives on the Teacher/Parent record — and a pending/rejected
+// student's token deliberately carries no organization at all. Comparing
+// against a plain User.organizationId read would treat every one of these
+// as a "stale" token and 401 them on their very next request.
+async function resolveOrganizationId(user: any): Promise<string | undefined> {
+  if (user.role === 'student') {
+    const student: any = await Student.findOne({ user: user._id }).select('school approvalStatus').lean();
+    if (student && (student.approvalStatus === 'pending' || student.approvalStatus === 'rejected')) return undefined;
+    return student?.school ? String(student.school) : undefined;
+  }
+  if (user.organizationId) return String(user.organizationId);
+  if (user.role === 'teacher' || user.role === 'parent') {
+    const Model: any = user.role === 'teacher' ? Teacher : Parent;
+    const record: any = await Model.findOne({ user: user._id }).select('school').lean();
+    return record?.school ? String(record.school) : undefined;
+  }
+  return undefined;
+}
+
 export async function getAuthState(userId: string): Promise<AuthState> {
   const now = Date.now();
   const hit = cache.get(userId);
   if (hit && hit.expiresAt > now) return hit.state;
 
-  const user: any = await User.findById(userId).select('isActive role permissions').lean();
+  const user: any = await User.findById(userId).select('isActive role permissions organizationId').lean();
   const state: AuthState = user
-    ? { exists: true, isActive: user.isActive !== false, role: user.role, permissions: flattenPermissions(user.permissions) }
+    ? {
+        exists: true,
+        isActive: user.isActive !== false,
+        role: user.role,
+        permissions: flattenPermissions(user.permissions),
+        organizationId: await resolveOrganizationId(user),
+      }
     : { exists: false, isActive: false, permissions: [] };
 
   if (cache.size >= MAX_ENTRIES) {
@@ -77,10 +108,22 @@ export function invalidateAuthState(userId: unknown): void {
 }
 
 /** Why a token no longer matches its account, or null when it still does. */
-export function tokenMismatch(state: AuthState, token: { role: string; permissions?: string[] }): string | null {
+export function tokenMismatch(
+  state: AuthState,
+  token: { role: string; permissions?: string[]; organizationId?: string },
+): string | null {
   if (!state.exists) return 'This account no longer exists.';
   if (!state.isActive) return 'Your account has been deactivated. Please contact an administrator.';
   if (state.role !== token.role) return 'Your access has changed. Please sign in again.';
+  // A platform admin moving a user to a different organization must take
+  // effect immediately, not after the access token happens to expire: the
+  // token's organizationId claim is what every tenant-scoped query trusts
+  // (see req.user.organizationId), so a stale claim would let the user keep
+  // acting on their old organization's data after being reassigned away
+  // from it.
+  if ((state.organizationId || '') !== (token.organizationId || '')) {
+    return 'Your access has changed. Please sign in again.';
+  }
   if (state.role === 'staff') {
     const current = [...state.permissions].sort().join('|');
     const claimed = [...(token.permissions || [])].sort().join('|');

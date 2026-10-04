@@ -109,6 +109,19 @@ Test restores periodically against a scratch database (a different
 `MONGODB_URI`, e.g. a throwaway local/staging Mongo) — a backup you've never
 restored is unverified, not a backup.
 
+> **Round 4 fix (2026-10-04):** an earlier version of this script's restore
+> path was actually broken — it extracted the archive into `BACKUP_DIR`
+> directly and then looked for the dump at a hardcoded `BACKUP_DIR/dump/<db>`
+> path that `createBackup` never produces (it writes a timestamped temp
+> directory name instead), so a real restore would always fail to find the
+> data it had just extracted. Restore now extracts into a disposable temp
+> directory and locates the dump by searching for a directory named after
+> the database, which works regardless of the archive's internal layout.
+> `src/__tests__/backup-restore.e2e.ts` exercises the full create→restore
+> cycle (with stand-in `mongodump`/`mongorestore` executables, since the
+> real tools aren't installed in CI or most dev sandboxes) and would have
+> caught this.
+
 ## Listing and manually cleaning up
 
 ```bash
