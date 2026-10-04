@@ -1,36 +1,8 @@
 import Invoice from '../models/invoice.model';
 import Student from '../models/student.model';
 import Parent from '../models/parent.model';
-import ReminderLock from '../models/reminder-lock.model';
 import { notifyUsers } from '../utils/notify';
-
-/**
- * Atomically claims `key` for a one-shot send. Returns true the first time
- * any caller claims a given key (go ahead and send), false on every
- * subsequent call for that key (already sent/claimed — skip). Safe against
- * two schedulers (or an overlapping boot-time + interval run) racing on the
- * same key: see reminder-lock.model.ts for why this is race-safe without a
- * separate read-then-write step.
- */
-async function claim(key: string): Promise<boolean> {
-  try {
-    const result = await ReminderLock.findOneAndUpdate(
-      { key },
-      { $setOnInsert: { key, createdAt: new Date() } },
-      { upsert: true, new: false },
-    );
-    // `new: false` returns the pre-update document — null means nothing
-    // matched before this call's upsert created it, i.e. we won the claim.
-    return result === null;
-  } catch (error: any) {
-    // A duplicate-key error here means another caller's insert landed in
-    // between our findOneAndUpdate's match and insert steps (possible on
-    // some server versions without the automatic upsert retry) — that is
-    // itself proof someone else claimed it first.
-    if (error?.code === 11000) return false;
-    throw error;
-  }
-}
+import { claimOnce as claim } from '../utils/reminder-lock';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
