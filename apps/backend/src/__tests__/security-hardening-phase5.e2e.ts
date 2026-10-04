@@ -252,7 +252,7 @@ async function main() {
       ]);
       const statuses = [a.status, b.status].sort();
       assert(
-        statuses[0] === 401 && statuses[1] === 200,
+        statuses[0] === 200 && statuses[1] === 401,
         `concurrent refreshes on the same old token: exactly one succeeds, the other is reuse (got ${a.status}, ${b.status})`
       );
     }
