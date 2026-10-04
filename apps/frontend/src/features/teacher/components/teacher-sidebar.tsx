@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../store/auth-context';
-import api from '../../../lib/axios';
+import type { TeacherSidebarVisibility } from './teacher-sidebar-access';
 
 interface NavLeaf { path: string; label: string; icon: string; }
 interface NavGroup { label: string; icon: string; key: string; children: NavLeaf[]; }
@@ -47,24 +47,12 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   ] },
 ];
 
-export function TeacherSidebar() {
+export function TeacherSidebar({ visibility }: { visibility: TeacherSidebarVisibility }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const [openSection, setOpenSection] = useState('');
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    if (user?.role !== 'teacher') return;
-    api.get('/sidebar-settings/mine', { params: { portal: 'teacher' } })
-      .then(({ data }) => {
-        const map: Record<string, boolean> = {};
-        (data.data?.items || []).forEach((item: { key: string; visible: boolean }) => { map[item.key] = item.visible; });
-        setVisibility(map);
-      })
-      .catch(() => setVisibility({}));
-  }, [user?.role]);
 
   const visible = (key: string) => visibility[key] !== false;
   const leafPaths = navSections.flatMap((section) => section.items.flatMap((item) => (
