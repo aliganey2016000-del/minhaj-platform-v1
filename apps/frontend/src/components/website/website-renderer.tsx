@@ -169,8 +169,9 @@ function youtubeEmbed(url: string): string | null {
   return null;
 }
 
-// Playful school palette used to give every card its own colour, independent of the brand colour.
-const PALETTE = ['#2563eb', '#0d9488', '#f59e0b', '#8b5cf6', '#ec4899', '#16a34a'];
+// Premium institutional palette inspired by the approved school-site reference.
+// Tenant theme colours remain authoritative; these are supporting accents only.
+const PALETTE = ['#33469b', '#00a66a', '#ffb71b', '#12377b', '#087b62', '#ffffff'];
 const paletteAt = (index: number) => PALETTE[index % PALETTE.length];
 // color-mix tolerates any CSS colour an admin types, unlike appending hex alpha digits.
 const tint = (color: string, percent: number) => `color-mix(in srgb, ${color} ${percent}%, transparent)`;
@@ -209,10 +210,10 @@ function Eyebrow({ label, color, dark }: { label: string; color: string; dark?: 
   if (!label) return null;
   return (
     <p
-      style={dark ? { backgroundColor: 'rgba(255,255,255,.12)', color: '#fff' } : { backgroundColor: tint(color, 11), color }}
-      className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[11px] font-extrabold uppercase tracking-[.18em] sm:text-xs"
+      style={dark ? { borderColor: tint('#ffffff', 28), color: '#ffbf24' } : { borderColor: tint(color, 28), color }}
+      className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-[.2em] sm:text-[11px]"
     >
-      <span style={{ backgroundColor: dark ? '#fff' : color }} className="h-1.5 w-1.5 rounded-full" />
+      <Sparkles className="h-3.5 w-3.5" />
       {label}
     </p>
   );
@@ -227,8 +228,8 @@ function Heading({ ctx, section, dark, center, color, className = '' }: {
   return (
     <div className={`${centered ? 'mx-auto text-center' : ''} max-w-3xl ${className}`}>
       <Eyebrow label={text(ctx, section, 'subtitle')} color={color || ctx.primary} dark={dark} />
-      {title && <h2 className={`mt-4 text-3xl font-black leading-[1.12] tracking-[-.03em] sm:text-4xl lg:text-[2.75rem] ${dark ? 'text-white' : 'text-slate-950'}`}>{title}</h2>}
-      {body && <p className={`mt-5 whitespace-pre-line text-base leading-8 sm:text-lg ${dark ? 'text-white/75' : 'text-slate-600'}`}>{body}</p>}
+      {title && <h2 className={`mt-5 text-3xl font-black leading-[1.06] tracking-[-.035em] sm:text-4xl lg:text-[2.9rem] ${dark ? 'text-white' : 'text-[#25388d]'}`}>{title}</h2>}
+      {body && <p className={`mt-5 whitespace-pre-line text-sm leading-7 sm:text-base sm:leading-8 ${dark ? 'text-white/76' : 'text-slate-600'}`}>{body}</p>}
     </div>
   );
 }
@@ -238,8 +239,8 @@ function PrimaryButton({ ctx, href, children, onClick, light }: { ctx: RenderCon
     <a
       href={href}
       onClick={onClick}
-      style={light ? { borderRadius: ctx.radius, color: ctx.secondary } : { backgroundColor: ctx.primary, borderRadius: ctx.radius, boxShadow: `0 14px 30px -12px ${tint(ctx.primary, 70)}` }}
-      className={`group inline-flex items-center justify-center gap-2 px-6 py-3.5 text-sm font-extrabold transition duration-200 hover:-translate-y-0.5 ${light ? 'bg-white shadow-lg' : 'text-white'}`}
+      style={light ? { borderRadius: ctx.radius, color: ctx.secondary } : { backgroundColor: ctx.accent, borderRadius: ctx.radius }}
+      className={`group inline-flex min-h-11 items-center justify-center gap-2 px-6 py-3 text-sm font-black transition duration-200 hover:-translate-y-0.5 ${light ? 'bg-white shadow-lg' : 'text-[#173b33] shadow-[0_10px_28px_-12px_rgba(0,0,0,.35)]'}`}
     >
       {children}
       <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5 rtl:rotate-180" />
@@ -252,7 +253,7 @@ function SecondaryButton({ ctx, href, children, dark }: { ctx: RenderContext; hr
     <a
       href={href}
       style={{ borderRadius: ctx.radius }}
-      className={`inline-flex items-center justify-center gap-2 px-6 py-3.5 text-sm font-extrabold transition duration-200 hover:-translate-y-0.5 ${dark ? 'border border-white/30 text-white hover:bg-white/10' : 'border border-slate-200 bg-white text-slate-800 shadow-sm hover:shadow-md'}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-2 border px-6 py-3 text-sm font-extrabold transition duration-200 hover:-translate-y-0.5 ${dark ? 'border-white/30 bg-white/5 text-white hover:bg-white/10' : 'border-white/30 bg-transparent text-white hover:bg-white/10'}`}
     >
       {children}
     </a>
@@ -267,17 +268,20 @@ function PreviewHint({ ctx, children }: { ctx: RenderContext; children: ReactNod
 function Shell({ section, ctx, children, className = '' }: { section: WebsiteSection; ctx: RenderContext; children: ReactNode; className?: string }) {
   const dark = section.background === 'primary' || section.background === 'dark';
   const background =
-    section.background === 'primary' ? `linear-gradient(135deg, ${ctx.primary}, color-mix(in srgb, ${ctx.primary} 70%, #000))`
-      : section.background === 'dark' ? ctx.secondary
-      : section.background === 'muted' ? 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)'
-      : '#ffffff';
+    section.background === 'primary'
+      ? `linear-gradient(135deg, ${ctx.primary}, color-mix(in srgb, ${ctx.primary} 78%, #004d3b))`
+      : section.background === 'dark'
+        ? `linear-gradient(135deg, ${ctx.secondary}, color-mix(in srgb, ${ctx.secondary} 82%, #0d235f))`
+        : section.background === 'muted'
+          ? '#f6f7f9'
+          : '#ffffff';
   return (
     <section id={section.id} style={{ background }} className={`relative scroll-mt-24 overflow-hidden px-4 py-20 sm:px-6 sm:py-24 lg:px-8 lg:py-28 ${className}`}>
       {dark && <>
-        <div aria-hidden="true" style={{ backgroundColor: tint(ctx.accent, 30) }} className="pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full blur-3xl" />
-        <div aria-hidden="true" style={{ backgroundColor: tint(ctx.primary, 35) }} className="pointer-events-none absolute -bottom-32 -left-20 h-96 w-96 rounded-full blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -right-28 -top-28 h-80 w-80 rounded-full border border-white/5" />
+        <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full border border-white/5" />
       </>}
-      <div className="relative mx-auto max-w-7xl">{children}</div>
+      <div className="relative mx-auto max-w-[1180px]">{children}</div>
     </section>
   );
 }
@@ -294,55 +298,60 @@ function HeroBlock({ ctx, section, badge }: { ctx: RenderContext; section: Websi
   return (
     <section
       id={section.id}
-      style={{ background: `radial-gradient(1200px 600px at 85% -10%, ${tint(ctx.accent, 16)}, transparent 60%), radial-gradient(900px 500px at -10% 20%, ${tint(ctx.primary, 14)}, transparent 60%), linear-gradient(180deg, #ffffff, #f8fafc)` }}
-      className="relative scroll-mt-24 overflow-hidden"
+      style={{ background: `linear-gradient(115deg, color-mix(in srgb, ${ctx.secondary} 84%, #39499b), #39499b 56%, color-mix(in srgb, ${ctx.primary} 28%, #39499b))` }}
+      className="relative scroll-mt-24 overflow-hidden text-white"
     >
-      <div
-        aria-hidden="true"
-        style={{ backgroundImage: `radial-gradient(${tint(ctx.primary, 28)} 1.5px, transparent 1.6px)`, backgroundSize: '22px 22px' }}
-        className="pointer-events-none absolute right-0 top-0 h-72 w-72 [mask-image:radial-gradient(circle_at_top_right,#000,transparent_70%)] sm:h-96 sm:w-96"
-      />
-      <div className={`relative mx-auto grid max-w-7xl items-center gap-14 px-4 pb-28 pt-12 sm:px-6 sm:pt-16 lg:gap-16 lg:px-8 lg:pb-36 lg:pt-20 ${centered ? '' : 'lg:grid-cols-[1.05fr_.95fr]'}`}>
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[.08]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.8) 1px, transparent 1px)', backgroundSize: '56px 56px' }} />
+      <div aria-hidden="true" style={{ backgroundColor: tint(ctx.primary, 28) }} className="pointer-events-none absolute -right-36 -top-44 h-[520px] w-[520px] rounded-full blur-3xl" />
+      <div className={`relative mx-auto grid max-w-[1180px] items-center gap-12 px-4 pb-24 pt-14 sm:px-6 sm:pb-28 sm:pt-20 lg:px-8 lg:pb-32 lg:pt-20 ${centered ? '' : 'lg:grid-cols-[1.02fr_.98fr]'}`}>
         <div className={centered ? 'mx-auto max-w-4xl text-center' : ''}>
-          <Eyebrow label={text(ctx, section, 'subtitle')} color={ctx.primary} />
-          <h1 className="mt-6 text-[2.6rem] font-black leading-[1.04] tracking-[-.04em] text-slate-950 sm:text-6xl lg:text-[4.1rem]">{title}</h1>
-          {body && <p className={`mt-6 max-w-xl whitespace-pre-line text-lg leading-8 text-slate-600 ${centered ? 'mx-auto' : ''}`}>{body}</p>}
+          <Eyebrow label={text(ctx, section, 'subtitle')} color={ctx.accent} dark />
+          <h1 className="mt-6 max-w-[680px] text-[2.8rem] font-black leading-[.97] tracking-[-.045em] text-white sm:text-6xl lg:text-[4.5rem]">
+            {title}
+          </h1>
+          {body && <p className={`mt-6 max-w-xl whitespace-pre-line text-[15px] leading-7 text-white/82 sm:text-base sm:leading-8 ${centered ? 'mx-auto' : ''}`}>{body}</p>}
           {(buttonText || ctx.site.header.ctaText) && (
-            <div className={`mt-9 flex flex-wrap gap-3 ${centered ? 'justify-center' : ''}`}>
+            <div className={`mt-8 flex flex-wrap gap-3 ${centered ? 'justify-center' : ''}`}>
               {buttonText && <PrimaryButton ctx={ctx} href={section.buttonUrl || '#about'} onClick={() => ctx.onTrack?.('cta', ctx.pageSlug || '/')}>{buttonText}</PrimaryButton>}
-              {ctx.site.header.ctaText && <SecondaryButton ctx={ctx} href={ctx.site.header.ctaUrl || '/auth/login'}><LogIn className="h-4 w-4" />{ctx.tr('header.ctaText', ctx.site.header.ctaText)}</SecondaryButton>}
+              {ctx.site.header.ctaText && <SecondaryButton ctx={ctx} dark href={ctx.site.header.ctaUrl || '/auth/login'}><LogIn className="h-4 w-4" />{ctx.tr('header.ctaText', ctx.site.header.ctaText)}</SecondaryButton>}
             </div>
           )}
+          <div className={`mt-8 flex items-center gap-4 ${centered ? 'justify-center' : ''}`}>
+            <div className="flex -space-x-2">
+              {[ctx.accent, ctx.primary, '#4cc9f0', '#f472b6'].map((color) => <span key={color} style={{ backgroundColor: color }} className="h-7 w-7 rounded-full border-2 border-white/70" />)}
+            </div>
+            <div>
+              <div className="text-[11px] tracking-[.16em] text-[#ffbf24]">★★★★★</div>
+              <p className="text-[10px] font-semibold text-white/65">Learning · Community · Achievement</p>
+            </div>
+          </div>
         </div>
 
         {!centered && (
-          <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
-            <div aria-hidden="true" style={{ background: `linear-gradient(135deg, ${ctx.primary}, ${ctx.accent})` }} className="absolute -inset-3 rotate-[3deg] rounded-[2.75rem] opacity-90 sm:-inset-4" />
-            <div aria-hidden="true" style={{ backgroundColor: PALETTE[4] }} className="absolute -left-6 -top-6 h-16 w-16 rounded-2xl rotate-12 opacity-80 sm:h-20 sm:w-20" />
-            <div aria-hidden="true" style={{ backgroundColor: PALETTE[5] }} className="absolute -bottom-8 right-10 h-14 w-14 rounded-full opacity-80" />
-            <div className="relative overflow-hidden rounded-[2.5rem] bg-white shadow-[0_40px_90px_-40px_rgba(15,23,42,.55)] ring-8 ring-white">
+          <div className="relative mx-auto w-full max-w-[560px] lg:max-w-none">
+            <div className="relative overflow-hidden rounded-[24px] border border-white/20 bg-white/10 p-2 shadow-[0_30px_70px_-30px_rgba(0,0,0,.65)] backdrop-blur-sm">
+              <div className="mb-2 flex items-center justify-between rounded-[17px] bg-white/10 px-4 py-3">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[.18em] text-[#ffbf24]">School in action</p>
+                  <p className="mt-1 text-sm font-black text-white">{ctx.displayName}</p>
+                </div>
+                <div className="flex gap-1.5"><span className="h-2 w-2 rounded-full bg-[#ffbf24]" /><span className="h-2 w-2 rounded-full bg-[#2dd4bf]" /><span className="h-2 w-2 rounded-full bg-[#60a5fa]" /></div>
+              </div>
               {section.imageUrl ? (
-                <img src={section.imageUrl} alt={title} {...{ fetchpriority: 'high' }} className="aspect-[5/4] w-full object-cover" />
+                <img src={section.imageUrl} alt={title} {...{ fetchpriority: 'high' }} className="aspect-[16/10] w-full rounded-[16px] object-cover" />
               ) : (
-                <div style={{ background: `linear-gradient(145deg, ${tint(ctx.primary, 14)}, #ffffff 55%, ${tint(ctx.accent, 18)})` }} className="relative flex aspect-[5/4] w-full flex-col items-center justify-center gap-6 p-8">
-                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                    {(['BookOpen', 'FlaskConical', 'Palette', 'Trophy'] as const).map((name, index) => (
-                      <div key={name} style={{ backgroundColor: paletteAt(index), boxShadow: `0 16px 30px -14px ${paletteAt(index)}` }} className={`flex h-16 w-16 items-center justify-center rounded-3xl text-white sm:h-20 sm:w-20 ${index % 2 ? 'translate-y-4' : ''}`}>
-                        <Icon name={name} className="h-8 w-8 sm:h-9 sm:w-9" />
-                      </div>
-                    ))}
-                  </div>
-                  <p className="mt-4 text-center text-lg font-black text-slate-800">{ctx.displayName}</p>
-                  {ctx.preview && <p className="absolute bottom-4 rounded-full bg-slate-900/80 px-3 py-1 text-[11px] font-semibold text-white">Add a hero photo in Content → Hero</p>}
+                <div style={{ background: `linear-gradient(145deg, ${tint(ctx.primary, 35)}, rgba(255,255,255,.12))` }} className="flex aspect-[16/10] w-full items-center justify-center rounded-[16px]">
+                  <School className="h-24 w-24 text-white/70" />
                 </div>
               )}
+              <p className="px-4 pb-3 pt-4 text-xs leading-5 text-white/65">Discover academics, admissions, student life and school achievements from one trusted website.</p>
             </div>
             {badge && cardTitle(ctx, badge) && (
-              <div className="absolute -bottom-6 left-4 flex items-center gap-3 rounded-2xl bg-white/95 px-4 py-3 shadow-xl ring-1 ring-slate-100 backdrop-blur sm:-left-6">
-                <div style={{ backgroundColor: PALETTE[1] }} className="flex h-10 w-10 items-center justify-center rounded-xl text-white"><Icon name={badge.icon || 'ShieldCheck'} /></div>
+              <div className="absolute -bottom-5 left-5 flex items-center gap-3 rounded-xl border border-white/25 bg-[#34479a]/95 px-4 py-3 shadow-xl backdrop-blur sm:-left-5">
+                <div style={{ backgroundColor: ctx.accent }} className="flex h-9 w-9 items-center justify-center rounded-lg text-[#173b33]"><Icon name={badge.icon || 'ShieldCheck'} /></div>
                 <div className="max-w-[12rem]">
-                  <p className="text-sm font-black leading-tight text-slate-900">{cardTitle(ctx, badge)}</p>
-                  {cardText(ctx, badge) && <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{cardText(ctx, badge)}</p>}
+                  <p className="text-xs font-black leading-tight text-white">{cardTitle(ctx, badge)}</p>
+                  {cardText(ctx, badge) && <p className="mt-0.5 line-clamp-1 text-[10px] text-white/60">{cardText(ctx, badge)}</p>}
                 </div>
               </div>
             )}
@@ -354,18 +363,13 @@ function HeroBlock({ ctx, section, badge }: { ctx: RenderContext; section: Websi
 }
 
 function StatTile({ ctx, card, index, dark }: { ctx: RenderContext; card: WebsiteCard; index: number; dark?: boolean }) {
-  const color = paletteAt(index);
   const value = card.value || cardTitle(ctx, card);
   const label = card.value ? cardTitle(ctx, card) : cardText(ctx, card);
   return (
-    <div className={`flex flex-col items-start gap-3 rounded-3xl p-4 sm:flex-row sm:items-center sm:gap-4 sm:p-6 ${dark ? 'bg-white/10 ring-1 ring-white/15' : 'bg-white shadow-[0_20px_50px_-30px_rgba(15,23,42,.35)] ring-1 ring-slate-100'}`}>
-      <div style={{ backgroundColor: color, boxShadow: `0 12px 24px -12px ${color}` }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white sm:h-14 sm:w-14">
-        <Icon name={card.icon || ['Users', 'GraduationCap', 'BookOpen', 'Trophy'][index % 4]} className="h-5 w-5 sm:h-6 sm:w-6" />
-      </div>
-      <div className="min-w-0">
-        <p className={`whitespace-nowrap text-2xl font-black leading-none tracking-tight [overflow-wrap:normal] sm:text-3xl ${dark ? 'text-white' : 'text-slate-950'}`}>{value}</p>
-        {label && <p className={`mt-1.5 text-xs font-semibold leading-snug sm:text-sm ${dark ? 'text-white/70' : 'text-slate-500'}`}>{label}</p>}
-      </div>
+    <div className={`flex min-h-[112px] flex-col items-center justify-center border-white/15 px-4 py-5 text-center ${dark ? 'bg-white/[.045]' : 'bg-[#3c4fa4]'}`}>
+      <Icon name={card.icon || ['Users', 'GraduationCap', 'BookOpen', 'Trophy'][index % 4]} className="h-5 w-5 text-white/75" />
+      <p className="mt-2 whitespace-nowrap text-2xl font-black leading-none tracking-tight text-[#ffbf24] sm:text-3xl">{value}</p>
+      {label && <p className="mt-2 text-[9px] font-black uppercase tracking-[.12em] text-white/65 sm:text-[10px]">{label}</p>}
     </div>
   );
 }
@@ -373,11 +377,13 @@ function StatTile({ ctx, card, index, dark }: { ctx: RenderContext; card: Websit
 function StatsBlock({ ctx, section, overlap }: { ctx: RenderContext; section: WebsiteSection; overlap?: boolean }) {
   const cards = section.cards.slice(0, 8);
   if (!cards.length) return null;
-  const grid = `grid grid-cols-2 gap-3 sm:gap-4 ${cards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`;
+  const cols = cards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3';
   if (overlap) {
     return (
-      <section id={section.id} className="relative z-10 -mt-16 scroll-mt-24 px-4 sm:px-6 lg:px-8">
-        <div className={`mx-auto max-w-6xl ${grid}`}>{cards.map((card, index) => <StatTile key={card.id} ctx={ctx} card={card} index={index} />)}</div>
+      <section id={section.id} className="relative z-10 -mt-12 scroll-mt-24 px-4 sm:px-6 lg:px-8">
+        <div className={`mx-auto grid max-w-[1020px] grid-cols-2 overflow-hidden rounded-[18px] border border-white/15 bg-[#3c4fa4] shadow-[0_24px_50px_-30px_rgba(0,0,0,.55)] ${cols}`}>
+          {cards.map((card, index) => <StatTile key={card.id} ctx={ctx} card={card} index={index} dark />)}
+        </div>
       </section>
     );
   }
@@ -385,7 +391,9 @@ function StatsBlock({ ctx, section, overlap }: { ctx: RenderContext; section: We
   return (
     <Shell section={section} ctx={ctx}>
       {(section.title || section.subtitle) && <Heading ctx={ctx} section={section} dark={dark} className="mb-12" />}
-      <div className={grid}>{cards.map((card, index) => <StatTile key={card.id} ctx={ctx} card={card} index={index} dark={dark} />)}</div>
+      <div className={`grid grid-cols-2 overflow-hidden rounded-[18px] border ${dark ? 'border-white/15' : 'border-slate-200'} ${cols}`}>
+        {cards.map((card, index) => <StatTile key={card.id} ctx={ctx} card={card} index={index} dark={dark} />)}
+      </div>
     </Shell>
   );
 }
@@ -807,44 +815,36 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
 
   return (
     <div dir={currentLanguage.direction} lang={currentLanguage.code} style={{ fontFamily: site.theme.fontFamily || undefined, '--website-primary': primary } as CSSProperties} className="min-h-screen overflow-x-clip bg-white text-slate-900 antialiased [overflow-wrap:anywhere]">
-      {(phone || email || address) && (
-        <div style={{ backgroundColor: secondary }} className="hidden text-white/85 md:block">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-6 py-2 text-xs font-semibold lg:px-8">
-            <div className="flex items-center gap-6">
-              {phone && <a href={`tel:${phone.replace(/\s+/g, '')}`} className="inline-flex items-center gap-2 hover:text-white"><Phone className="h-3.5 w-3.5" />{phone}</a>}
-              {email && <a href={`mailto:${email}`} className="inline-flex items-center gap-2 hover:text-white"><Mail className="h-3.5 w-3.5" />{email}</a>}
-            </div>
-            {address && <span className="inline-flex items-center gap-2 truncate"><MapPin className="h-3.5 w-3.5 shrink-0" />{address}</span>}
-          </div>
-        </div>
-      )}
-
-      <header className={`${site.header.sticky && !preview ? 'sticky top-0' : 'relative'} z-40 border-b border-slate-200/70 bg-white/85 backdrop-blur-xl [overflow-wrap:normal]`}>
-        <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <header className={`${site.header.sticky && !preview ? 'sticky top-0' : 'relative'} z-40 bg-[#004f43] text-white shadow-sm [overflow-wrap:normal]`}>
+        <div className="mx-auto flex h-[74px] max-w-[1180px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <a href="/" className="flex min-w-0 items-center gap-3">
             {brandMark('h-11 w-11')}
-            {site.header.showOrganizationName && <span className="line-clamp-2 max-w-[200px] text-[15px] font-black leading-tight tracking-tight text-slate-950 sm:max-w-[300px] sm:text-[17px]">{displayName}</span>}
+            {site.header.showOrganizationName && (
+              <span className="line-clamp-2 max-w-[250px] text-[15px] font-black uppercase leading-tight tracking-[.045em] text-white sm:max-w-[330px] sm:text-[16px]">{displayName}</span>
+            )}
           </a>
-          <nav aria-label="Main" className="hidden items-center gap-0.5 xl:flex">
-            {navItems.map((item) => <a key={item.id} href={item.href} className="whitespace-nowrap rounded-full px-3 py-2 text-[15px] font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 xl:px-3.5">{tr(`link.${item.id}.label`, item.label)}</a>)}
+          <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
+            {navItems.map((item) => <a key={item.id} href={item.href} className="whitespace-nowrap rounded-full px-3.5 py-2 text-[12px] font-bold text-white/78 transition hover:bg-white/10 hover:text-white">{tr(`link.${item.id}.label`, item.label)}</a>)}
           </nav>
           <div className="flex items-center gap-2">
-            {languagePicker('hidden rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 sm:block')}
-            {site.header.ctaText && <a onClick={() => onTrack?.('cta', pageSlug || '/')} href={site.header.ctaUrl || '/auth/login'} style={{ backgroundColor: primary, borderRadius: radius }} className="hidden shrink-0 items-center gap-2 whitespace-nowrap px-5 py-2.5 text-sm font-extrabold text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg sm:inline-flex"><LogIn className="h-4 w-4" />{tr('header.ctaText', site.header.ctaText)}</a>}
-            {(navItems.length > 0 || site.header.ctaText) && (
-              <button type="button" onClick={() => setMobileOpen((value) => !value)} aria-expanded={mobileOpen} aria-label="Toggle navigation" className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-sm xl:hidden">{mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
-            )}
+            {languagePicker('hidden rounded-full border border-white/20 bg-white/10 px-3 py-2 text-xs font-bold text-white sm:block')}
+            <a href="/auth/login" className="hidden rounded-full border border-white/25 px-4 py-2 text-xs font-black text-white transition hover:bg-white/10 sm:inline-flex">Sign in</a>
+            {site.header.ctaText && <a onClick={() => onTrack?.('cta', pageSlug || '/')} href={site.header.ctaUrl || '/auth/login'} style={{ backgroundColor: accent }} className="hidden shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-black text-[#18433a] shadow-sm transition hover:-translate-y-0.5 md:inline-flex">{tr('header.ctaText', site.header.ctaText)}<ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" /></a>}
+            <button type="button" onClick={() => setMobileOpen((value) => !value)} aria-expanded={mobileOpen} aria-label="Toggle navigation" className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white lg:hidden">{mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
           </div>
         </div>
         {mobileOpen && (
-          <nav aria-label="Mobile" className="border-t border-slate-100 bg-white px-4 pb-5 pt-3 shadow-xl xl:hidden">
-            {navItems.map((item, index) => (
-              <a key={item.id} href={item.href} onClick={() => setMobileOpen(false)} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-base font-bold text-slate-800 hover:bg-slate-50">
-                <span style={{ backgroundColor: paletteAt(index) }} className="h-2 w-2 rounded-full" />{tr(`link.${item.id}.label`, item.label)}
+          <nav aria-label="Mobile" className="border-t border-white/10 bg-[#004f43] px-4 pb-5 pt-3 shadow-xl lg:hidden">
+            {navItems.map((item) => (
+              <a key={item.id} href={item.href} onClick={() => setMobileOpen(false)} className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-white/90 hover:bg-white/10">
+                {tr(`link.${item.id}.label`, item.label)}<ArrowRight className="h-4 w-4 text-white/45 rtl:rotate-180" />
               </a>
             ))}
-            {languagePicker('mt-2 w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold sm:hidden')}
-            {site.header.ctaText && <a onClick={() => onTrack?.('cta', pageSlug || '/')} href={site.header.ctaUrl || '/auth/login'} style={{ backgroundColor: primary, borderRadius: radius }} className="mt-3 flex items-center justify-center gap-2 px-4 py-3.5 text-sm font-extrabold text-white sm:hidden"><LogIn className="h-4 w-4" />{tr('header.ctaText', site.header.ctaText)}</a>}
+            {languagePicker('mt-2 w-full rounded-xl border border-white/20 bg-white/10 px-3 py-3 text-sm font-bold text-white sm:hidden')}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <a href="/auth/login" className="flex items-center justify-center rounded-xl border border-white/20 px-4 py-3 text-sm font-black text-white">Sign in</a>
+              {site.header.ctaText && <a onClick={() => onTrack?.('cta', pageSlug || '/')} href={site.header.ctaUrl || '/auth/login'} style={{ backgroundColor: accent }} className="flex items-center justify-center rounded-xl px-4 py-3 text-sm font-black text-[#18433a]">{tr('header.ctaText', site.header.ctaText)}</a>}
+            </div>
           </nav>
         )}
       </header>
@@ -865,40 +865,35 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
         )}
       </main>
 
-      <footer style={{ backgroundColor: secondary }} className="relative overflow-hidden text-white">
-        <div aria-hidden="true" className="flex h-1.5">{PALETTE.map((color) => <span key={color} style={{ backgroundColor: color }} className="flex-1" />)}</div>
-        <div aria-hidden="true" style={{ backgroundColor: tint(primary, 30) }} className="pointer-events-none absolute -right-32 top-10 h-96 w-96 rounded-full blur-3xl" />
-        <div className="relative mx-auto grid max-w-7xl gap-12 px-4 py-16 sm:px-6 sm:py-20 md:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1.1fr] lg:px-8">
-          <div className="md:col-span-2 lg:col-span-1">
-            <div className="flex items-center gap-3">{brandMark('h-12 w-12')}<p className="text-xl font-black tracking-tight">{displayName}</p></div>
-            {site.footer.description && <p className="mt-5 max-w-md whitespace-pre-line text-sm leading-7 text-white/65">{tr('footer.description', site.footer.description)}</p>}
-            {socials.length > 0 && (
-              <div className="mt-6 flex flex-wrap gap-2">
-                {socials.map((item) => <a key={item.id} href={item.href} target="_blank" rel="noreferrer" className="rounded-full bg-white/10 px-4 py-2 text-xs font-bold text-white/85 ring-1 ring-white/10 transition hover:bg-white/20 hover:text-white">{tr(`link.${item.id}.label`, item.label)}</a>)}
+      <footer className="relative overflow-hidden bg-[#12377b] text-white">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-32 top-20 h-72 w-72 rounded-full border border-white/5" />
+        <div aria-hidden="true" className="pointer-events-none absolute -right-20 top-32 h-52 w-52 rounded-full border border-white/5" />
+        <div className="relative mx-auto max-w-[1180px] px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+          {(email || phone || address) && (
+            <div className="grid overflow-hidden rounded-[18px] border border-white/15 bg-white/[.04] md:grid-cols-3">
+              {email && <a href={`mailto:${email}`} className="flex items-center gap-4 border-white/10 p-5 md:border-r"><div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/15"><Mail className="h-4 w-4 text-[#ffbf24]" /></div><div><p className="text-[9px] font-black uppercase tracking-[.16em] text-white/45">Email</p><p className="mt-1 text-xs font-black text-white">{email}</p></div></a>}
+              {phone && <a href={`tel:${phone.replace(/\s+/g, '')}`} className="flex items-center gap-4 border-white/10 p-5 md:border-r"><div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/15"><Phone className="h-4 w-4 text-[#ffbf24]" /></div><div><p className="text-[9px] font-black uppercase tracking-[.16em] text-white/45">Phone</p><p className="mt-1 text-xs font-black text-white">{phone}</p></div></a>}
+              {address && <div className="flex items-center gap-4 p-5"><div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/15"><MapPin className="h-4 w-4 text-[#ffbf24]" /></div><div><p className="text-[9px] font-black uppercase tracking-[.16em] text-white/45">Address</p><p className="mt-1 text-xs font-black text-white">{address}</p></div></div>}
+            </div>
+          )}
+          <div className="mt-8 flex items-center gap-4 border-b border-white/10 pb-7">{brandMark('h-14 w-14')}<div><p className="text-2xl font-black tracking-[.035em] text-white">{displayName}</p>{site.footer.description && <p className="mt-1 max-w-xl text-xs leading-5 text-white/55">{tr('footer.description', site.footer.description)}</p>}</div></div>
+          <div className="grid gap-10 py-8 md:grid-cols-2">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[.18em] text-[#ffbf24]">{tr('footer.quickLinksTitle', 'Explore')}</p>
+              <ul className="mt-5 grid gap-3 sm:grid-cols-2">{quickLinks.map((item) => <li key={item.id}><a href={item.href} className="inline-flex items-center gap-2 text-xs font-semibold text-white/78 hover:text-white"><ArrowRight className="h-3.5 w-3.5 text-white/35 rtl:rotate-180" />{tr(`link.${item.id}.label`, item.label)}</a></li>)}</ul>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[.18em] text-[#ffbf24]">Portals</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <a href="/auth/login" className="inline-flex items-center gap-2 text-xs font-semibold text-white/78 hover:text-white"><GraduationCap className="h-3.5 w-3.5 text-white/35" />Student Portal</a>
+                <a href="/auth/login" className="inline-flex items-center gap-2 text-xs font-semibold text-white/78 hover:text-white"><Users className="h-3.5 w-3.5 text-white/35" />Teacher Portal</a>
               </div>
-            )}
+              {socials.length > 0 && <div className="mt-6 flex flex-wrap gap-2">{socials.map((item) => <a key={item.id} href={item.href} target="_blank" rel="noreferrer" className="rounded-full border border-white/15 px-3 py-1.5 text-[10px] font-bold text-white/70 hover:bg-white/10 hover:text-white">{tr(`link.${item.id}.label`, item.label)}</a>)}</div>}
+            </div>
           </div>
-          {quickLinks.length > 0 && (
-            <div>
-              <p className="text-sm font-extrabold uppercase tracking-[.16em] text-white/50">{tr('footer.quickLinksTitle', 'Quick Links')}</p>
-              <ul className="mt-5 space-y-3">{quickLinks.map((item) => <li key={item.id}><a href={item.href} className="inline-flex items-center gap-2 text-sm font-semibold text-white/80 transition hover:translate-x-0.5 hover:text-white"><ArrowRight className="h-3.5 w-3.5 text-white/40 rtl:rotate-180" />{tr(`link.${item.id}.label`, item.label)}</a></li>)}</ul>
-            </div>
-          )}
-          {(address || phone || email) && (
-            <div>
-              <p className="text-sm font-extrabold uppercase tracking-[.16em] text-white/50">{tr('footer.contactTitle', 'Contact')}</p>
-              <ul className="mt-5 space-y-4 text-sm font-semibold text-white/80">
-                {address && <li className="flex items-start gap-3"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-white/50" />{address}</li>}
-                {phone && <li><a href={`tel:${phone.replace(/\s+/g, '')}`} className="flex items-center gap-3 hover:text-white"><Phone className="h-4 w-4 shrink-0 text-white/50" />{phone}</a></li>}
-                {email && <li><a href={`mailto:${email}`} className="flex items-center gap-3 hover:text-white"><Mail className="h-4 w-4 shrink-0 text-white/50" />{email}</a></li>}
-              </ul>
-            </div>
-          )}
-        </div>
-        <div className="relative border-t border-white/10">
-          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-6 text-xs text-white/50 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-3 border-t border-white/10 pt-6 text-[10px] text-white/45 sm:flex-row sm:items-center sm:justify-between">
             <p>{tr('footer.copyright', site.footer.copyright)}</p>
-            {site.header.ctaText && <a href={site.header.ctaUrl || '/auth/login'} className="inline-flex items-center gap-1.5 font-bold text-white/70 hover:text-white"><LogIn className="h-3.5 w-3.5" />{tr('header.ctaText', site.header.ctaText)}</a>}
+            <p className="font-bold text-white/60">Learn · Grow · Achieve</p>
           </div>
         </div>
       </footer>
