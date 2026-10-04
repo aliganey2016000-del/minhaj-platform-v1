@@ -12,10 +12,20 @@
 import { Request, Response } from 'express';
 import CourseContent from '../models/course-content.model';
 import LessonBlockProgress from '../models/lesson-block-progress.model';
+import Student from '../models/student.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
 import { logActivityFromRequest } from '../utils/learning-activity-logger';
+
+// Mirrors the enrollment check quiz.controller.ts applies before grading any
+// answer — without it, any authenticated student (even from another
+// school/course) could submit/grade answers for a lesson they were never
+// enrolled in.
+async function assertEnrolled(userId: string, courseId: string): Promise<void> {
+  const enrolled = await Student.exists({ user: userId, enrolledCourses: courseId });
+  if (!enrolled) throw new ForbiddenError('You are not enrolled in this course');
+}
 
 // A block's Stop & Check questions, normalizing the legacy singular
 // `question` field (lessons saved before multi-question support) into the
@@ -70,6 +80,8 @@ export const submitBlockAnswer = async (req: Request, res: Response): Promise<Re
   if (Number.isNaN(blockIndex) || blockIndex < 0) {
     throw new BadRequestError('Invalid block index');
   }
+
+  await assertEnrolled(req.user!.userId, courseId);
 
   const lesson = await findLesson(courseId, lessonId);
   if (lesson.deliveryMode !== 'interactive_gate' || !lesson.contentBlocks?.length) {
@@ -211,6 +223,8 @@ export const submitCheckpointAnswer = async (req: Request, res: Response): Promi
   if (Number.isNaN(checkpointIndex) || checkpointIndex < 0) {
     throw new BadRequestError('Invalid checkpoint index');
   }
+
+  await assertEnrolled(req.user!.userId, courseId);
 
   const lesson = await findLesson(courseId, lessonId);
   const checkpoint = lesson.videoCheckpoints?.[checkpointIndex];
