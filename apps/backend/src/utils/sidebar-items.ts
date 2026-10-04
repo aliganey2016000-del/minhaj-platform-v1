@@ -8,8 +8,10 @@ export interface SidebarItemDef {
 export type SidebarPortal = 'student' | 'teacher' | 'admin';
 
 export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
+  { key: 'student', label: 'Dashboard', section: 'Learning & Performance' },
   { key: 'student/courses', label: 'My Courses', section: 'Learning & Performance' },
   { key: 'student/available', label: 'Browse Courses', section: 'Learning & Performance' },
+  { key: 'student/schedule', label: 'Class Schedule', section: 'Learning & Performance' },
   { key: 'student/assignments', label: 'Assignments', section: 'Learning & Performance' },
   { key: 'student/analytics', label: 'Quiz & Lesson Performance', section: 'Learning & Performance' },
   { key: 'group:exams', label: 'Exams (entire menu)', section: 'Learning & Performance' },
