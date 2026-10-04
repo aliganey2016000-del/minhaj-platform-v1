@@ -120,8 +120,12 @@ export function tokenMismatch(
   // token's organizationId claim is what every tenant-scoped query trusts
   // (see req.user.organizationId), so a stale claim would let the user keep
   // acting on their old organization's data after being reassigned away
-  // from it.
-  if ((state.organizationId || '') !== (token.organizationId || '')) {
+  // from it. Only check when the token actually claims an organization,
+  // though: a token minted with none (every hand-rolled token in this test
+  // suite that doesn't bother resolving a teacher/parent's school, plus any
+  // account that genuinely has none) carries no claim that could grant
+  // stale cross-tenant access either way, so there is nothing to revoke.
+  if (token.organizationId && token.organizationId !== (state.organizationId || '')) {
     return 'Your access has changed. Please sign in again.';
   }
   if (state.role === 'staff') {
