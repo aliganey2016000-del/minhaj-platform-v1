@@ -19,6 +19,7 @@ import { computeCourseGrade, validateCategoryWeights } from '../utils/grade-calc
 import { computeCourseGradesBulk } from '../utils/bulk-grade-calculator';
 import ensureStudentRecord from '../utils/ensure-student';
 import { escapeRegex } from '../utils/escape-regex';
+import { buildCsv } from '../utils/csv-sanitize';
 
 async function assertOwnsCourseIfTeacher(req: Request, course: any): Promise<void> {
   if (req.user?.role !== 'teacher') return;
@@ -430,10 +431,10 @@ export const exportClassGrades = async (req: Request, res: Response): Promise<vo
   const filename = `gradebook-${((course as any).title?.en || courseId).replace(/\s+/g, '-')}`;
 
   if (format === 'csv') {
-    const csv = [headers, ...rows].map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = buildCsv(headers, rows);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename=${filename}.csv`);
-    res.end('﻿' + csv);
+    res.end(csv);
     return;
   }
 

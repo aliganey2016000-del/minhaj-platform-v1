@@ -178,6 +178,9 @@ jobs:
       - name: Gamification integrity regression (quiz-attempt race, lesson-XP replay, XP-injection endpoint removal)
         run: npm run test:gamification-integrity
 
+      - name: CSV export formula-injection regression
+        run: npm run test:csv-injection
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
