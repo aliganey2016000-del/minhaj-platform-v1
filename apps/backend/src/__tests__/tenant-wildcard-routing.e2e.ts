@@ -5,6 +5,7 @@ import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import School from '../models/school.model';
 import { tenantMiddleware } from '../middleware/tenant.middleware';
+import { isAllowedOrigin } from '../utils/cors-origins';
 import {
   managedHostnameForSchool,
   managedWildcardEnabled,
@@ -40,6 +41,9 @@ async function main() {
     assert.equal((await School.findByHost('balcad-school.sahaledu.com'))?.slug, 'balcad-school');
     assert.equal((await School.findByHost('balcad.schoolapp.so'))?.slug, 'balcad-school');
     assert.equal((await School.findByHost('balcad-school.schoolapp.so'))?.slug, 'balcad-school');
+    assert.equal(await isAllowedOrigin('https://schoolapp.so'), true);
+    assert.equal(await isAllowedOrigin('https://balcad.schoolapp.so'), true);
+    assert.equal(await isAllowedOrigin('https://balcad.attacker.example'), false);
 
     // Explicit subdomain must win over another organization's slug when the
     // same label exists in both fields.
