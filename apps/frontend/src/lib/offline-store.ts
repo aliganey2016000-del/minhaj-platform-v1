@@ -161,6 +161,31 @@ export async function removeQueuedAction(id: number): Promise<void> {
   await db.delete(STORE_QUEUE, id);
 }
 
+/**
+ * Wipes every store in this IndexedDB database: the pending-actions queue,
+ * downloaded courses, in-progress gate/quiz progress and the generic offline
+ * cache.
+ *
+ * None of these records are keyed by user or organization — on a shared
+ * device, logging out of one account and into another previously left them
+ * all sitting in IndexedDB (which, unlike localStorage/sessionStorage, is
+ * never cleared by `clearAuthStorage`). A `pendingActions` entry queued while
+ * account A was offline would then replay — authenticated as whichever
+ * account is logged in when connectivity returns — against whatever lesson/
+ * quiz/course URL it was queued against, crediting or mutating progress
+ * under the wrong account/tenant. Call this on logout (and before a new
+ * login takes effect) so no other account's queued mutations or cached
+ * progress can survive the switch.
+ */
+export async function clearAllOfflineData(): Promise<void> {
+  const db = await getDb();
+  await Promise.all(
+    [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_OFFLINE_DATA, STORE_QUIZ_PROGRESS].map((store) =>
+      db.clear(store),
+    ),
+  );
+}
+
 export async function queueVideoProgress(lessonId: string, url: string, currentTime: number): Promise<void> {
   const db = await getDb();
   const tx = db.transaction(STORE_QUEUE, 'readwrite');
