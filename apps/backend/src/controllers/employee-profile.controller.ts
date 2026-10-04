@@ -5,6 +5,23 @@ import EmployeeProfile from '../models/employee-profile.model';
 import Teacher from '../models/teacher.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
+import { nextFormattedId } from '../utils/id-sequence';
+
+/**
+ * Same TCH-<year>-<0000> sequence namespace as teacher.controller.ts's
+ * generateTeacherId — atomically reserved via utils/id-sequence.ts so a
+ * Staff-to-Teacher sync here and a direct Teacher create there (or two of
+ * either, concurrently) can never mint the same teacherId.
+ */
+async function generateTeacherId(): Promise<string> {
+  const year = new Date().getFullYear();
+  return nextFormattedId(
+    `teacher:TCH-${year}`,
+    (n) => `TCH-${year}-${String(n).padStart(4, '0')}`,
+    (candidate) => Teacher.exists({ teacherId: candidate }).then(Boolean),
+    async () => Teacher.countDocuments({ teacherId: { $regex: `^TCH-${year}-` } }),
+  );
+}
 
 function assertStaff(user: any, req: Request) {
   if (user.role !== 'staff') throw new BadRequestError('Employee profile is only available for Staff users');
@@ -48,8 +65,7 @@ async function syncTeacherFromStaff({ user, profile, employeeProfile, organizati
     return;
   }
 
-  const count = await Teacher.countDocuments();
-  const teacherId = `TCH-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  const teacherId = await generateTeacherId();
   await Teacher.create({
     user: user._id,
     profile: profile._id,

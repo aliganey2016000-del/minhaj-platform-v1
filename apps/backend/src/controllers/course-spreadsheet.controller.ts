@@ -18,6 +18,23 @@ import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { BadRequestError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { nextFormattedId } from '../utils/id-sequence';
+
+/**
+ * Same TCH-<year>-<0000> sequence namespace as teacher.controller.ts's
+ * generateTeacherId — atomically reserved so a spreadsheet import creating
+ * a teacher row can't collide with a direct Teacher create (or another
+ * import) running at the same time, and never reissues a retired ID.
+ */
+async function generateTeacherId(): Promise<string> {
+  const year = new Date().getFullYear();
+  return nextFormattedId(
+    `teacher:TCH-${year}`,
+    (n) => `TCH-${year}-${String(n).padStart(4, '0')}`,
+    (candidate) => Teacher.exists({ teacherId: candidate }).then(Boolean),
+    async () => Teacher.countDocuments({ teacherId: { $regex: `^TCH-${year}-` } }),
+  );
+}
 import { tenantSlug } from '../utils/tenant-slug';
 
 const DIACRITICS_REGEX = new RegExp('[\\u0300-\\u036f]', 'g');
@@ -133,9 +150,7 @@ async function resolveOrCreateTeacher(
 
   const { firstName, lastName } = deriveTeacherName(parsed.displayName, parsed.email);
   const temporaryPassword = crypto.randomBytes(24).toString('base64url');
-  const currentYear = new Date().getFullYear();
-  const teacherCount = await Teacher.countDocuments();
-  const proposedTeacherId = `TCH-${currentYear}-${String(teacherCount + 1).padStart(4, '0')}`;
+  const proposedTeacherId = await generateTeacherId();
 
   let createdUser: any = null;
   let createdProfile: any = null;

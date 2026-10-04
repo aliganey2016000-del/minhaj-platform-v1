@@ -424,7 +424,7 @@ export const collectBulk = async (req: Request, res: Response): Promise<Response
   }
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
-  const invoices = await Invoice.find(scopedFilter).select('_id student school amount amountPaid paymentType title');
+  const invoices = await Invoice.find(scopedFilter).select('_id student school amount discount amountPaid paymentType title');
 
   if (invoices.length === 0) {
     return ApiResponse.success(res, { collected: 0, failed: 0, totalAmount: 0 }, 'No matching invoices found');
@@ -436,7 +436,7 @@ export const collectBulk = async (req: Request, res: Response): Promise<Response
   let totalAmount = 0;
 
   for (const inv of invoices) {
-    const remaining = inv.amount - inv.amountPaid;
+    const remaining = inv.amount - (inv.discount || 0) - inv.amountPaid;
     const payAmount = amount ? Math.min(Number(amount), remaining) : remaining;
     if (payAmount <= 0) continue;
     try {
