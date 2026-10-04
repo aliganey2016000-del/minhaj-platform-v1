@@ -13,6 +13,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import { INSTITUTION_TYPES, OWNERSHIP_TYPES, resolveInstitutionType, type InstitutionType, type OwnershipType } from '../utils/academic-config';
 import { microCache } from '../utils/micro-cache';
+import { managedTenantLabel, platformDomains } from '../utils/platform-domains';
 
 export { resolveInstitutionType };
 
@@ -346,16 +347,11 @@ const schoolSchema = new Schema<ISchool>(
       validate: {
         validator(v?: string) {
           if (!v) return true;
-          const base = String(process.env.BASE_DOMAIN || 'sahaledu.com')
-            .trim()
-            .toLowerCase()
-            .replace(/^https?:\/\//, '')
-            .replace(/^www\./, '')
-            .replace(/:\d+$/, '')
-            .replace(/\/$/, '');
-          return v !== base && v !== `www.${base}` && !v.endsWith(`.${base}`);
+          return !platformDomains().some(
+            (base) => v === base || v === `www.${base}` || v.endsWith(`.${base}`),
+          );
         },
-        message: 'Use the Subdomain field for sahaledu.com addresses; Custom Domain is only for external domains.',
+        message: 'Use the Subdomain field for platform-managed addresses; Custom Domain is only for external domains.',
       },
     },
     branding: { type: brandingSchema, default: () => ({}) },
@@ -592,29 +588,11 @@ async function resolveByHost(this: mongoose.Model<ISchool>, host: string): Promi
     return { ...byCustomDomain, institutionType: resolveInstitutionType(byCustomDomain) } as TenantBranding;
   }
 
-  const configuredBaseDomain = String(process.env.BASE_DOMAIN || 'sahaledu.com')
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/:\d+$/, '')
-    .replace(/\/$/, '');
-
-  const suffix = '.' + configuredBaseDomain;
-  if (!hostname.endsWith(suffix)) {
-    return null;
-  }
-
-  const subdomain = hostname.slice(0, -suffix.length);
-
-  if (
-    !subdomain ||
-    subdomain === 'www' ||
-    subdomain.includes('.') ||
-    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(subdomain)
-  ) {
-    return null;
-  }
+  // Managed tenant hosts may live on any configured platform base domain
+  // (e.g. balcad.sahaledu.com and balcad.schoolapp.so resolve the same org).
+  // Custom domains are still checked first above.
+  const subdomain = managedTenantLabel(hostname);
+  if (!subdomain) return null;
 
   // Resolve managed platform hostnames deterministically:
   // customDomain (above) -> explicit subdomain -> legacy/generated slug.

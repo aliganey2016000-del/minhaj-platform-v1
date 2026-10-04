@@ -17,6 +17,7 @@ import { Request, Response, NextFunction } from 'express';
 import School, { TenantBranding } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { requestHostname } from '../utils/request-tenant';
+import { isPlatformRootHost } from '../utils/platform-domains';
 
 // ---------------------------------------------------------------------------
 // Augment Express Request
@@ -70,8 +71,7 @@ export async function tenantMiddleware(
     // The platform's own root/www domain is always the main marketing
     // site — never a tenant lookup, even though a bare org customDomain
     // (e.g. "yourschool.edu") has the same two-label shape.
-    const baseDomain = (process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
-    if (hostname === baseDomain || hostname === `www.${baseDomain}`) {
+    if (isPlatformRootHost(hostname)) {
       req.tenant = null;
       return next();
     }
