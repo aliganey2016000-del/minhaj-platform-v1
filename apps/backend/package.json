@@ -37,7 +37,7 @@
     "test:exam-dedupe": "ts-node src/__tests__/exam-import-dedupe.e2e.ts",
     "test:seating-import": "ts-node src/__tests__/seating-import-cross-org.e2e.ts",
     "test:invoice-batch-void": "ts-node src/__tests__/invoice-batch-void.e2e.ts",
-    "test:seating-smart-fix": "ts-node src/__tests__/seating-smart-fix.e2e.ts",
+    "test:seating-smart-fix": "ts-node src/__tests__/seating-import-smart-fix.e2e.ts",
     "test:seating-bulk-delete": "ts-node src/__tests__/seating-bulk-delete.e2e.ts",
     "test:exam-room-capacity-shrink": "ts-node src/__tests__/exam-room-capacity-shrink.e2e.ts",
     "test:exam-duration": "ts-node src/__tests__/exam-attempt-duration.e2e.ts",
@@ -70,7 +70,9 @@
     "test:password-reset-race": "ts-node src/__tests__/password-reset-race.e2e.ts",
     "test:gamification-integrity": "ts-node src/__tests__/gamification-integrity.e2e.ts",
     "test:csv-injection": "ts-node src/__tests__/csv-export-formula-injection.e2e.ts",
-    "test:list-query-index-coverage": "ts-node --files src/__tests__/list-query-index-coverage.e2e.ts"
+    "test:list-query-index-coverage": "ts-node --files src/__tests__/list-query-index-coverage.e2e.ts",
+    "test:email-html-injection": "ts-node src/__tests__/email-template-html-injection.e2e.ts",
+    "test:seating-plan-import-capacity": "ts-node src/__tests__/seating-plan-import-capacity-advisory.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",
