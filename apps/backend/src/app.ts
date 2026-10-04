@@ -180,6 +180,47 @@ const authIpLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 
+// forgot-password and resend-verification always respond 200 (the generic
+// "if an account exists..." body, win or lose) so that an attacker can't
+// enumerate accounts by response code — but that means `skipSuccessfulRequests`
+// would never count a single request against either limit, since every
+// response looks "successful" to express-rate-limit. These two routes get
+// their own limiters, counting every request, instead of reusing the
+// login/register limiters above.
+const accountLookupAccountLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    statusCode: 429,
+    message: 'Too many requests, please try again later',
+    data: null,
+    errors: null,
+  },
+  keyGenerator: (req) => {
+    const email = typeof req.body?.email === 'string'
+      ? req.body.email.trim().toLowerCase()
+      : 'unknown-account';
+    return `account:${email}`;
+  },
+});
+
+const accountLookupIpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    statusCode: 429,
+    message: 'Too many requests from this network, please try again later',
+    data: null,
+    errors: null,
+  },
+});
+
 app.use('/api/', limiter);
 app.use('/api/v1/auth/login', authAccountLimiter, authIpLimiter);
 app.use('/api/v1/auth/register', authAccountLimiter, authIpLimiter);
@@ -189,8 +230,8 @@ app.use('/api/v1/auth/register', authAccountLimiter, authIpLimiter);
 // still time the enumeration by hammering one address until the account
 // limiter trips (an unknown email returns immediately; a real one waits on
 // mail delivery), and without an IP limit can sweep many addresses quickly.
-app.use('/api/v1/auth/forgot-password', authAccountLimiter, authIpLimiter);
-app.use('/api/v1/auth/resend-verification', authAccountLimiter, authIpLimiter);
+app.use('/api/v1/auth/forgot-password', accountLookupAccountLimiter, accountLookupIpLimiter);
+app.use('/api/v1/auth/resend-verification', accountLookupAccountLimiter, accountLookupIpLimiter);
 
 // ---------------------------------------------------------------------------
 // Data Sanitization

@@ -4,6 +4,7 @@
  */
 
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { UnauthorizedError } from './api-error';
 
 // Fail fast at boot rather than silently signing/verifying tokens with a
@@ -49,7 +50,16 @@ export function generateAccessToken(payload: AccessTokenPayload): string {
 export function generateRefreshToken(payload: RefreshTokenPayload): string {
   const expiresIn = process.env.JWT_REFRESH_EXPIRY || '7d';
 
-  return jwt.sign(payload, REFRESH_SECRET, { expiresIn } as jwt.SignOptions);
+  // jwt.sign's iat is second-resolution, so two refresh tokens minted for the
+  // same user within the same second (e.g. login immediately followed by a
+  // refresh) would otherwise sign to the exact same payload+iat+exp and
+  // produce a byte-identical JWT. That collision makes rotation a no-op —
+  // the "new" token hashes the same as the one it was supposed to replace,
+  // so reuse of the old token can never be distinguished from a normal
+  // refresh. A random jti guarantees every minted refresh token is unique.
+  const jti = crypto.randomBytes(16).toString('hex');
+
+  return jwt.sign({ ...payload, jti }, REFRESH_SECRET, { expiresIn } as jwt.SignOptions);
 }
 
 /**
