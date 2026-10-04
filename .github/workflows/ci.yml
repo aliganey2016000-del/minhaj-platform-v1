@@ -115,6 +115,9 @@ jobs:
       - name: Manage list search/pagination tests (batch 2)
         run: npm run test:list-search-2
 
+      - name: User search-by-name tests
+        run: npm run test:user-search
+
       - name: Dashboard micro-cache tests
         run: npm run test:dashboard-cache
 
