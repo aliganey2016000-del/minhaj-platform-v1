@@ -214,6 +214,9 @@ jobs:
       - name: Org-reassignment JWT revocation regression
         run: npm run test:auth-org-reassignment
 
+      - name: Exam passing-marks-exceeds-total-marks regression
+        run: npm run test:exam-passing-marks-bound
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest

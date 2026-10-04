@@ -122,7 +122,7 @@ const STATUS_OPTIONS: { value: string; letter: string; label: string; active: st
 
 function StatusButtons({ value, onChange }: { value: string; onChange: (status: string) => void }) {
   return (
-    <div className="inline-flex items-center gap-1" role="group">
+    <div className="inline-flex items-center gap-1.5" role="group">
       {STATUS_OPTIONS.map((opt) => (
         <button
           key={opt.value}
@@ -130,7 +130,7 @@ function StatusButtons({ value, onChange }: { value: string; onChange: (status: 
           title={opt.label}
           aria-pressed={value === opt.value}
           onClick={() => onChange(opt.value)}
-          className={`h-7 w-7 rounded-lg border text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
+          className={`h-11 w-11 sm:h-7 sm:w-7 rounded-lg border text-sm sm:text-xs font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/30 ${
             value === opt.value ? opt.active : opt.idle
           }`}
         >
