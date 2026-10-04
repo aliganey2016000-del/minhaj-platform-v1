@@ -10,6 +10,9 @@
  */
 
 import User from '../models/user.model';
+import Student from '../models/student.model';
+import Teacher from '../models/teacher.model';
+import Parent from '../models/parent.model';
 
 export const AUTH_STATE_TTL_MS = 30_000;
 const MAX_ENTRIES = 5000;
@@ -45,6 +48,27 @@ export function flattenPermissions(permissions: any[] | undefined): string[] {
     permission.page ? `page:${permission.page}.${action}` : `${permission.module}.${action}`));
 }
 
+// Mirrors auth.controller.ts's resolveEffectiveOrganization: teacher/parent
+// accounts carry no organizationId on the User document itself — their
+// school lives on the Teacher/Parent record — and a pending/rejected
+// student's token deliberately carries no organization at all. Comparing
+// against a plain User.organizationId read would treat every one of these
+// as a "stale" token and 401 them on their very next request.
+async function resolveOrganizationId(user: any): Promise<string | undefined> {
+  if (user.role === 'student') {
+    const student: any = await Student.findOne({ user: user._id }).select('school approvalStatus').lean();
+    if (student && (student.approvalStatus === 'pending' || student.approvalStatus === 'rejected')) return undefined;
+    return student?.school ? String(student.school) : undefined;
+  }
+  if (user.organizationId) return String(user.organizationId);
+  if (user.role === 'teacher' || user.role === 'parent') {
+    const Model: any = user.role === 'teacher' ? Teacher : Parent;
+    const record: any = await Model.findOne({ user: user._id }).select('school').lean();
+    return record?.school ? String(record.school) : undefined;
+  }
+  return undefined;
+}
+
 export async function getAuthState(userId: string): Promise<AuthState> {
   const now = Date.now();
   const hit = cache.get(userId);
@@ -57,7 +81,7 @@ export async function getAuthState(userId: string): Promise<AuthState> {
         isActive: user.isActive !== false,
         role: user.role,
         permissions: flattenPermissions(user.permissions),
-        organizationId: user.organizationId ? String(user.organizationId) : undefined,
+        organizationId: await resolveOrganizationId(user),
       }
     : { exists: false, isActive: false, permissions: [] };
 
