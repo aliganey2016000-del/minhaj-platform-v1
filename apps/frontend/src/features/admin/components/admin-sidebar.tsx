@@ -195,13 +195,24 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
 
   const isVisible = (key: string) => isSuperAdmin || visibility?.[key] !== false;
   const staffSidebar = (key: string) => user?.role !== 'staff' || user.sidebarAccess.includes(key);
-  const staffRead = (module: string, page?: string) => user?.role !== 'staff' || user.permissions.some((permission) => permission.module === module && permission.actions.includes('read') && (!permission.page || permission.page === page));
-  const moduleForPath = (path: string) => {
-    if (/\/admin\/(payments|fee-structures|invoices)/.test(path)) return 'finance';
-    if (/\/admin\/(exams|results|certificates)/.test(path)) return 'exams';
-    if (/\/admin\/students/.test(path)) return 'admissions';
-    if (/\/admin\/(courses|analytics|assignments)/.test(path)) return 'courses';
+  const moduleForKey = (key: string): string | null => {
+    if (key.startsWith('admin/payments')) return 'finance';
+    if (key.startsWith('admin/exams') || key.startsWith('admin/results') || key === 'admin/certificates' || key === 'group:exam-management') return 'exams';
+    if (key.startsWith('admin/students') || key === 'admin/activity') return 'admissions';
+    if (key === 'admin/analytics?tab=overview') return 'system';
+    if (key.startsWith('admin/courses') || key === 'group:learning-assessments' || key.startsWith('admin/analytics')) return 'courses';
+    if (['admin/parents','admin/teachers','admin/staff','admin/schools','admin/website','admin/users','admin/classes','admin/hr?tab=structure','admin/hr?tab=attendance','admin/hr?tab=attendance&view=settings','admin/hr','admin/hr/access','group:hr-management','group:hr-staff-attendance'].includes(key)) return 'organization';
+    if (['admin/schedules','admin/attendance','admin/assignments'].includes(key)) return 'academic';
+    if (['admin/announcements','admin/news','admin/events','admin/gallery'].includes(key)) return 'content';
+    if (['admin/forum','admin/whatsapp','admin/telegram'].includes(key)) return 'communication';
+    if (['admin/roles','admin/settings','admin/settings/sidebar','admin/analytics?tab=overview','admin/logs','admin/trash','admin/profile'].includes(key)) return 'system';
     return null;
+  };
+  const staffRead = (key: string) => {
+    if (user?.role !== 'staff') return true;
+    const module = moduleForKey(key);
+    if (!module) return false;
+    return user.permissions.some((permission) => permission.module === module && permission.actions.includes('read') && (!permission.page || permission.page === key));
   };
 
   const sections = navSections.map((section) => {
@@ -217,15 +228,14 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
         if (item.key && (!isVisible(item.key) || !staffSidebar(item.key))) return null;
         const children = item.children.filter((child) => {
           const key = keyForPath(child.path);
-          const module = moduleForPath(child.path);
-          return isVisible(key) && staffSidebar(key) && (!module || staffRead(module, key));
+          return isVisible(key) && staffSidebar(key) && staffRead(key);
         });
         return children.length ? { ...item, children } : null;
       }
       if (item.path === '/admin/website' && !['admin', 'org_admin'].includes(user?.role || '')) return null;
+      if (user?.role === 'staff' && ['/admin/roles', '/admin/settings/sidebar', '/admin/hr/access'].includes(item.path)) return null;
       const key = keyForPath(item.path);
-      const module = moduleForPath(item.path);
-      return isVisible(key) && staffSidebar(key) && (!module || staffRead(module, key)) ? item : null;
+      return isVisible(key) && staffSidebar(key) && staffRead(key) ? item : null;
     }).filter((item): item is NavEntry => item !== null),
   })).filter((section) => section.items.length > 0);
 

@@ -4,7 +4,7 @@
  * One document per (school, portal):
  *   - portal 'student': the student portal sidebar — editable by org_admin
  *     (own org only) or admin (any org, via the Tenant Sidebar Config page).
- *   - portal 'admin': the shared org_admin/teacher admin-portal sidebar —
+ *   - portal 'teacher': the teacher portal sidebar — editable by the org_admin\n *     for its own school (or platform admin for a selected school).\n *   - portal 'admin': the org-admin/staff admin-portal visibility layer —
  *     editable by admin (super admin) ONLY, via the Org Admin Sidebar
  *     Manager page. org_admin/teacher can read their own org's setting to
  *     filter their own nav, but never edit it themselves.
@@ -21,7 +21,7 @@ export interface ISidebarItemOverride {
 export interface ISidebarSetting extends Document {
   _id: mongoose.Types.ObjectId;
   school: mongoose.Types.ObjectId;
-  portal: 'student' | 'admin';
+  portal: 'student' | 'teacher' | 'admin';
   items: ISidebarItemOverride[];
   updatedBy: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -39,7 +39,7 @@ const sidebarItemOverrideSchema = new Schema<ISidebarItemOverride>(
 const sidebarSettingSchema = new Schema<ISidebarSetting>(
   {
     school: { type: Schema.Types.ObjectId, ref: 'School', required: true, index: true },
-    portal: { type: String, enum: ['student', 'admin'], default: 'student' },
+    portal: { type: String, enum: ['student', 'teacher', 'admin'], default: 'student' },
     items: { type: [sidebarItemOverrideSchema], default: [] },
     updatedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
