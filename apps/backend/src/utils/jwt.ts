@@ -70,7 +70,7 @@ export function generateTokenPair(
  */
 export function verifyAccessToken(token: string): AccessTokenPayload {
   try {
-    const decoded = jwt.verify(token, ACCESS_SECRET) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, ACCESS_SECRET, { algorithms: ['HS256'] }) as jwt.JwtPayload;
     return {
       userId: decoded.userId as string,
       role: decoded.role as string,
@@ -93,7 +93,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
  */
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
   try {
-    const decoded = jwt.verify(token, REFRESH_SECRET) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, REFRESH_SECRET, { algorithms: ['HS256'] }) as jwt.JwtPayload;
     return {
       userId: decoded.userId as string,
       tokenVersion: decoded.tokenVersion as number,
