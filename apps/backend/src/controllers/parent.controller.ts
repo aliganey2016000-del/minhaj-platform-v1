@@ -546,10 +546,18 @@ export const unlinkChild = async (req: Request, res: Response): Promise<Response
   if (!parent) throw new NotFoundError('Parent');
   assertOwnsOrg(req, parent, 'school');
 
+  // `childId` must actually be one of this parent's own children — without
+  // this check, an arbitrary student id could still have its `parent` field
+  // unset below even though it was never linked to this parent (cross-
+  // parent/cross-tenant data corruption, since Student.findByIdAndUpdate
+  // ran unconditionally regardless of membership).
+  const isOwnChild = parent.children.some((c: any) => c.toString() === childId);
+  if (!isOwnChild) throw new BadRequestError('This student is not linked to this parent');
+
   parent.children = parent.children.filter((c: any) => c.toString() !== childId);
   await parent.save();
 
-  await Student.findByIdAndUpdate(childId, { $unset: { parent: '' } });
+  await Student.findOneAndUpdate({ _id: childId, parent: parent._id }, { $unset: { parent: '' } });
 
   const updated = await Parent.findById(parent._id)
     .populate('user', 'email')
