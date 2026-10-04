@@ -141,8 +141,14 @@ async function main() {
         assert(true, 'exactly one of two concurrent atomic claims on the same pending payment wins');
       }
     } else {
-      const okCount = [r1, r2].filter((r) => r.status === 200).length;
-      assert(okCount === 1, `exactly one of the two concurrent requests succeeds, the other is refused (got statuses ${r1.status}, ${r2.status})`);
+      // Both requests legitimately resolve 200: the atomic claim's loser
+      // doesn't get an error, it gets the same graceful "already completed"
+      // response as a sequential retry after settlement (see
+      // payment-status.controller.ts's `if (!claimed)` branch) — that's
+      // intentional idempotent-retry behavior, not a race. What actually
+      // proves the fix is that only one of the two ever got to credit the
+      // invoice, asserted below.
+      assert(r1.status === 200 && r2.status === 200, `both concurrent requests resolve 200 — the race loser gets a graceful "already completed", not an error (got statuses ${r1.status}, ${r2.status})`);
 
       const invoiceAfter = await Invoice.findById(invoice._id).lean();
       assert((invoiceAfter as any)!.amountPaid === 100, `the invoice is credited exactly once (100), not twice (got ${(invoiceAfter as any)?.amountPaid})`);
