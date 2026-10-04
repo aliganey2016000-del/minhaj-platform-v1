@@ -13,6 +13,7 @@
 import crypto from 'crypto';
 import { Request } from 'express';
 import School from '../models/school.model';
+import { isPlatformInfrastructureHost } from './platform-domains';
 
 export const PROXY_KEY_HEADER = 'x-sahal-proxy-key';
 
@@ -66,8 +67,7 @@ export function requestHostname(req: Request): string {
  */
 export async function requestTenantSchool(req: Request): Promise<{ _id: string; name: string } | null> {
   const hostname = requestHostname(req);
-  const baseDomain = String(process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
-  if (!hostname || hostname === baseDomain || hostname === `www.${baseDomain}` || hostname === `api.${baseDomain}`) return null;
+  if (!hostname || isPlatformInfrastructureHost(hostname)) return null;
   const tenant: any = await School.findByHost(hostname).catch(() => null);
   return tenant?._id ? { _id: tenant._id.toString(), name: tenant.name } : null;
 }
