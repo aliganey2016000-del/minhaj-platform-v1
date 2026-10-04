@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
+import { isPlatformRootHostname, primaryPlatformDomain } from '../lib/platform-domains';
 
 export interface TenantBranding {
   logo?: string;
@@ -74,14 +75,10 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       // reverse proxies may rewrite forwarded host headers before the API
       // receives the request. Tenant subdomains/custom domains still use the
       // authoritative backend resolver below.
-      const baseDomain = String(import.meta.env.VITE_BASE_DOMAIN || 'sahaledu.com')
-        .replace(/^https?:\/\//, '')
-        .replace(/:\d+$/, '')
-        .replace(/^www\./, '')
-        .toLowerCase();
+      const baseDomain = primaryPlatformDomain();
       const normalizedHost = hostname.replace(/^www\./, '');
       const isLocalMainHost =
-        normalizedHost === baseDomain ||
+        isPlatformRootHostname(normalizedHost) ||
         normalizedHost === 'localhost' ||
         /^\d+\.\d+\.\d+\.\d+$/.test(normalizedHost);
 
