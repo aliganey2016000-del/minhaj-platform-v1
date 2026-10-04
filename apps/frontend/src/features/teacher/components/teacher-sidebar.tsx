@@ -52,7 +52,7 @@ export function TeacherSidebar() {
 
   useEffect(() => {
     if (user?.role !== 'teacher') return;
-    api.get('/sidebar-settings/mine', { params: { portal: 'admin' } })
+    api.get('/sidebar-settings/mine', { params: { portal: 'teacher' } })
       .then(({ data }) => {
         const map: Record<string, boolean> = {};
         (data.data?.items || []).forEach((item: { key: string; visible: boolean }) => { map[item.key] = item.visible; });
