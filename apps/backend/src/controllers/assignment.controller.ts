@@ -170,13 +170,34 @@ export const getById = async (req: Request, res: Response) => {
 
   if (!assignment) throw new NotFoundError('Assignment');
 
-  // Student check: scoped to enrolled courses
+  const courseId = (assignment.course as any)?._id?.toString();
+
+  // Scope by role — mirrors viewMaterial's per-role checks below so a
+  // teacher/parent/tenant-scoped role can't read another org's/teacher's/
+  // non-child's assignment just by guessing its id.
   if (req.user?.role === 'student') {
     const student = await ensureStudentRecord(req.user.userId);
     const enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
-    const courseId = (assignment.course as any)?._id?.toString();
     if (courseId && !enrolledIds.includes(courseId)) {
       throw new ForbiddenError('You can only view assignments for your enrolled courses');
+    }
+  } else if (req.user?.role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const courseDoc = courseId ? await Course.findById(courseId).select('teacher').lean() : null;
+    if (!teacher || !courseDoc || (courseDoc as any).teacher?.toString() !== teacher._id.toString()) {
+      throw new ForbiddenError('You can only view assignments for your own courses');
+    }
+  } else if (req.user?.role === 'parent') {
+    const parent = await Parent.findOne({ user: req.user.userId }).select('children').lean();
+    const enrolled = parent?.children?.length && courseId
+      ? await Student.exists({ _id: { $in: parent.children }, enrolledCourses: courseId })
+      : null;
+    if (!enrolled) throw new ForbiddenError("You can only view assignments for your children's courses");
+  } else if (req.user?.role !== 'admin') {
+    // org_admin, staff acting as org_admin, and any other tenant-scoped role.
+    const courseDoc = courseId ? await Course.findById(courseId).select('school').lean() : null;
+    if (!req.user?.organizationId || !courseDoc || (courseDoc as any).school?.toString() !== req.user.organizationId) {
+      throw new ForbiddenError('You can only view assignments for courses in your organization');
     }
   }
 
@@ -252,22 +273,36 @@ export const getAll = async (req: Request, res: Response) => {
   const now = new Date();
 
   const filter: Record<string, unknown> = {};
+  let allowedCourseIds: any[] | null = null;
 
   if (req.user?.role === 'teacher') {
     const teacher = await getOwnTeacherRecord(req);
     if (!teacher) throw new ForbiddenError('Teacher record not found');
     const ownCourses = await Course.find({ teacher: teacher._id }).select('_id').lean();
-    const ownCourseIds = ownCourses.map((c: any) => c._id);
-    filter.course = { $in: ownCourseIds };
+    allowedCourseIds = ownCourses.map((c: any) => c._id);
   }
 
   if (req.user?.role === 'org_admin') {
     const orgCourses = await Course.find({ school: req.user.organizationId }).select('_id').lean();
-    const orgCourseIds = orgCourses.map((c: any) => c._id);
-    filter.course = { $in: orgCourseIds };
+    allowedCourseIds = orgCourses.map((c: any) => c._id);
   }
 
-  if (courseId) filter.course = courseId;
+  if (allowedCourseIds) {
+    // A client-supplied `courseId` must be intersected with (never replace)
+    // the tenant/teacher-scoped course set above — otherwise a teacher/
+    // org_admin could pass any courseId from another org/teacher and read
+    // its assignments despite the scoping just computed.
+    if (courseId) {
+      const idStr = String(courseId);
+      filter.course = allowedCourseIds.some((id: any) => id.toString() === idStr)
+        ? courseId
+        : { $in: [] };
+    } else {
+      filter.course = { $in: allowedCourseIds };
+    }
+  } else if (courseId) {
+    filter.course = courseId;
+  }
   if (status) filter.status = status;
 
   if (tab === 'active') {

@@ -24,9 +24,11 @@ function getMarked(): Promise<typeof import('marked')> {
 }
 import CourseContent, { computeContentTotals } from '../models/course-content.model';
 import Course from '../models/course.model';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import Student from '../models/student.model';
+import Parent from '../models/parent.model';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
-import { assertOwnsOrg } from '../utils/tenant-scope';
+import { assertOwnsOrg, getOwnTeacherRecord, isTenantScoped } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { sanitizeQuestionForStudent } from '../utils/question-engine';
@@ -129,6 +131,34 @@ export const getByCourse = async (req: Request, res: Response): Promise<Response
   // Verify course exists
   const course = await Course.findById(courseId);
   if (!course) throw new NotFoundError('Course');
+
+  // This route sits before the write-only adminOrTeacher gate (any
+  // authenticated user may call it), so every role must be scoped here —
+  // course content includes quiz questions/answers, not just metadata.
+  const role = req.user?.role;
+  if (role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    if (!teacher || (course as any).teacher?.toString() !== teacher._id.toString()) {
+      throw new ForbiddenError('You can only view content for your own courses');
+    }
+  } else if (role === 'student') {
+    const student = await Student.findOne({ user: req.user!.userId }).select('enrolledCourses school').lean();
+    const enrolledIds = (student?.enrolledCourses || []).map((id: any) => id.toString());
+    const sameSchool = student && (course as any).school?.toString() === (student as any).school?.toString();
+    if (!sameSchool || !enrolledIds.includes(courseId)) {
+      throw new ForbiddenError('You can only view content for your enrolled courses');
+    }
+  } else if (role === 'parent') {
+    const parent = await Parent.findOne({ user: req.user!.userId }).select('children').lean();
+    const enrolled = parent?.children?.length
+      ? await Student.exists({ _id: { $in: parent.children }, enrolledCourses: courseId })
+      : null;
+    if (!enrolled) throw new ForbiddenError("You can only view content for your children's courses");
+  } else if (isTenantScoped(req)) {
+    assertOwnsOrg(req, course, 'school');
+  } else if (role !== 'admin') {
+    throw new ForbiddenError('You do not have permission to access this content');
+  }
 
   let content = await CourseContent.findOne({ course: courseId }).lean();
 
