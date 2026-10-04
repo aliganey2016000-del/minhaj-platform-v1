@@ -233,6 +233,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
         return children.length ? { ...item, children } : null;
       }
       if (item.path === '/admin/website' && !['admin', 'org_admin'].includes(user?.role || '')) return null;
+      if (user?.role === 'staff' && ['/admin/roles', '/admin/settings/sidebar', '/admin/hr/access'].includes(item.path)) return null;
       const key = keyForPath(item.path);
       return isVisible(key) && staffSidebar(key) && staffRead(key) ? item : null;
     }).filter((item): item is NavEntry => item !== null),
