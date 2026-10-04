@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
+import { clearAllOfflineData } from '../lib/offline-store';
 
 interface User {
   id: string;
@@ -111,6 +112,12 @@ function clearAuthStorage() {
       ),
     );
   }
+  // Same reasoning for IndexedDB: the offline-sync pending-actions queue and
+  // downloaded/in-progress course data aren't keyed by account either, and
+  // unlike the Cache Storage entries above they survive a plain page reload
+  // too. Without this, a queued offline mutation from the account logging
+  // out would replay against the next account that logs in on this device.
+  void clearAllOfflineData().catch(() => {});
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
