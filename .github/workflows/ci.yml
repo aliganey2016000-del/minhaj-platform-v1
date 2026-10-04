@@ -154,6 +154,9 @@ jobs:
       - name: Dependency supply-chain regression (exceljs/uuid override)
         run: npx ts-node src/__tests__/dependency-supply-chain.e2e.ts
 
+      - name: Password-reset token race regression (concurrent reset-password completions)
+        run: npm run test:password-reset-race
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest

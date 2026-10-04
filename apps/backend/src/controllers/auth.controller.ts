@@ -730,19 +730,33 @@ export const resetPassword = async (req: Request, res: Response): Promise<Respon
   // Hash the token from the URL
   const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-  const user = await User.findOne({
-    passwordResetToken: hashedToken,
-    passwordResetExpires: { $gt: new Date() },
-  }).select('+passwordResetToken +passwordResetExpires +tokenVersion +refreshTokens');
+  // Atomically check-and-consume the reset token: the filter requires
+  // passwordResetToken/Expires to still match, and the $unset clears them
+  // in that same atomic operation. A plain findOne() followed by a later
+  // save() (the previous shape of this handler) leaves a window between
+  // the read and the write — two concurrent requests for the same token
+  // (e.g. the legitimate user double-clicking the email link, or an
+  // attacker racing a victim who is completing the same reset) could both
+  // pass the findOne() check before either saves, so the second request's
+  // password would silently clobber the first's and the token would look
+  // "used" to neither until too late. findOneAndUpdate matches at most one
+  // document for one value of (token, not-yet-consumed) — whichever
+  // request's update lands first wins the token, and the other gets no
+  // match, exactly like the refresh-token rotation above.
+  const user = await User.findOneAndUpdate(
+    { passwordResetToken: hashedToken, passwordResetExpires: { $gt: new Date() } },
+    { $unset: { passwordResetToken: 1, passwordResetExpires: 1 } }
+  ).select('+passwordResetToken +passwordResetExpires +tokenVersion +refreshTokens');
 
   if (!user) {
     throw new BadRequestError('Password reset token is invalid or has expired');
   }
 
-  // Update password and invalidate all existing sessions
+  // Update password and invalidate all existing sessions. `user` here holds
+  // the pre-update document (findOneAndUpdate's default), so its
+  // passwordResetToken/Expires fields are not marked modified and the
+  // $unset above is left standing when we save the password change below.
   user.password = password;
-  user.passwordResetToken = undefined;
-  user.passwordResetExpires = undefined;
   user.tokenVersion += 1;            // invalidates all refresh tokens
   user.refreshTokens = [];           // clear all stored refresh tokens
   await user.save();
