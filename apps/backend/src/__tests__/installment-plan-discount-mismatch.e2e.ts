@@ -67,7 +67,7 @@ async function main() {
       user: studentUser._id, profile: profile._id, studentId: 'DISC-001', school: school._id,
       status: 'active', approvalStatus: 'approved',
     });
-    const token = generateAccessToken({ userId: admin._id.toString(), role: 'admin', permissions: [], organizationId: school._id.toString() });
+    const token = generateAccessToken({ userId: admin._id.toString(), role: 'admin', permissions: [] });
 
     // -----------------------------------------------------------------------
     section('Invoice already carries a $200 discount (as a real POST /fee-adjustments call would leave it)');
