@@ -18,6 +18,7 @@
 
 import mongoose from 'mongoose';
 import ClassModel, { IClass } from '../models/class.model';
+import PromotionLock from '../models/promotion-lock.model';
 
 /**
  * Runs `worker` over `items` with at most `concurrency` in flight at once.
@@ -33,6 +34,33 @@ export async function runWithConcurrency<T>(items: T[], concurrency: number, wor
   for (let index = 0; index < items.length; index += concurrency) {
     await Promise.all(items.slice(index, index + concurrency).map(worker));
   }
+}
+
+/**
+ * Serializes promotion runs (promote-all, promote-reviewed, undo-promotion)
+ * for one school: at most one may be in flight at a time. See
+ * promotion-lock.model.ts for why a check-then-act guard in the controller
+ * isn't enough. Returns true the first time any caller claims this school
+ * (go ahead), false while another run already holds the claim.
+ */
+export async function acquirePromotionLock(schoolId: string): Promise<boolean> {
+  const key = `promotion:${schoolId}`;
+  try {
+    const result = await PromotionLock.findOneAndUpdate(
+      { key },
+      { $setOnInsert: { key, createdAt: new Date() } },
+      { upsert: true, new: false },
+    );
+    return result === null;
+  } catch (error: any) {
+    if (error?.code === 11000) return false;
+    throw error;
+  }
+}
+
+/** Releases a claim this process took with {@link acquirePromotionLock}. Safe to call even if the claim already expired. */
+export async function releasePromotionLock(schoolId: string): Promise<void> {
+  await PromotionLock.deleteOne({ key: `promotion:${schoolId}` });
 }
 
 export interface TargetClassQuery {

@@ -3,11 +3,14 @@ import mongoose from 'mongoose';
 import ClassModel from '../models/class.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { completeStudentEnrollmentHistory, reassignStudentClassCourses } from '../services/enrollment.service';
 import { undoWholeSchoolPromotion } from '../services/promotion-undo.service';
-import { findPersistentTargetClass, describeMissingTarget, classifyClasses, runWithConcurrency, MissingTarget } from '../services/class-promotion.service';
+import {
+  findPersistentTargetClass, describeMissingTarget, classifyClasses, runWithConcurrency, MissingTarget,
+  acquirePromotionLock, releasePromotionLock,
+} from '../services/class-promotion.service';
 
 /**
  * Bulk year-end promotion. Classes are persistent (Grade 1 A, Grade 2 A, ...)
@@ -124,6 +127,23 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
     throw new BadRequestError('Academic year must use the format YYYY-YYYY, for example 2027-2028.');
   }
 
+  // Serializes concurrent runs for this school (a double-click of Confirm,
+  // or a client retry overlapping the still-running first request) — see
+  // promotion-lock.model.ts. Without this, two runs' reads can both land
+  // before either one's writes, so both decide the same students still need
+  // to move and both save() a push onto the same stale enrollmentHistory
+  // array, and the second save throws a Mongoose VersionError mid-batch.
+  if (!(await acquirePromotionLock(schoolId))) {
+    throw new ConflictError('A promotion run is already in progress for this school. Wait for it to finish before starting another.');
+  }
+  try {
+    return await runPromoteAll(res, schoolId, targetAcademicYear);
+  } finally {
+    await releasePromotionLock(schoolId);
+  }
+};
+
+async function runPromoteAll(res: Response, schoolId: string, targetAcademicYear: string): Promise<Response> {
   const activeClasses = await ClassModel.find({
     school: schoolId, status: 'active', gradeLevel: { $ne: null },
   }).sort({ gradeLevel: 1, title: 1, section: 1 });
@@ -241,7 +261,7 @@ export const promoteAll = async (req: Request, res: Response): Promise<Response>
     sourceAcademicYear: previousAcademicYear(targetAcademicYear),
     targetAcademicYear, results, promoted: promotedGroups, graduated, studentsMoved, missingTargets, alreadyPromoted,
   }, message);
-};
+}
 
 /**
  * Students a promotion to `targetAcademicYear` actually touched — the set
@@ -312,7 +332,18 @@ export const undoPromotion = async (req: Request, res: Response): Promise<Respon
   }
   const sourceAcademicYear = previousAcademicYear(targetAcademicYear);
 
-  const result = await undoWholeSchoolPromotion(schoolId, targetAcademicYear, sourceAcademicYear);
+  // Same claim as promoteAll: undo reads and bulk-rewrites the same students
+  // a concurrent promote-all/promote-reviewed run for this school would be
+  // mutating, so the two must never overlap either.
+  if (!(await acquirePromotionLock(schoolId))) {
+    throw new ConflictError('A promotion run is already in progress for this school. Wait for it to finish before undoing it.');
+  }
+  let result;
+  try {
+    result = await undoWholeSchoolPromotion(schoolId, targetAcademicYear, sourceAcademicYear);
+  } finally {
+    await releasePromotionLock(schoolId);
+  }
   const skippedNote = result.skipped
     ? ` ${result.skipped} student(s) could not be restored safely and were left unchanged.`
     : '';
