@@ -23,6 +23,23 @@ import { persistStudentPhoto } from './student-documents.controller';
 import TeacherDocument from '../models/teacher-document.model';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
+import { nextFormattedId } from '../utils/id-sequence';
+
+/**
+ * TCH-<year>-<0000> — atomically reserved (utils/id-sequence.ts) instead of
+ * `count + 1`, which could mint the same ID for two concurrent creates (one
+ * then fails the unique index) or reissue a retired ID once a teacher was
+ * deleted and the count dropped back down.
+ */
+async function generateTeacherId(): Promise<string> {
+  const year = new Date().getFullYear();
+  return nextFormattedId(
+    `teacher:TCH-${year}`,
+    (n) => `TCH-${year}-${String(n).padStart(4, '0')}`,
+    (candidate) => Teacher.exists({ teacherId: candidate }).then(Boolean),
+    async () => Teacher.countDocuments({ teacherId: { $regex: `^TCH-${year}-` } }),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // GET /teachers — List all teachers with optional filters
@@ -174,8 +191,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const profile = await Profile.create({ user: user._id, firstName, lastName, gender });
 
-  const count = await Teacher.countDocuments();
-  const teacherId = `TCH-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  const teacherId = await generateTeacherId();
 
   const teacher = await Teacher.create({
     user: user._id, profile: profile._id, teacherId,
@@ -610,12 +626,9 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   // leaving orphan User/Profile documents behind.
   let inserted = 0;
   if (teachersToInsert.length > 0) {
-    const baseTeacherCount = await Teacher.countDocuments();
-    const currentYear = new Date().getFullYear();
-
     for (let idx = 0; idx < teachersToInsert.length; idx++) {
       const item = teachersToInsert[idx];
-      const teacherId = `TCH-${currentYear}-${String(baseTeacherCount + idx + 1).padStart(4, '0')}`;
+      const teacherId = await generateTeacherId();
       let createdUserId: mongoose.Types.ObjectId | null = null;
       let createdProfileId: mongoose.Types.ObjectId | null = null;
 

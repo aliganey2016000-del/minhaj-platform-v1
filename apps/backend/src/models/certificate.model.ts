@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { nextFormattedId } from '../utils/id-sequence';
 
 export interface ICertificate extends Document {
   title: string;
@@ -33,12 +34,20 @@ const certificateSchema = new Schema<ICertificate>(
 
 certificateSchema.index({ student: 1, course: 1 });
 
-// Auto-generate certificate number
+// Auto-generate certificate number. Atomically reserved (utils/id-sequence.ts)
+// instead of `count + 1`, which could mint the same number for two
+// concurrent issues (one then fails the unique index) or reissue a
+// retired number once a certificate was deleted and the count dropped.
 certificateSchema.pre<ICertificate>('validate', async function (next) {
   if (this.isNew && !this.certificateNumber) {
-    const count = await mongoose.model('Certificate').countDocuments();
     const year = new Date().getFullYear();
-    this.certificateNumber = `CERT-${year}-${String(count + 1).padStart(5, '0')}`;
+    const CertificateModel = mongoose.model('Certificate');
+    this.certificateNumber = await nextFormattedId(
+      `certificate:CERT-${year}`,
+      (n) => `CERT-${year}-${String(n).padStart(5, '0')}`,
+      (candidate) => CertificateModel.exists({ certificateNumber: candidate }).then(Boolean),
+      async () => CertificateModel.countDocuments({ certificateNumber: { $regex: `^CERT-${year}-` } }),
+    );
   }
   next();
 });

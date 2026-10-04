@@ -19,6 +19,26 @@ import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/t
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
+import { nextFormattedId } from '../utils/id-sequence';
+
+/**
+ * PRN-<year>-<0000> — atomically reserved (utils/id-sequence.ts) instead of
+ * `count + 1`, which could mint the same ID for two concurrent creates (one
+ * then fails the unique index) or reissue a retired ID once a parent was
+ * deleted and the count dropped back down.
+ */
+async function generateParentId(): Promise<string> {
+  const year = new Date().getFullYear();
+  return nextFormattedId(
+    `parent:PRN-${year}`,
+    (n) => `PRN-${year}-${String(n).padStart(4, '0')}`,
+    (candidate) => Parent.exists({ parentId: candidate }).then(Boolean),
+    async () => {
+      const count = await Parent.countDocuments({ parentId: { $regex: `^PRN-${year}-` } });
+      return count;
+    },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // GET /parents — List all with optional filters
@@ -197,8 +217,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const profile = await Profile.create({ user: user._id, firstName, lastName, gender });
 
-  const count = await Parent.countDocuments();
-  const parentId = `PRN-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  const parentId = await generateParentId();
 
   const parent = await Parent.create({
     user: user._id,
@@ -716,11 +735,10 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   // the rest of the batch.
   let inserted = 0;
   if (parentsToInsert.length > 0) {
-    const baseCount = await Parent.countDocuments();
     for (let idx = 0; idx < parentsToInsert.length; idx++) {
       const item = parentsToInsert[idx];
       try {
-        const parentId = `PRN-${new Date().getFullYear()}-${String(baseCount + inserted + 1).padStart(4, '0')}`;
+        const parentId = await generateParentId();
 
         const user = await User.create({
           email: item.email, password: item.hashedPassword, role: 'parent',
