@@ -21,8 +21,6 @@ const RICH_TEXT_CONFIG = {
     'g', 'defs', 'linearGradient', 'stop', 'text', 'tspan',
     'audio', 'video', 'source', 'track',
     'input', 'textarea', 'select', 'option', 'label', 'form',
-    'iframe',
-    'script', 'link', 'meta',
   ],
   ALLOWED_ATTR: [
     'href', 'src', 'alt', 'title', 'class', 'target', 'rel',
@@ -37,8 +35,14 @@ const RICH_TEXT_CONFIG = {
     'viewBox', 'd', 'fill', 'stroke', 'stroke-width', 'stroke-linecap',
     'cx', 'cy', 'r', 'x', 'y', 'x1', 'y1', 'x2', 'y2',
     'transform', 'opacity', 'fill-opacity',
-    // Interactive elements
-    'onclick', 'placeholder', 'disabled', 'checked', 'selected',
+    // Interactive elements — NOTE: no `onclick`/`on*` handler attributes, no
+    // `script`/`iframe`/`link`/`meta` tags above. Lesson/assignment/AI-tutor
+    // content here can originate from an uploaded spreadsheet (content-blocks
+    // import) or any other untrusted source and is rendered to students via
+    // dangerouslySetInnerHTML — allowing those would let a crafted import (or
+    // any saved rich-text content) run arbitrary script or auto-redirect the
+    // viewer (`<meta http-equiv="refresh">`) with no further validation.
+    'placeholder', 'disabled', 'checked', 'selected',
     'readonly', 'autoplay', 'controls', 'muted', 'loop',
     'poster', 'playsinline',
     // Misc

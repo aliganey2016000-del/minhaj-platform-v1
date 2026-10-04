@@ -186,6 +186,9 @@ jobs:
       - name: Attendance GPS regressions
         run: node scripts/test-attendance-location.mjs && node scripts/test-attendance-settings.mjs
 
+      - name: Rich-text sanitizer allowlist regression
+        run: node scripts/test-sanitize-html-allowlist.mjs
+
       - name: Build
         run: npm run build
 
