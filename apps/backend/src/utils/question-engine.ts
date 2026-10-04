@@ -77,7 +77,7 @@ export function validateQuestions(questions: any[]): void {
 // ---------------------------------------------------------------------------
 const ANSWER_REVEALING_FIELDS = [
   'explanation', 'correctAnswers', 'correctIndex', 'correctAnswer', 'pairs',
-  'correctText', 'answer', 'blanks', 'distractors',
+  'correctText', 'answer', 'blanks', 'distractors', 'words',
 ] as const;
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -117,6 +117,7 @@ export function sanitizeQuestionForStudent(question: any): any {
   }
   if (question.type === 'sentence_build' && Array.isArray(question.words)) {
     safeQuestion.wordBank = shuffleArray([...question.words, ...(question.distractors || [])]);
+    delete safeQuestion.words;
   }
   if (question.type === 'fill_blank' && Array.isArray(question.blanks)) {
     safeQuestion.wordBank = shuffleArray([...question.blanks, ...(question.distractors || [])]);
