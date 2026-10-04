@@ -166,6 +166,28 @@ jobs:
       - name: Teacher smart attendance workflow regressions
         run: npx ts-node --files src/__tests__/teacher-smart-attendance.e2e.ts
 
+  backend-promotion:
+    name: Backend promotion and student repair
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Promotion tests
         run: npm run test:promotion
 
@@ -410,6 +432,7 @@ jobs:
       - changes
       - backend-quality
       - backend-schedule-attendance
+      - backend-promotion
       - backend-security-core
       - backend-tenant-integrity
       - backend-exam-finance
@@ -423,6 +446,7 @@ jobs:
           SHOULD_RUN: ${{ needs.changes.outputs.backend }}
           QUALITY: ${{ needs.backend-quality.result }}
           SCHEDULE_ATTENDANCE: ${{ needs.backend-schedule-attendance.result }}
+          PROMOTION: ${{ needs.backend-promotion.result }}
           SECURITY_CORE: ${{ needs.backend-security-core.result }}
           TENANT_INTEGRITY: ${{ needs.backend-tenant-integrity.result }}
           EXAM_FINANCE: ${{ needs.backend-exam-finance.result }}
@@ -440,7 +464,7 @@ jobs:
             exit 0
           fi
 
-          for result in "$QUALITY" "$SCHEDULE_ATTENDANCE" "$SECURITY_CORE" "$TENANT_INTEGRITY" "$EXAM_FINANCE" "$PLATFORM"; do
+          for result in "$QUALITY" "$SCHEDULE_ATTENDANCE" "$PROMOTION" "$SECURITY_CORE" "$TENANT_INTEGRITY" "$EXAM_FINANCE" "$PLATFORM"; do
             if [[ "$result" != "success" ]]; then
               echo "One or more backend CI shards failed, were cancelled, or were skipped unexpectedly."
               exit 1
