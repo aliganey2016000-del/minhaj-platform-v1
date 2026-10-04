@@ -119,6 +119,9 @@ async function main() {
       email: 'sidebar-staff-b@test.local', password: 'Password123!', role: 'staff', organizationId: schoolB._id,
     });
 
+    res = await request(app).get('/api/v1/payments').set(auth(staffB));
+    assert(res.status === 403, `Staff with no Finance permission is denied direct Finance API access (got ${res.status})`);
+
     res = await request(app).patch(`/api/v1/users/${staffA._id}/sidebar-access`).set(auth(orgAdminA)).send({ keys: ['admin/payments'] });
     assert(res.status === 200, `org admin can assign Staff sidebar page (got ${res.status})`);
     res = await request(app).patch(`/api/v1/users/${staffA._id}/permissions`).set(auth(orgAdminA)).send({
