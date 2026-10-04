@@ -8,6 +8,7 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import Student from '../models/student.model';
@@ -27,10 +28,19 @@ import {
 import ApiResponse from '../utils/api-response';
 import { logLearningActivity } from '../utils/learning-activity-logger';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email.service';
+import { isLoginLocked, recordFailedLogin, clearLoginAttempts } from '../utils/login-lockout';
 
 function clientIp(req: Request): string {
   return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
 }
+
+// A fixed, precomputed hash so an unknown-email login still pays roughly
+// the same bcrypt cost as a real one's comparePassword call below —
+// otherwise a fast rejection for "no such user" vs. a slower one for
+// "wrong password" is a timing side-channel that reveals which emails are
+// registered. The candidate password is never a match against this hash
+// (we only care about the compare taking a comparable amount of time).
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('login-lockout-timing-decoy', 12);
 
 /**
  * The sign-in id the client stamps on every request of one browser session.
@@ -311,20 +321,30 @@ export const register = async (req: Request, res: Response): Promise<Response> =
 
 export const login = async (req: Request, res: Response): Promise<Response> => {
   const { email, password, rememberMe } = req.body;
+  const normalizedEmail = String(email).toLowerCase();
+  const ip = clientIp(req);
 
-  // 1. Find user (explicitly select password + locked fields)
-  const user = await User.findOne({ email: email.toLowerCase() })
-    .select('+password +refreshTokens +tokenVersion +failedLoginAttempts +lockedUntil');
-
-  if (!user) {
-    throw new UnauthorizedError('Invalid email or password');
-  }
-
-  // 2. Check if account is locked
-  if (user.isLocked()) {
+  // 1. Check if this (email, IP) pair is locked. This is deliberately NOT
+  // keyed by email alone — see utils/login-lockout.ts — so an attacker who
+  // knows (or guesses) a registered email cannot lock that account's sign-in
+  // for everyone just by sending 5 bad requests from anywhere.
+  if (isLoginLocked(normalizedEmail, ip)) {
     throw new UnauthorizedError(
       'Account is temporarily locked due to too many failed attempts. Please try again later.'
     );
+  }
+
+  // 2. Find user (explicitly select password + locked fields)
+  const user = await User.findOne({ email: normalizedEmail })
+    .select('+password +refreshTokens +tokenVersion +failedLoginAttempts +lockedUntil');
+
+  if (!user) {
+    // Run a dummy bcrypt compare so this branch costs about as much time as
+    // the real-user branch below (which always calls comparePassword) —
+    // otherwise response time alone reveals which emails are registered.
+    await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+    recordFailedLogin(normalizedEmail, ip);
+    throw new UnauthorizedError('Invalid email or password');
   }
 
   // 3. Check if account is active
@@ -337,13 +357,17 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
   // 4. Verify password
   const isPasswordValid = await user.comparePassword(password);
   if (!isPasswordValid) {
-    // Increment failed attempts
+    // Track failed attempts on the account itself for audit/UI (e.g. an
+    // admin's user security view) — this field is intentionally NOT what
+    // gates the lockout below; see utils/login-lockout.ts.
     user.failedLoginAttempts += 1;
-
-    // Lock account after 5 consecutive failed attempts
     if (user.failedLoginAttempts >= 5) {
-      user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 minute lockout
+      user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
     }
+
+    // The actual lockout enforced on the next attempt is bound to this
+    // (email, IP) pair, not the account alone.
+    recordFailedLogin(normalizedEmail, ip);
 
     await user.save({ validateBeforeSave: false });
 
@@ -356,6 +380,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
   user.failedLoginAttempts = 0;
   user.lockedUntil = undefined;
   user.lastLogin = new Date();
+  clearLoginAttempts(normalizedEmail, ip);
 
   const effectiveOrg = await resolveEffectiveOrganization(user);
 
