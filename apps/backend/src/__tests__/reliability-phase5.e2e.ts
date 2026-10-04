@@ -110,9 +110,14 @@ async function main() {
 
     section('1: repairStudentRegistrationIndex does not throw on duplicates (non-strict)');
     const studentregistrations = mongoose.connection.collection('studentregistrations');
+    // `student` is its own required+unique field, separate from the
+    // registrationNumber duplicate this section is testing — each row needs
+    // a distinct one so real MongoDB's unique index on `student` doesn't
+    // reject the second insert before the registrationNumber duplicate this
+    // test is actually about ever gets created.
     await studentregistrations.insertMany([
-      { school: school._id, registrationNumber: 'DUP-1' },
-      { school: school._id, registrationNumber: 'DUP-1' },
+      { school: school._id, registrationNumber: 'DUP-1', student: new mongoose.Types.ObjectId() },
+      { school: school._id, registrationNumber: 'DUP-1', student: new mongoose.Types.ObjectId() },
     ]);
     let threw = false;
     try { await repairStudentRegistrationIndex(); } catch { threw = true; }
