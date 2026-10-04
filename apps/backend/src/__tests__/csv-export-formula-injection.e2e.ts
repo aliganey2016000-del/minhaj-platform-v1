@@ -83,9 +83,8 @@ async function main() {
     const { default: Student } = await import('../models/student.model');
     const { default: LearningActivity } = await import('../models/learning-activity.model');
 
-    function tokenFor(userId: string, role: string, organizationId?: string) {
-      return generateAccessToken({ userId, role, permissions: [], organizationId });
-    }
+    const tokenFor = (userId: string, role: string, organizationId?: string) =>
+      generateAccessToken({ userId, role, permissions: [], organizationId });
 
     const adminUser = await User.create({ email: 'csv-admin@test.local', password: 'Password123!', role: 'admin' });
     const school = await School.create({
