@@ -15,6 +15,7 @@
     "backup:list": "ts-node scripts/backup.ts --list",
     "backup:cleanup": "ts-node scripts/backup.ts --cleanup",
     "backup:restore": "ts-node scripts/backup.ts --restore",
+    "test:ai-rate-limit": "ts-node src/__tests__/ai-routes-rate-limit.e2e.ts",
     "test:student-corrupt-dates": "ts-node src/__tests__/student-corrupt-date-repair.e2e.ts",
     "test:dashboard-aggregations": "ts-node src/__tests__/dashboard-tenant-aggregations.e2e.ts",
     "test:cloudflare-client-ip": "ts-node src/__tests__/cloudflare-client-ip.e2e.ts",
