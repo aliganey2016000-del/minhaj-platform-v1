@@ -548,12 +548,20 @@ export const importStaff = async (req: Request, res: Response): Promise<Response
   return ApiResponse.success(res, { totalRows: rows.length, created, failed: errors.length, errors }, 'Staff import completed');
 };
 
+const STAFF_FORBIDDEN_SIDEBAR_KEYS = new Set([
+  'admin/roles',
+  'admin/settings/sidebar',
+  'admin/hr/access',
+]);
+
 export const getSidebarCatalog = async (_req: Request, res: Response): Promise<Response> => ApiResponse.success(
   res,
-  ADMIN_SIDEBAR_ITEMS.map((item) => {
-    const module = moduleForSidebarKey(item.key);
-    return { ...item, module, allowedActions: module ? allowedActionsForSidebarKey(item.key, module) : [] };
-  }),
+  ADMIN_SIDEBAR_ITEMS
+    .filter((item) => !STAFF_FORBIDDEN_SIDEBAR_KEYS.has(item.key))
+    .map((item) => {
+      const module = moduleForSidebarKey(item.key);
+      return { ...item, module, allowedActions: module ? allowedActionsForSidebarKey(item.key, module) : [] };
+    }),
 );
 
 export const updateSidebarAccess = async (req: Request, res: Response): Promise<Response> => {
