@@ -94,25 +94,24 @@ async function startServer() {
     const { initSocket } = await import('./realtime/socket');
     const { expireStaleSessions } = await import('./controllers/learning-session.controller');
 
-    // Connect to MongoDB
-    await mongoose.connect(MONGODB_URI);
+    // Connect to MongoDB. Explicit pool/timeout options so a slow or
+    // unreachable Mongo fails fast instead of hanging requests forever, and
+    // so the connection pool size is tunable per deployment without a code
+    // change. autoIndex is left at its (true) default on purpose: recent
+    // migrations (incl. TTL indexes added below) rely on Mongoose building
+    // them at boot, and there is no separate index-build step in this
+    // deployment — disabling it would silently stop those indexes existing.
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 10_000,
+      socketTimeoutMS: 45_000,
+      maxPoolSize: Number(process.env.MONGO_POOL_SIZE) || 20,
+    });
     console.log('✅ Connected to MongoDB');
-
-    // Repair the legacy registration-number index before accepting requests.
-    // This is idempotent and fixes existing production databases that still
-    // have the old sparse unique index, which incorrectly blocks multiple
-    // students whose registration number is absent.
-    await repairStudentRegistrationIndex();
-
-    // Give pre-existing announcements/news/events/gallery items an owning
-    // school (idempotent; only items without one are touched).
-    const contentBackfill = await backfillContentSchools();
-    console.log('Content school backfill:', JSON.stringify(contentBackfill));
 
     // Start Express server (wrapped in a raw http.Server so Socket.IO can
     // share the same port instead of needing a separate one)
     const httpServer = http.createServer(app);
-    initSocket(httpServer);
+    const io = initSocket(httpServer);
 
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
@@ -121,19 +120,82 @@ async function startServer() {
       console.log(`🔌 Realtime (Socket.IO) ready`);
     });
 
-    // Closes out learning sessions abandoned without an explicit
-    // /activity/session/end call (closed tab, killed app, lost connection)
-    // — otherwise they stay 'active' forever and admin views showing their
-    // duration keep growing indefinitely. See expireStaleSessions' own
-    // comment for why endedAt isn't just "now".
-    setInterval(() => {
-      void expireStaleSessions().catch((error) => console.error('expireStaleSessions failed:', error));
-    }, 60_000);
+    // Run the legacy registration-number index repair and the content
+    // school backfill AFTER the server is already accepting traffic, and as
+    // fire-and-forget: both are idempotent maintenance tasks, not
+    // preconditions for serving requests, and previously ran before
+    // listen() — so a thrown error (e.g. duplicate registration numbers on
+    // an existing production DB) crashed the whole boot and put the
+    // container in a restart loop. Non-strict mode here means a duplicate
+    // group is logged and skipped instead of thrown.
+    void repairStudentRegistrationIndex().catch((error) =>
+      console.error('repairStudentRegistrationIndex failed:', error),
+    );
+    void backfillContentSchools()
+      .then((result) => console.log('Content school backfill:', JSON.stringify(result)))
+      .catch((error) => console.error('backfillContentSchools failed:', error));
 
-    setInterval(() => {
-      void sendInstallmentReminders().catch((error) => console.error('sendInstallmentReminders failed:', error));
-    }, 24 * 60 * 60 * 1000);
-    void sendInstallmentReminders().catch((error) => console.error('initial installment reminders failed:', error));
+    // Background schedulers. Each process in a multi-instance deployment
+    // would otherwise run these redundantly with no leader election; until
+    // that's added, RUN_SCHEDULERS=false lets every instance but one be
+    // told to stay out of it.
+    const runSchedulers = process.env.RUN_SCHEDULERS !== 'false';
+    const intervals: ReturnType<typeof setInterval>[] = [];
+    if (runSchedulers) {
+      // Closes out learning sessions abandoned without an explicit
+      // /activity/session/end call (closed tab, killed app, lost connection)
+      // — otherwise they stay 'active' forever and admin views showing their
+      // duration keep growing indefinitely. See expireStaleSessions' own
+      // comment for why endedAt isn't just "now".
+      intervals.push(
+        setInterval(() => {
+          void expireStaleSessions().catch((error) => console.error('expireStaleSessions failed:', error));
+        }, 60_000),
+      );
+
+      intervals.push(
+        setInterval(() => {
+          void sendInstallmentReminders().catch((error) => console.error('sendInstallmentReminders failed:', error));
+        }, 24 * 60 * 60 * 1000),
+      );
+      void sendInstallmentReminders().catch((error) => console.error('initial installment reminders failed:', error));
+    } else {
+      console.log('⏸️  RUN_SCHEDULERS=false — background schedulers disabled on this instance');
+    }
+
+    // Graceful shutdown: stop accepting new work and close connections
+    // cleanly on SIGTERM/SIGINT (container stop/restart), instead of the
+    // process being killed mid-request. A hard-exit timer guarantees the
+    // process still goes down even if something hangs while closing.
+    let shuttingDown = false;
+    const shutdown = (signal: string) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`${signal} received: starting graceful shutdown`);
+
+      const forceExit = setTimeout(() => {
+        console.error('Graceful shutdown timed out after 25s; forcing exit.');
+        process.exit(1);
+      }, 25_000);
+      forceExit.unref();
+
+      for (const interval of intervals) clearInterval(interval);
+
+      io.close(() => {
+        httpServer.close(() => {
+          mongoose.connection
+            .close(false)
+            .catch((error) => console.error('Error closing MongoDB connection:', error))
+            .finally(() => {
+              clearTimeout(forceExit);
+              console.log('Graceful shutdown complete.');
+              process.exit(0);
+            });
+        });
+      });
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
