@@ -12,6 +12,7 @@
 
 import mongoose, { Schema, Document } from 'mongoose';
 import { INSTITUTION_TYPES, OWNERSHIP_TYPES, resolveInstitutionType, type InstitutionType, type OwnershipType } from '../utils/academic-config';
+import { microCache } from '../utils/micro-cache';
 
 export { resolveInstitutionType };
 
@@ -564,6 +565,15 @@ interface SchoolModel extends mongoose.Model<ISchool> {
 schoolSchema.statics.findByHost = async function (
   host: string
 ): Promise<TenantBranding | null> {
+  // Every request through CORS/tenant-resolution middleware calls this, so
+  // it's cached for a short window: a school's domain/subdomain change is
+  // reflected within CACHE_TTL_MS instead of on every single request.
+  return microCache(`school:findByHost:${host.toLowerCase()}`, CACHE_TTL_MS, () => resolveByHost.call(this, host));
+};
+
+const CACHE_TTL_MS = 30_000;
+
+async function resolveByHost(this: mongoose.Model<ISchool>, host: string): Promise<TenantBranding | null> {
   // Strip port if present
   const hostname = host.replace(/:\d+$/, '').toLowerCase();
 
@@ -631,7 +641,7 @@ schoolSchema.statics.findByHost = async function (
 
   if (!bySlug) return null;
   return { ...bySlug, institutionType: resolveInstitutionType(bySlug) } as TenantBranding;
-};
+}
 
 // ---------------------------------------------------------------------------
 // Model
