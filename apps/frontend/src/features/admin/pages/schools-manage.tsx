@@ -16,6 +16,7 @@ import { useAuth } from '../../../store/auth-context';
 import { ColumnFilterHeader, useColumnFilters } from '../components/column-filter-header';
 import { Pagination } from '../components/pagination';
 import { isHigherEdInstitutionType } from '../../../lib/institution-type';
+import { platformDomains } from '../../../lib/platform-domains';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -568,16 +569,11 @@ export function SchoolsManage() {
 
     if (include('customDomain') && form.customDomain.trim()) {
       const domain = form.customDomain.trim().toLowerCase();
-      const baseDomain = String(import.meta.env.VITE_BASE_DOMAIN || 'sahaledu.com')
-        .replace(/^https?:\/\//, '')
-        .replace(/:\d+$/, '')
-        .replace(/^www\./, '')
-        .replace(/\/$/, '')
-        .toLowerCase();
+      const managedDomains = platformDomains();
       if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) {
         errors.customDomain = 'Enter a plain domain, e.g. yourschool.edu (no https:// or trailing slash)';
-      } else if (domain === baseDomain || domain === `www.${baseDomain}` || domain.endsWith(`.${baseDomain}`)) {
-        errors.customDomain = `Use Subdomain / Slug for ${baseDomain} addresses and leave Custom Domain blank`;
+      } else if (managedDomains.some((base) => domain === base || domain === `www.${base}` || domain.endsWith(`.${base}`))) {
+        errors.customDomain = 'Use Subdomain / Slug for platform-managed addresses and leave Custom Domain blank';
       }
     }
 
