@@ -537,7 +537,8 @@ export function PaymentsDiscounts() {
   const computedAmount = selectedInvoice
     ? Math.round((valueType === 'percent' ? (numValue / 100) * selectedInvoice.amount : numValue) * 100) / 100
     : 0;
-  const isValid = !!selectedStudent && !!selectedInvoice && numValue > 0 && !!reason.trim() && (valueType !== 'percent' || numValue <= 100);
+  const isValid = !!selectedStudent && !!selectedInvoice && numValue > 0 && !!reason.trim() && (valueType !== 'percent' || numValue <= 100)
+    && computedAmount <= selectedInvoice.amountDue + 0.001;
 
   const handleReview = (e: React.FormEvent) => {
     e.preventDefault();
@@ -545,6 +546,7 @@ export function PaymentsDiscounts() {
     if (!selectedInvoice) { setError('Select an invoice to adjust — this student has no unpaid or partially-paid invoices if the list is empty'); return; }
     if (!(numValue > 0)) { setError('Enter a value greater than zero'); return; }
     if (valueType === 'percent' && numValue > 100) { setError('Percentage cannot exceed 100'); return; }
+    if (computedAmount > selectedInvoice.amountDue + 0.001) { setError(`This exceeds the invoice's remaining balance of $${selectedInvoice.amountDue.toLocaleString()}. Lower the ${valueType === 'percent' ? 'percentage' : 'amount'} first.`); return; }
     if (!reason.trim()) { setError('A reason is required'); return; }
     setError('');
     setPending({ student: selectedStudent, invoice: selectedInvoice, type, valueType, value: numValue, reason: reason.trim(), computedAmount });
