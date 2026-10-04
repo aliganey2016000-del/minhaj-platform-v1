@@ -62,6 +62,7 @@ function staffPageForLocation(pathname: string, search: string): string | null {
     return 'admin/hr';
   }
   if (pathname.startsWith('/admin/hr/access')) return '__unmapped__';
+  if (/^\/admin\/staff\/[^/]+\/access/.test(pathname)) return '__unmapped__';
   if (pathname.startsWith('/admin/staff')) return 'admin/staff';
   if (pathname.startsWith('/admin/parents')) return 'admin/parents';
   if (pathname.startsWith('/admin/teachers')) return 'admin/teachers';
