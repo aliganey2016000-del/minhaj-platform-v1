@@ -37,9 +37,51 @@ function computeGrade(percentage: number, isAbsent: boolean): string {
   return 'F';
 }
 
-function computeStatus(percentage: number, isAbsent: boolean): 'passed' | 'failed' | 'absent' {
+// exam.passingMarks is a raw mark out of exam.totalMarks, not a percent —
+// convert it to the same percent basis `percentage` is computed on. Falls
+// back to the flat 50% default when the exam has no usable passingMarks
+// (mirrors models/result.model.ts's own pre-save fallback).
+function passThresholdFor(exam: { passingMarks?: number; totalMarks?: number } | null | undefined): number {
+  if (exam && typeof exam.passingMarks === 'number' && exam.passingMarks > 0 && (exam.totalMarks || 0) > 0) {
+    return (exam.passingMarks / (exam.totalMarks as number)) * 100;
+  }
+  return 50;
+}
+
+function computeStatus(percentage: number, isAbsent: boolean, exam?: { passingMarks?: number; totalMarks?: number } | null): 'passed' | 'failed' | 'absent' {
   if (isAbsent) return 'absent';
-  return percentage >= 50 ? 'passed' : 'failed';
+  return percentage >= passThresholdFor(exam) ? 'passed' : 'failed';
+}
+
+// Only these fields may ever be set on a Result by a client request —
+// percentage/grade/status are always server-computed from them, never
+// taken from the request body directly (see update()).
+const CLIENT_WRITABLE_RESULT_FIELDS = ['marksObtained', 'totalMarks', 'remarks', 'feedback', 'status'] as const;
+
+function pickResultInput(body: Record<string, unknown>): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const key of CLIENT_WRITABLE_RESULT_FIELDS) {
+    if (body[key] !== undefined) picked[key] = body[key];
+  }
+  return picked;
+}
+
+/** The student must actually belong to this exam — either enrolled in its course, or at least in the same school. Otherwise any student id could be handed a fabricated Result. */
+async function assertStudentBelongsToExam(
+  exam: { course?: unknown; school?: unknown },
+  student: { _id: unknown; enrolledCourses?: unknown[]; school?: unknown }
+): Promise<void> {
+  const examCourseId = exam.course ? String(exam.course) : null;
+  const inCourse = !!examCourseId && (student.enrolledCourses || []).some((id) => String(id) === examCourseId);
+  const sameSchool = !!exam.school && !!student.school && String(exam.school) === String(student.school);
+  if (!inCourse && !sameSchool) {
+    throw new BadRequestError('This student is not enrolled in this exam\'s course or school.');
+  }
+}
+
+function validateMarks(obtained: number, total: number): void {
+  if (!(total >= 1)) throw new BadRequestError('totalMarks must be at least 1');
+  if (!(obtained >= 0) || obtained > total) throw new BadRequestError('marksObtained must be between 0 and totalMarks');
 }
 
 // ---------------------------------------------------------------------------
@@ -379,16 +421,18 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   ]);
   if (!exam) throw new NotFoundError('Exam');
   if (!student) throw new NotFoundError('Student');
+  await assertStudentBelongsToExam(exam, student as any);
 
   // Look up exam attendance to determine if student was present/absent
   const examAttendance = await ExamAttendance.findOne({ exam: examId, student: studentId }).lean();
   const isAbsent = !!(inputStatus === 'absent' || (examAttendance && (examAttendance as any).status === 'absent'));
   const actualObtained = isAbsent ? 0 : (marksObtained ?? 0);
   const actualTotal = totalMarks || exam.totalMarks;
+  if (!isAbsent) validateMarks(actualObtained, actualTotal);
 
   const percentage = computePercentage(actualObtained, actualTotal);
   const grade = computeGrade(percentage, isAbsent);
-  const resultStatus = computeStatus(percentage, isAbsent);
+  const resultStatus = computeStatus(percentage, isAbsent, exam);
 
   const payload = {
     exam: examId,
@@ -442,6 +486,20 @@ export const bulkCreate = async (req: Request, res: Response): Promise<Response>
     attendanceMap[(a as any).student.toString()] = (a as any).status !== 'absent';
   }
 
+  // Every student in the batch must actually belong to this exam — same
+  // check as the single-result create path, just done once for the whole
+  // batch instead of per-row.
+  const studentIdsIn = [...new Set(resultsArray.map((r: any) => String(r.student)))];
+  const studentDocs = await Student.find({ _id: { $in: studentIdsIn } })
+    .select('enrolledCourses school')
+    .lean();
+  const studentById = new Map(studentDocs.map((s: any) => [String(s._id), s]));
+  for (const sid of studentIdsIn) {
+    const s = studentById.get(sid);
+    if (!s) throw new NotFoundError(`Student ${sid}`);
+    await assertStudentBelongsToExam(exam, s as any);
+  }
+
   const userId = new mongoose.Types.ObjectId(req.user!.userId);
 
   // Build explicit update operations with calculated percentage/grade
@@ -450,9 +508,10 @@ export const bulkCreate = async (req: Request, res: Response): Promise<Response>
     const isAbsent = r.status === 'absent' || (attendanceMap[studentId] !== undefined && !attendanceMap[studentId]);
     const obtained = isAbsent ? 0 : (r.marksObtained ?? 0);
     const total = r.totalMarks || exam.totalMarks;
+    if (!isAbsent) validateMarks(obtained, total);
     const percentage = computePercentage(obtained, total);
     const grade = computeGrade(percentage, isAbsent);
-    const status = computeStatus(percentage, isAbsent);
+    const status = computeStatus(percentage, isAbsent, exam);
 
     return {
       updateOne: {
@@ -512,26 +571,29 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!existing) throw new NotFoundError('Result');
   await assertCanManageExamResults(req, existing.exam.toString());
 
-  const updates = { ...req.body };
-  delete updates.exam;
-  delete updates.student;
-  delete updates.enteredBy;
+  const exam = await Exam.findById(existing.exam).lean();
 
-  // If marks or status changed, recalculate. `isAbsent` prefers an explicit
-  // status in this request; otherwise it only stays absent if the caller
-  // isn't also submitting new marks — submitting marksObtained is itself a
-  // clear signal the result should now be graded normally, even if the
-  // caller didn't separately flip `status` away from 'absent'.
-  if (updates.marksObtained !== undefined || updates.totalMarks !== undefined || updates.status !== undefined) {
-    const isAbsent = updates.status !== undefined
-      ? updates.status === 'absent'
-      : updates.marksObtained === undefined && existing.status === 'absent';
-    const obtained = isAbsent ? 0 : (updates.marksObtained ?? existing.marksObtained);
-    const total = updates.totalMarks || existing.totalMarks;
-    updates.percentage = computePercentage(obtained, total);
-    updates.grade = computeGrade(updates.percentage, isAbsent);
-    updates.status = computeStatus(updates.percentage, isAbsent);
-  }
+  // Whitelist what a client may actually set — percentage/grade/status are
+  // never taken from the request body, only ever recomputed below, so a
+  // caller can't forge a passing grade by sending percentage/grade/status
+  // directly without touching marksObtained.
+  const updates = pickResultInput(req.body || {});
+
+  // Always recompute, even when neither marksObtained/totalMarks/status was
+  // sent — the previous "only recalc if one of those three changed" left
+  // percentage/grade/status completely untouched (and thus exactly as the
+  // client sent them, if they sent them) on any other kind of update.
+  const isAbsent = updates.status !== undefined
+    ? updates.status === 'absent'
+    : updates.marksObtained === undefined && existing.status === 'absent';
+  const obtained = isAbsent ? 0 : Number(updates.marksObtained ?? existing.marksObtained);
+  const total = Number(updates.totalMarks || existing.totalMarks);
+  if (!isAbsent) validateMarks(obtained, total);
+  updates.marksObtained = obtained;
+  updates.totalMarks = total;
+  updates.percentage = computePercentage(obtained, total);
+  updates.grade = computeGrade(updates.percentage as number, isAbsent);
+  updates.status = computeStatus(updates.percentage as number, isAbsent, exam);
 
   const result = await Result.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true })
     .populate({ path: 'student', populate: { path: 'profile', select: 'firstName lastName' }, select: 'studentId' })
