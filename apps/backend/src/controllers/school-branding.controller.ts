@@ -88,7 +88,7 @@ export async function uploadLogo(req: Request, res: Response): Promise<Response>
   } else {
     const directory = path.join(process.cwd(), 'uploads', 'organization-branding', schoolId);
     fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(path.join(directory, filename), req.file.buffer);
+    await fs.promises.writeFile(path.join(directory, filename), req.file.buffer);
     const baseUrl = String(process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     logoUrl = `${baseUrl}/uploads/organization-branding/${schoolId}/${filename}`;
   }

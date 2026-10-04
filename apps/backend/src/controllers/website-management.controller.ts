@@ -443,7 +443,7 @@ export async function uploadWebsiteMedia(req: Request, res: Response): Promise<R
   } else {
     const directory = path.resolve(process.cwd(), 'uploads', 'organization-websites', String(school._id));
     fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(path.join(directory, filename), req.file.buffer);
+    await fs.promises.writeFile(path.join(directory, filename), req.file.buffer);
     const baseUrl = String(process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     url = `${baseUrl}/uploads/organization-websites/${school._id}/${filename}`;
   }
