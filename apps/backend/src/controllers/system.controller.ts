@@ -74,7 +74,7 @@ export const getLogs = async (req: Request, res: Response) => {
     const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
     total = facetResult?.totalCount?.[0]?.count || 0;
     const pageDocs = orderedIds.length
-      ? await ActivityLog.find({ _id: { $in: orderedIds } }).populate('user', 'email role').lean()
+      ? await ActivityLog.find({ ...tenantScope, _id: { $in: orderedIds } }).populate('user', 'email role').lean()
       : [];
     const docById = new Map((pageDocs as any[]).map((doc) => [String(doc._id), doc]));
     result = orderedIds.map((id) => docById.get(id)).filter(Boolean);
