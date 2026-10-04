@@ -199,6 +199,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
     if (key.startsWith('admin/payments')) return 'finance';
     if (key.startsWith('admin/exams') || key.startsWith('admin/results') || key === 'admin/certificates' || key === 'group:exam-management') return 'exams';
     if (key.startsWith('admin/students') || key === 'admin/activity') return 'admissions';
+    if (key === 'admin/analytics?tab=overview') return 'system';
     if (key.startsWith('admin/courses') || key === 'group:learning-assessments' || key.startsWith('admin/analytics')) return 'courses';
     if (['admin/parents','admin/teachers','admin/staff','admin/schools','admin/website','admin/users','admin/classes','admin/hr?tab=structure','admin/hr?tab=attendance','admin/hr?tab=attendance&view=settings','admin/hr','admin/hr/access','group:hr-management','group:hr-staff-attendance'].includes(key)) return 'organization';
     if (['admin/schedules','admin/attendance','admin/assignments'].includes(key)) return 'academic';
