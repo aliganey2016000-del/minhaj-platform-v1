@@ -49,11 +49,11 @@ async function main() {
     // req.get(name) (a case-insensitive header getter), not req.headers[...]
     // directly — a plain { headers } object doesn't have that method. This
     // mock adds it so the unit-level calls below exercise the real function.
-    function mockReq(headers: Record<string, string>): any {
+    const mockReq = (headers: Record<string, string>): any => {
       const lower: Record<string, string> = {};
       for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = v;
       return { headers: lower, get: (name: string) => lower[name.toLowerCase()] };
-    }
+    };
 
     // -----------------------------------------------------------------
     section('Item 1: TENANT_PROXY_KEY trusted-proxy gate');

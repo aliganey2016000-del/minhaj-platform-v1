@@ -63,6 +63,18 @@ jobs:
       - name: Ops hardening regression (Telegram webhook, per-account rate limit, TTL, live token checks, deploy scripts)
         run: npx ts-node src/__tests__/ops-hardening-phase4.e2e.ts
 
+      - name: Tenant isolation phase 3 regression (system admin-only, content/grading/schools/staff/notifications/attendance scoping)
+        run: npx ts-node src/__tests__/tenant-isolation-phase3.e2e.ts
+
+      - name: Security hardening phase 5 regression (trusted-proxy tenant host, login lockout, refresh rotation, jwt algorithm pinning)
+        run: npx ts-node src/__tests__/security-hardening-phase5.e2e.ts
+
+      - name: Exam and finance integrity regression (answer leaks, review gating, result validation, id sequences, billing)
+        run: npx ts-node src/__tests__/exam-finance-integrity.e2e.ts
+
+      - name: Reliability phase 5 regression (boot hardening, health check, TTL retention, balance pagination, host caching)
+        run: npx ts-node src/__tests__/reliability-phase5.e2e.ts
+
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
 
