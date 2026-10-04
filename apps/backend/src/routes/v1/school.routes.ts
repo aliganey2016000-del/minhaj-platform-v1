@@ -14,8 +14,14 @@ import { adminOnly, adminOrTeacher, roleMiddleware } from '../../middleware/role
 import { preventOrgAdminInstitutionTypeChange } from '../../middleware/institution-type-lock.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
+// Logos are small images; the 10MB cap matches the other single-image
+// upload routes (student photo, teacher photo, etc). Without a `limits`
+// here, multer's memoryStorage would buffer an attacker-sized request body
+// entirely in process memory before validateLogo() ever runs, letting any
+// org_admin OOM the whole API with one oversized POST.
 const upload = multer({
   storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 const router = Router();

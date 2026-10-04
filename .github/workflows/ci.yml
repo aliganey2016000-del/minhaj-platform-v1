@@ -157,6 +157,9 @@ jobs:
       - name: Dependency supply-chain regression (exceljs/uuid override)
         run: npx ts-node src/__tests__/dependency-supply-chain.e2e.ts
 
+      - name: Organization branding logo upload size-limit regression
+        run: npm run test:branding-logo-upload-limit
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
