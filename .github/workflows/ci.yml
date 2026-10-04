@@ -142,6 +142,9 @@ jobs:
       - name: User Management orphan cleanup tests
         run: npm run test:user-orphan-cleanup
 
+      - name: Push subscription orphan cleanup regression
+        run: npm run test:push-subscription-cleanup
+
       - name: Student activity time-tracking tests
         run: npm run test:activity-tracking
 

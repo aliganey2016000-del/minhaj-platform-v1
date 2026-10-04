@@ -22,6 +22,7 @@ import School from '../models/school.model';
 import { invalidateAuthState } from '../utils/auth-state';
 import Department from '../models/department.model';
 import { nextFormattedId } from '../utils/id-sequence';
+import PushSubscription from '../models/push-subscription.model';
 
 const PRIVILEGED_ROLES = new Set(['admin', 'org_admin']);
 
@@ -447,6 +448,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     await Promise.all([
       Profile.deleteOne({ user: user._id }),
       User.deleteOne({ _id: user._id }),
+      PushSubscription.deleteMany({ user: user._id }),
       Promise.resolve(invalidateAuthState(user._id)),
     ]);
     // A 204 must not carry a body — Node's http parser silently drops one if
