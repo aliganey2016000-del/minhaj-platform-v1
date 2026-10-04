@@ -575,23 +575,43 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
 
   const hashedNewToken = User.hashToken(newTokenPair.refreshToken);
 
-  // Atomic $pull + $push instead of load-mutate-save — concurrent refresh
-  // requests (several API calls hitting a 401 at once and each retrying)
-  // used to race on the same in-memory document version and throw a
-  // Mongoose VersionError, which the frontend treated as "session expired"
-  // and force-redirected to /auth/login mid-edit. An atomic update has no
-  // version to race on.
-  await User.updateOne(
-    { _id: user._id },
-    {
-      $pull: { refreshTokens: hashedOldToken },
-    }
+  // Atomically check-and-remove the old token: the filter requires
+  // refreshTokens to still contain hashedOldToken, so when two concurrent
+  // refresh requests race on the same old token (the earlier membership
+  // check above is a fast-path, not a lock — both could pass it before
+  // either writes), only one findOneAndUpdate can match and pull it.
+  // MongoDB rejects $pull and $push on the same array path within one
+  // update, so the new token is pushed in a second, separate update —
+  // that one is safe to run unconditionally once the pull above has
+  // proven this request owns the token.
+  const rotated = await User.findOneAndUpdate(
+    { _id: user._id, refreshTokens: hashedOldToken },
+    { $pull: { refreshTokens: hashedOldToken } }
   );
+
+  if (!rotated) {
+    // The other concurrent request (or a genuine attacker replaying a
+    // stolen token) consumed it first — treat exactly like the reuse
+    // branch above: invalidate every session.
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { refreshTokens: [] }, $inc: { tokenVersion: 1 } }
+    );
+
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/api',
+    });
+
+    throw new UnauthorizedError('Token reuse detected — all sessions invalidated');
+  }
+
+  // Keep only the latest 5 refresh tokens per user.
   await User.updateOne(
     { _id: user._id },
-    {
-      $push: { refreshTokens: hashedNewToken },
-    }
+    { $push: { refreshTokens: { $each: [hashedNewToken], $slice: -5 } } }
   );
 
   // 7. Set new refresh token cookie
