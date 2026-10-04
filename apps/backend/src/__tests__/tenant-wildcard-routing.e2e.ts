@@ -13,8 +13,10 @@ import {
 
 async function main() {
   const previousBaseDomain = process.env.BASE_DOMAIN;
+  const previousPlatformDomains = process.env.PLATFORM_DOMAINS;
   const previousMode = process.env.CLOUDFLARE_MANAGED_SUBDOMAIN_MODE;
   process.env.BASE_DOMAIN = 'sahaledu.com';
+  process.env.PLATFORM_DOMAINS = 'sahaledu.com,schoolapp.so';
   process.env.CLOUDFLARE_MANAGED_SUBDOMAIN_MODE = 'wildcard';
 
   const mongo = await MongoMemoryServer.create();
@@ -36,6 +38,8 @@ async function main() {
     assert.equal((await School.findByHost('balcad-example.edu'))?.slug, 'balcad-school');
     assert.equal((await School.findByHost('balcad.sahaledu.com'))?.slug, 'balcad-school');
     assert.equal((await School.findByHost('balcad-school.sahaledu.com'))?.slug, 'balcad-school');
+    assert.equal((await School.findByHost('balcad.schoolapp.so'))?.slug, 'balcad-school');
+    assert.equal((await School.findByHost('balcad-school.schoolapp.so'))?.slug, 'balcad-school');
 
     // Explicit subdomain must win over another organization's slug when the
     // same label exists in both fields.
@@ -69,6 +73,9 @@ async function main() {
     assert.equal(await School.findByHost('x.balcad.sahaledu.com'), null);
     assert.equal(await School.findByHost('sahaledu.com'), null);
     assert.equal(await School.findByHost('www.sahaledu.com'), null);
+    assert.equal(await School.findByHost('schoolapp.so'), null);
+    assert.equal(await School.findByHost('www.schoolapp.so'), null);
+    assert.equal(await School.findByHost('x.balcad.schoolapp.so'), null);
 
     // Wildcard DNS is the default managed-subdomain strategy.
     assert.equal(managedWildcardEnabled(), true);
@@ -97,6 +104,13 @@ async function main() {
     assert.equal(managed.body.slug, 'balcad-school');
     assert.equal(managed.body.subdomain, 'balcad');
 
+    const managedAlias = await request(app)
+      .get('/who')
+      .set('Host', 'api.sahaledu.com')
+      .set('X-Tenant-Host', 'balcad.schoolapp.so');
+    assert.equal(managedAlias.status, 200, JSON.stringify(managedAlias.body));
+    assert.equal(managedAlias.body.slug, 'balcad-school');
+
     const custom = await request(app)
       .get('/who')
       .set('Host', 'api.sahaledu.com')
@@ -113,6 +127,9 @@ async function main() {
     const root = await request(app).get('/who').set('Host', 'sahaledu.com');
     assert.equal(root.status, 200, JSON.stringify(root.body));
     assert.equal(root.body.slug, null);
+    const aliasRoot = await request(app).get('/who').set('Host', 'schoolapp.so');
+    assert.equal(aliasRoot.status, 200, JSON.stringify(aliasRoot.body));
+    assert.equal(aliasRoot.body.slug, null);
 
     console.log('PASS: wildcard tenant routing, customDomain -> subdomain -> slug precedence, host isolation and DNS mode');
   } finally {
@@ -120,6 +137,8 @@ async function main() {
     await mongo.stop();
     if (previousBaseDomain === undefined) delete process.env.BASE_DOMAIN;
     else process.env.BASE_DOMAIN = previousBaseDomain;
+    if (previousPlatformDomains === undefined) delete process.env.PLATFORM_DOMAINS;
+    else process.env.PLATFORM_DOMAINS = previousPlatformDomains;
     if (previousMode === undefined) delete process.env.CLOUDFLARE_MANAGED_SUBDOMAIN_MODE;
     else process.env.CLOUDFLARE_MANAGED_SUBDOMAIN_MODE = previousMode;
   }
