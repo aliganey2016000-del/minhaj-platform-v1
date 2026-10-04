@@ -120,6 +120,17 @@ export const getReview = async (req: Request, res: Response): Promise<Response> 
   if (exam.autoSchedule) {
     const win = await getAutoScheduleWindow(exam as any, student._id);
     if (!isWindowPast(win)) throw new BadRequestError('This exam has not finished yet.');
+    // Auto-scheduled exams have no single shared end time — each student's
+    // window closes on its own schedule, so "my window is over" alone isn't
+    // a signal the teacher is ready for anyone to see the answer key. A
+    // fixed-schedule exam's single window-close (isPastExamWindow above)
+    // doubles as that signal today and we leave that behavior alone; for
+    // autoSchedule exams we additionally require the teacher's own signal:
+    // either the exam was explicitly marked completed, or results were
+    // explicitly published (exam.controller.ts publishResults).
+    if (exam.status !== 'completed' && !exam.resultsPublished) {
+      throw new BadRequestError('Results for this exam have not been released yet.');
+    }
   } else if (!isPastExamWindow(exam as any)) {
     throw new BadRequestError('This exam has not finished yet.');
   }
@@ -156,7 +167,9 @@ export const getReview = async (req: Request, res: Response): Promise<Response> 
       earnedPoints: earned,
       isCorrect,
       givenAnswer: givenAnswer ?? null,
-      correctAnswer: correctAnswerFor(q),
+      // A missed exam has no attempt to show a real score for — don't hand
+      // out the answer key to a student who never sat it.
+      correctAnswer: attempt ? correctAnswerFor(q) : null,
     };
   });
 
