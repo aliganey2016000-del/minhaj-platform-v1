@@ -32,14 +32,29 @@ export async function seedDefaultAccounts(req: Request, res: Response): Promise<
   return ApiResponse.success(res, accounts, 'Default chart of accounts is ready');
 }
 
+// These sourceType values are reserved for the system's own automatic
+// postings (postInvoicesToLedger/postPaymentToLedger/refund posting in
+// accounting.service.ts) — each is paired with a real Invoice/Payment/
+// Refund sourceId and deduplicated on (school, sourceType, sourceId). A
+// client-supplied manual entry claiming one of these values (optionally
+// with a fabricated sourceId) could pre-empt — or collide with and thus
+// silently suppress — a real automatic posting for that source.
+const SYSTEM_JOURNAL_SOURCE_TYPES = new Set(['invoice', 'payment', 'refund']);
+
 export async function createJournal(req: Request, res: Response): Promise<Response> {
-  const { description, entryDate, sourceType, sourceId, lines } = req.body || {};
+  const { description, entryDate, sourceType, lines } = req.body || {};
+  if (sourceType && SYSTEM_JOURNAL_SOURCE_TYPES.has(String(sourceType).trim().toLowerCase())) {
+    throw new BadRequestError(`sourceType "${sourceType}" is reserved for automatic postings and cannot be set manually`);
+  }
   const entry = await createJournalEntry({
     schoolId: schoolIdFromRequest(req),
     entryDate: parseDate(entryDate) || new Date(),
     description,
-    sourceType,
-    sourceId,
+    // Manual entries never carry a client-controlled sourceId — force a
+    // fixed 'manual' sourceType with no sourceId so they never collide
+    // with (or impersonate) an automatic posting.
+    sourceType: 'manual',
+    sourceId: undefined,
     lines,
     postedBy: req.user!.userId,
   });
