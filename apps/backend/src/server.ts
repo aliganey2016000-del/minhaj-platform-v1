@@ -93,6 +93,7 @@ async function startServer() {
 
     const { initSocket } = await import('./realtime/socket');
     const { expireStaleSessions } = await import('./controllers/learning-session.controller');
+    const { AuditLogger } = await import('./utils/audit-logger');
 
     // Connect to MongoDB. Explicit pool/timeout options so a slow or
     // unreachable Mongo fails fast instead of hanging requests forever, and
@@ -159,6 +160,15 @@ async function startServer() {
         }, 24 * 60 * 60 * 1000),
       );
       void sendInstallmentReminders().catch((error) => console.error('initial installment reminders failed:', error));
+
+      // AuditLog also carries a 24-month TTL index as the primary cleanup
+      // mechanism; this daily run is a backstop (and the only caller of
+      // cleanupOldLogs, which previously existed but was never invoked).
+      intervals.push(
+        setInterval(() => {
+          void AuditLogger.cleanupOldLogs(730).catch((error) => console.error('cleanupOldLogs failed:', error));
+        }, 24 * 60 * 60 * 1000),
+      );
     } else {
       console.log('⏸️  RUN_SCHEDULERS=false — background schedulers disabled on this instance');
     }

@@ -52,6 +52,9 @@ auditLogSchema.index({ userId: 1, timestamp: -1 });
 auditLogSchema.index({ action: 1, timestamp: -1 });
 auditLogSchema.index({ resource: 1, timestamp: -1 });
 auditLogSchema.index({ organizationId: 1, timestamp: -1 });
+// Retention: audit logs are kept for 24 months, then MongoDB removes them.
+// (This model uses `timestamp`, not `createdAt`, as its time field.)
+auditLogSchema.index({ timestamp: 1 }, { expireAfterSeconds: 2 * 365 * 24 * 60 * 60, name: 'timestamp_ttl_24_months' });
 
 export const AuditLog = model<IAuditLog>('AuditLog', auditLogSchema);
 
