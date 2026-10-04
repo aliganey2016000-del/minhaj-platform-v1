@@ -106,6 +106,9 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const student = await ensureStudentRecord(req.user!.userId);
 
+  const isEnrolled = (student.enrolledCourses || []).some((id: any) => id.toString() === exam.course.toString());
+  if (!isEnrolled) throw new BadRequestError('You are not enrolled in this exam\'s course.');
+
   if (type === 'retake_request') {
     const existingPending = await ExamAppeal.findOne({
       exam: exam._id,

@@ -7,6 +7,7 @@
 import { Request, Response } from 'express';
 import Exam from '../models/exam.model';
 import Course from '../models/course.model';
+import Student from '../models/student.model';
 import ExamIncident from '../models/exam-incident.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
@@ -71,6 +72,14 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (!exam) throw new NotFoundError('Exam');
   assertOwnsOrg(req, exam, 'school');
   await assertOwnsExamIfTeacher(req, exam);
+
+  // An incident naming a student must name one actually enrolled in this
+  // exam's course — otherwise any student id can be logged against any
+  // exam (mirrors exam-attempt.controller.ts's start() enrollment check).
+  if (student) {
+    const enrolled = await Student.exists({ _id: student, enrolledCourses: exam.course });
+    if (!enrolled) throw new BadRequestError('This student is not enrolled in this exam\'s course.');
+  }
 
   const incident = await ExamIncident.create({
     exam: exam._id,
