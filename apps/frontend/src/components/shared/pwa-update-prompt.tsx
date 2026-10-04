@@ -16,6 +16,14 @@ export function PwaUpdatePrompt() {
   const [updateSW, setUpdateSW] = useState<((reloadPage?: boolean) => Promise<void>) | null>(null);
 
   useEffect(() => {
+    // registerSW's onRegisteredSW fires asynchronously once the service
+    // worker registration resolves, so the interval it starts is created
+    // outside this effect's own call stack — a plain `return () => ...`
+    // here can't reach it. Stash the id in this ref instead so the cleanup
+    // below can always clear whatever interval ends up running, however
+    // long registration took.
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
     const update = registerSW({
       onNeedRefresh() {
         setNeedRefresh(true);
@@ -23,12 +31,16 @@ export function PwaUpdatePrompt() {
       // Check for a new build every 30 minutes while the tab stays open.
       onRegisteredSW(_url, registration) {
         if (!registration) return;
-        setInterval(() => {
+        intervalId = setInterval(() => {
           registration.update().catch(() => {});
         }, 30 * 60 * 1000);
       },
     });
     setUpdateSW(() => update);
+
+    return () => {
+      if (intervalId !== null) clearInterval(intervalId);
+    };
   }, []);
 
   if (!needRefresh || !updateSW) return null;
