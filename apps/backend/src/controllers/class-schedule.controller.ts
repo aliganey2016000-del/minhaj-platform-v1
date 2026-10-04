@@ -30,6 +30,7 @@ import School from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { safeRows } from '../utils/spreadsheet-safe';
 
 // A bare `.populate('teacher', 'user profile')` only resolves the Teacher
 // document itself — `profile` on it is still just an ObjectId, since
@@ -724,7 +725,7 @@ export const exportSchedules = async (req: Request, res: Response): Promise<void
     sch.isActive ? 'Active' : 'Inactive',
   ]);
 
-  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...safeRows(rows)]);
   sheet['!cols'] = headers.map((h, colIdx) => {
     const maxLen = rows.reduce((max, row) => Math.max(max, String(row[colIdx] ?? '').length), h.length);
     return { wch: Math.min(maxLen + 4, 50) };

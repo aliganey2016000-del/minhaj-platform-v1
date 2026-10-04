@@ -12,6 +12,7 @@ import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
+import { safeRecord } from '../utils/spreadsheet-safe';
 
 const DEFAULT_BUILDING = 'Main';
 
@@ -268,7 +269,7 @@ export const exportRooms = async (req: Request, res: Response): Promise<void> =>
     Status: r.allocationEnabled === false ? 'Inactive' : 'Active',
   }));
 
-  const sheet = XLSX.utils.json_to_sheet(rows, { header: ['Room', 'Building', 'Capacity', 'Status'] });
+  const sheet = XLSX.utils.json_to_sheet(rows.map(safeRecord), { header: ['Room', 'Building', 'Capacity', 'Status'] });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, 'Rooms');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });

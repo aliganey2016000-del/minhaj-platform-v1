@@ -280,6 +280,18 @@ async function main() {
     await mapLimit([1, 2, 3], 2, async (n) => { if (n === 2) throw new Error('boom'); return n; }).catch(() => { rejected = true; });
     assert(rejected, 'an error still rejects like Promise.all');
 
+
+    section('X2: exports neutralise spreadsheet formulas');
+    const { safeCell } = await import('../utils/spreadsheet-safe');
+    const { buildXlsxBuffer } = await import('../utils/xlsx-buffer');
+    assert(safeCell("=HYPERLINK(\"http://evil\",\"x\")") === "'=HYPERLINK(\"http://evil\",\"x\")", 'a formula is turned into text');
+    assert(safeCell('@SUM(A1)') === "'@SUM(A1)" && safeCell('+cmd|calc') === "'+cmd|calc" && safeCell('-2+3') === "'-2+3" && safeCell('-5') === '-5', 'other triggers are handled; a plain negative number is not changed');
+    assert(safeCell('+252 61 000 0000') === '+252 61 000 0000' && safeCell(42) === 42 && safeCell('Ali') === 'Ali', 'phone numbers, numbers and names are untouched');
+    const XLSX = await import('xlsx');
+    const book = XLSX.read(buildXlsxBuffer(['Name'], [['=1+1'], ['Ali']], 'T'), { type: 'buffer' });
+    const cells = XLSX.utils.sheet_to_json<any>(book.Sheets.T, { header: 1 });
+    assert(cells[1][0] === "'=1+1" && book.Sheets.T.A2.t === 's', 'the exported workbook stores it as a string, not a formula');
+
     // ---------------------------------------------------------------- S1
     section('S1: activity logs and settings are not shared between organizations');
     await ActivityLog.create([
