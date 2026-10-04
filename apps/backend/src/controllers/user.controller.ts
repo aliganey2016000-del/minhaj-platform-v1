@@ -230,6 +230,15 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     if (PRIVILEGED_ROLES.has(role)) {
       throw new ForbiddenError('You cannot create users with admin or org_admin roles');
     }
+    // A staff account acts as org_admin after its module permission check
+    // (see requirePermission), but it is a delegated account, not a real
+    // organization admin — it may provision only ordinary school members
+    // (student/teacher/parent). Finance roles (finance_manager/cashier/
+    // auditor) and further staff accounts carry real org-wide permissions
+    // and must be created only by a genuine org_admin or platform admin.
+    if (req.user?.isStaff && !['student', 'teacher', 'parent'].includes(role)) {
+      throw new ForbiddenError('Staff can only create student, teacher, or parent accounts');
+    }
     // org_admin always creates users in their own org
     if (organizationId && organizationId !== req.user?.organizationId?.toString()) {
       throw new ForbiddenError('You can only create users in your own organization');
