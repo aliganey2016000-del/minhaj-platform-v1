@@ -5,6 +5,7 @@ import { lazy, Suspense } from 'react';
 import { type RouteObject } from 'react-router-dom';
 import { PublicLayout } from '../components/layout/public-layout';
 import { useTenant } from '../store/tenant-context';
+import { isPlatformRootHostname } from '../lib/platform-domains';
 
 const LandingPage = lazy(() => import('../features/public/pages/landing').then((m) => ({ default: m.LandingPage })));
 const SuganhubLandingPage = lazy(() => import('../features/public/pages/suganhub-landing').then((m) => ({ default: m.SuganhubLandingPage })));
@@ -20,17 +21,11 @@ function HomePage() {
   const hostname = typeof window !== 'undefined' ? window.location.hostname.replace(/^www\./, '') : '';
   const CustomLanding = CUSTOM_DOMAIN_LANDING[hostname];
   const { isMainSite, isLoading, error } = useTenant();
-  const baseDomain = String(import.meta.env.VITE_BASE_DOMAIN || 'sahaledu.com')
-    .replace(/^https?:\/\//, '')
-    .replace(/:\d+$/, '')
-    .replace(/^www\./, '')
-    .toLowerCase();
-
   if (CustomLanding) return <CustomLanding />;
 
-  // sahaledu.com is the platform marketing landing page, never a tenant
-  // website. Keep this independent from tenant API/proxy resolution.
-  if (hostname === baseDomain || hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+  // Every configured platform root (e.g. sahaledu.com and schoolapp.so) is
+  // the main marketing site, never a tenant website.
+  if (isPlatformRootHostname(hostname) || hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
     return <LandingPage />;
   }
 
