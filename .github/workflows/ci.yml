@@ -220,6 +220,9 @@ jobs:
       - name: Exam passing-marks-exceeds-total-marks regression
         run: npm run test:exam-passing-marks-bound
 
+      - name: Organization branding logo upload size-limit regression
+        run: npm run test:branding-logo-upload-limit
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest

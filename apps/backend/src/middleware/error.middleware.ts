@@ -116,6 +116,17 @@ export const errorHandler = (
   }
 
   // --------------------------------------
+  // 6a. Handle Multer upload errors (oversized file, too many files, etc.)
+  // --------------------------------------
+  if (err.name === 'MulterError') {
+    const multerErr = err as Error & { code?: string };
+    const message = multerErr.code === 'LIMIT_FILE_SIZE'
+      ? 'The uploaded file is too large.'
+      : 'The upload could not be processed.';
+    return void ApiResponse.error(res, 400, message);
+  }
+
+  // --------------------------------------
   // 6. Handle SyntaxError (malformed JSON in request body)
   // --------------------------------------
   if (err instanceof SyntaxError && 'body' in err) {
