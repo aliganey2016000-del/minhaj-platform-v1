@@ -21,6 +21,13 @@
  * the Trash snapshot and restoreFromTrash() never recreates them, so they
  * were orphaned in the DB and on disk forever. Fixed in
  * teacher.controller.ts's deleteTeacherToTrash.
+ *
+ * Finding D (uploads): deleting an Assignment (DELETE /assignments/:id)
+ * just called Assignment.findByIdAndDelete — its own attachment files under
+ * uploads/assignments/<school>/, and every AssignmentSubmission row (plus
+ * ITS files), were left behind forever. Exam delete already cascades to its
+ * paper/attempts/results; assignment delete now does the same. Fixed in
+ * assignment.controller.ts's remove.
  */
 
 process.env.JWT_ACCESS_SECRET = 'test-access-secret-do-not-use-in-prod';
@@ -53,6 +60,9 @@ async function main() {
     const { default: Payment } = await import('../models/payment.model');
     const { default: Invoice } = await import('../models/invoice.model');
     const { default: TeacherDocument } = await import('../models/teacher-document.model');
+    const { default: Course } = await import('../models/course.model');
+    const { default: Assignment } = await import('../models/assignment.model');
+    const { default: AssignmentSubmission } = await import('../models/assignment-submission.model');
 
     const token = (user: any) => generateAccessToken({
       userId: user._id.toString(), role: user.role, permissions: [],
@@ -199,6 +209,46 @@ async function main() {
       assert((await TeacherDocument.countDocuments({ teacher: teacher._id })) === 0, 'TeacherDocument rows are cleaned up, not left orphaned pointing at a deleted teacher');
       assert(!fs.existsSync(docFilePath), `the document file is removed from disk, not leaked indefinitely (${docFilePath})`);
     }
+
+    // -------------------------------------------------------------------
+    section('Finding D: deleting an assignment cleans up its attachments and submissions, not just its own row');
+    // -------------------------------------------------------------------
+    const teacherUser2 = await User.create({ email: 'r4-teacher2@test.local', password: 'Password123!', role: 'teacher', organizationId: school._id });
+    const teacherProfile2 = await Profile.create({ user: teacherUser2._id, firstName: 'R4', lastName: 'Teacher2', gender: 'male' });
+    const teacher2 = await Teacher.create({ user: teacherUser2._id, profile: teacherProfile2._id, school: school._id, teacherId: 'TCH-R4-0002' });
+    const course = await Course.create({
+      title: { en: 'R4 Course' }, slug: 'r4-course', category: 'general', level: 'beginner', duration: 8,
+      maxStudents: 10, school: school._id, teacher: teacher2._id, status: 'published',
+    });
+    const resAttach = await request(app).post('/api/v1/assignments/upload').set(auth(token(teacherUser2)))
+      .attach('file', Buffer.from('assignment brief'), { filename: 'brief.txt', contentType: 'text/plain' });
+    assert(resAttach.status === 200, `assignment attachment uploads (got ${resAttach.status})`);
+    const attachmentUrl: string = resAttach.body?.data?.url || '';
+    const attachmentPath = path.join(process.cwd(), attachmentUrl.replace(/^\//, ''));
+    assert(fs.existsSync(attachmentPath), `the uploaded attachment exists on disk before delete (${attachmentPath})`);
+
+    const assignment = await Assignment.create({
+      title: 'R4 Assignment', course: course._id, dueDate: new Date(Date.now() + 86400000), createdBy: teacherUser2._id,
+      attachments: [{ url: attachmentUrl, name: 'brief.txt', allowDownload: true }],
+    });
+    const studentUser2 = await User.create({ email: 'r4-student2@test.local', password: 'Password123!', role: 'student', organizationId: school._id });
+    const studentProfile2 = await Profile.create({ user: studentUser2._id, firstName: 'R4', lastName: 'Student2', gender: 'female' });
+    const student2 = await Student.create({ user: studentUser2._id, profile: studentProfile2._id, school: school._id, enrolledCourses: [course._id] });
+    const submissionFileDir = path.join(process.cwd(), 'uploads', 'assignments', String(school._id));
+    fs.mkdirSync(submissionFileDir, { recursive: true });
+    const submissionFilePath = path.join(submissionFileDir, 'r4-submission.txt');
+    fs.writeFileSync(submissionFilePath, 'my answer file');
+    await AssignmentSubmission.create({
+      assignment: assignment._id, student: student2._id, course: course._id, answer: 'done',
+      fileUrl: `/uploads/assignments/${school._id}/r4-submission.txt`, status: 'submitted',
+    });
+    assert(fs.existsSync(submissionFilePath), `the submission's file exists on disk before delete (${submissionFilePath})`);
+
+    const resAssignmentDelete = await request(app).delete(`/api/v1/assignments/${assignment._id}`).set(auth(token(teacherUser2)));
+    assert(resAssignmentDelete.status === 204, `assignment delete succeeds (got ${resAssignmentDelete.status})`);
+    assert(!fs.existsSync(attachmentPath), `the assignment's own attachment file is removed from disk (${attachmentPath})`);
+    assert(!fs.existsSync(submissionFilePath), `the submission's file is removed from disk too (${submissionFilePath})`);
+    assert((await AssignmentSubmission.countDocuments({ assignment: assignment._id })) === 0, 'AssignmentSubmission rows are cleaned up, not left orphaned pointing at a deleted assignment');
   } finally {
     for (const file of createdFiles) fs.rmSync(file, { force: true });
     await db.stop();

@@ -424,10 +424,41 @@ export const updateStatus = async (req: Request, res: Response) => {
 // DELETE /:id — Remove assignment
 // ---------------------------------------------------------------------------
 
+// Best-effort delete of a stored /uploads/... file: resolveUploadPath
+// refuses anything outside the uploads folder (so a malformed or external
+// URL is simply skipped, not followed), and a missing file is a no-op.
+function deleteStoredFileQuiet(url: string | undefined | null): void {
+  if (!url) return;
+  try {
+    const filePath = resolveUploadPath(url);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // Not a local /uploads path (e.g. already missing, or external) — nothing to clean up.
+  }
+}
+
 export const remove = async (req: Request, res: Response) => {
   await assertCanManageAssignment(req, req.params.id);
-  const item = await Assignment.findByIdAndDelete(req.params.id);
+  const item = await Assignment.findById(req.params.id);
   if (!item) throw new NotFoundError('Assignment');
+
+  // Neither this assignment's own attachments nor its submissions' files
+  // were ever cleaned up here — Assignment.findByIdAndDelete just dropped
+  // the Assignment document, leaving every file under
+  // uploads/assignments/<school>/ (and every AssignmentSubmission row, plus
+  // ITS files) orphaned on disk/in the DB forever. Exam delete already
+  // cascades to its paper/attempts/results for the same reason; assignment
+  // delete should too.
+  const submissions = await AssignmentSubmission.find({ assignment: item._id }).select('fileUrl files').lean();
+  for (const submission of submissions as any[]) {
+    deleteStoredFileQuiet(submission.fileUrl);
+    for (const file of submission.files || []) deleteStoredFileQuiet(file?.url);
+  }
+  await AssignmentSubmission.deleteMany({ assignment: item._id });
+
+  for (const attachment of item.attachments || []) deleteStoredFileQuiet(attachment?.url);
+
+  await Assignment.findByIdAndDelete(item._id);
   return ApiResponse.noContent(res, 'Deleted');
 };
 
