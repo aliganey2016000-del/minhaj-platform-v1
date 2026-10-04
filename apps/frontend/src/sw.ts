@@ -24,7 +24,13 @@ declare const self: ServiceWorkerGlobalScope;
 // ---------------------------------------------------------------------------
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
-self.skipWaiting();
+
+// Keep the previous worker active until the user accepts the update prompt.
+// Calling skipWaiting() unconditionally here defeats registerType: 'prompt'
+// and can switch workers while an older tab is still running old hashed chunks.
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
 clientsClaim();
 
 // ---------------------------------------------------------------------------
