@@ -396,6 +396,12 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   stripDomainOwnershipFields(updates);
   const adminPassword = updates.adminPassword as string | undefined;
   delete updates.adminPassword;
+  // Resetting the org admin's login is an account takeover in a delegated
+  // account's hands: staff (acting as org_admin) may edit school details but
+  // never the org admin's password or login email.
+  if (req.user?.isStaff && adminPassword) {
+    throw new ForbiddenError('Staff cannot reset the organization admin password');
+  }
 
   // An empty Custom Domain from the edit form means "remove the custom
   // domain and use the managed <subdomain>.sahaledu.com hostname again".

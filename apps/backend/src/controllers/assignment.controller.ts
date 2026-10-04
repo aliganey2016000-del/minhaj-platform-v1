@@ -16,12 +16,15 @@
 
 import { Request, Response } from 'express';
 import path from 'path';
+import crypto from 'crypto';
+import { UPLOADS_ROOT, assertAllowedUpload, resolveUploadPath, safeStoredName } from '../utils/upload-safety';
 import fs from 'fs';
 import mongoose from 'mongoose';
 import Assignment from '../models/assignment.model';
 import AssignmentSubmission from '../models/assignment-submission.model';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
+import Parent from '../models/parent.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
@@ -399,17 +402,19 @@ export const remove = async (req: Request, res: Response) => {
 
 export const uploadAttachment = async (req: Request, res: Response) => {
   if (!req.file) throw new BadRequestError('No file provided');
+  // Only document/media types: these files are reachable under /uploads on
+  // the API's own origin, where an HTML or SVG file would run as a page.
+  assertAllowedUpload(req.file);
 
-  const uploadsDir = path.join(process.cwd(), 'uploads', 'assignments');
+  const schoolFolder = req.user?.organizationId && /^[a-f0-9]{24}$/i.test(req.user.organizationId) ? req.user.organizationId : 'shared';
+  const uploadsDir = path.join(UPLOADS_ROOT, 'assignments', schoolFolder);
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  const timestamp = Date.now();
-  const safeName = (req.file.originalname || 'file').replace(/[^a-zA-Z0-9.\-_]/g, '_');
-  const filename = `${timestamp}-${safeName}`;
+  const filename = safeStoredName(req.file.originalname, `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`);
   const filePath = path.join(uploadsDir, filename);
   fs.writeFileSync(filePath, req.file.buffer);
 
-  const url = `/uploads/assignments/${filename}`;
+  const url = `/uploads/assignments/${schoolFolder}/${filename}`;
   const name = req.file.originalname || filename;
   const allowDownload = req.body?.allowDownload === 'true' || req.body?.allowDownload === true;
 
@@ -439,9 +444,16 @@ export const viewMaterial = async (req: Request, res: Response) => {
     if (!teacher || !courseDoc || (courseDoc as any).teacher?.toString() !== teacher._id.toString()) {
       throw new ForbiddenError('You can only view materials for your own courses');
     }
-  } else if (req.user?.role === 'org_admin') {
+  } else if (req.user?.role === 'parent') {
+    const parent = await Parent.findOne({ user: req.user.userId }).select('children').lean();
+    const enrolled = parent?.children?.length
+      ? await Student.exists({ _id: { $in: parent.children }, enrolledCourses: (assignment as any).course })
+      : null;
+    if (!enrolled) throw new ForbiddenError("You can only view materials for your children's courses");
+  } else if (req.user?.role !== 'admin') {
+    // org_admin, staff acting as org_admin, and any other school role.
     const courseDoc = await Course.findById((assignment as any).course).select('school').lean();
-    if (!courseDoc || (courseDoc as any).school?.toString() !== req.user.organizationId) {
+    if (!req.user?.organizationId || !courseDoc || (courseDoc as any).school?.toString() !== req.user.organizationId) {
       throw new ForbiddenError('You can only view materials for courses in your organization');
     }
   }
@@ -452,7 +464,9 @@ export const viewMaterial = async (req: Request, res: Response) => {
   }
 
   const attachment = assignment.attachments[attachIndex];
-  const filePath = path.join(process.cwd(), attachment.url.replace(/^\//, ''));
+  // Attachment URLs are client-supplied on create/update; never read a file
+  // outside the uploads folder.
+  const filePath = resolveUploadPath(attachment.url);
   if (!fs.existsSync(filePath)) throw new NotFoundError('File not found on disk');
 
   const ext = path.extname(attachment.name || attachment.url).toLowerCase();
@@ -470,6 +484,7 @@ export const viewMaterial = async (req: Request, res: Response) => {
   }
 
   res.setHeader('Content-Type', contentType);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, max-age=3600');
   fs.createReadStream(filePath).pipe(res);
 };

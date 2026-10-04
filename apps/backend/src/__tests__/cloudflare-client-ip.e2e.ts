@@ -19,8 +19,8 @@ function assert(cond: boolean, label: string) {
   else { console.log(`  FAIL ${label}`); failures++; }
 }
 
-function run(headers: Record<string, string | string[] | undefined>, middleware: (req: any, res: any, next: any) => void) {
-  const req: any = { headers: { ...headers } };
+function run(headers: Record<string, string | string[] | undefined>, middleware: (req: any, res: any, next: any) => void, remoteAddress = '172.18.0.5') {
+  const req: any = { headers: { ...headers }, socket: { remoteAddress } };
   let nextCalled = false;
   middleware(req, {}, () => { nextCalled = true; });
   return { req, nextCalled };
@@ -59,6 +59,23 @@ async function main() {
   {
     const { req } = run({ 'cf-connecting-ip': '   ' }, resolveCloudflareClientIp);
     assert(req.headers['x-forwarded-for'] === undefined, 'a blank header is ignored rather than written as whitespace');
+  }
+
+  {
+    // Reaching the origin directly (not through Cloudflare or our private
+    // proxy hop) must not let the caller choose its own client IP.
+    const { req } = run({ 'cf-connecting-ip': '203.0.113.77', 'x-forwarded-for': '198.51.100.20' }, resolveCloudflareClientIp);
+    assert(req.headers['x-forwarded-for'] === '198.51.100.20', `a CF header from a non-Cloudflare peer is ignored (got ${req.headers['x-forwarded-for']})`);
+  }
+
+  {
+    const { req } = run({ 'cf-connecting-ip': '203.0.113.77' }, resolveCloudflareClientIp, '198.51.100.20');
+    assert(req.headers['x-forwarded-for'] === undefined, 'a direct public caller cannot set the client IP either');
+  }
+
+  {
+    const { req } = run({ 'cf-connecting-ip': '203.0.113.9', 'x-forwarded-for': '162.158.10.20' }, resolveCloudflareClientIp, '198.51.100.20');
+    assert(req.headers['x-forwarded-for'] === '203.0.113.9', 'a Cloudflare edge peer is trusted');
   }
 
   console.log(failures ? `\n${failures} CHECK(S) FAILED` : '\nALL CLOUDFLARE CLIENT-IP CHECKS PASSED (0 failures)');

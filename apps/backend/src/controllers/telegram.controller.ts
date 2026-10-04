@@ -140,9 +140,17 @@ export const unlink = async (req: Request, res: Response): Promise<Response> => 
 // ---------------------------------------------------------------------------
 
 export const webhook = async (req: Request, res: Response): Promise<Response> => {
+  // Fail closed: without a configured secret anyone could post fake updates
+  // and link a parent's account to their own Telegram chat.
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
-  const receivedSecret = req.get('X-Telegram-Bot-Api-Secret-Token')?.trim();
-  if (expectedSecret && receivedSecret !== expectedSecret) {
+  if (!expectedSecret) {
+    console.error('Telegram webhook rejected: TELEGRAM_WEBHOOK_SECRET is not set');
+    return res.status(503).json({ ok: false });
+  }
+  const receivedSecret = req.get('X-Telegram-Bot-Api-Secret-Token')?.trim() || '';
+  const expected = Buffer.from(expectedSecret);
+  const received = Buffer.from(receivedSecret);
+  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
     return res.status(401).json({ ok: false });
   }
 

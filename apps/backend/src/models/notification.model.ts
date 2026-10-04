@@ -24,5 +24,7 @@ const schema = new Schema<INotification>(
 
 schema.index({ user: 1, read: 1 });
 schema.index({ createdAt: -1 });
+// Retention: notifications are kept for 12 months, then MongoDB removes them.
+schema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60, name: 'createdAt_ttl_12_months' });
 
 export default mongoose.model<INotification>('Notification', schema);

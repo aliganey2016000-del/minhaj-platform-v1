@@ -1,6 +1,8 @@
 import express from 'express';
 import { ForbiddenError } from './utils/api-error';
 import path from 'path';
+import { verifyAccessToken } from './utils/jwt';
+import { PRIVATE_UPLOAD_PREFIXES, UPLOADS_ROOT, setUploadHeaders } from './utils/upload-safety';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -78,7 +80,29 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 app.use(securityLogging);
-app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+// Student and teacher documents are private: they are only served through
+// their authenticated, school-checked view endpoints, never as public files.
+app.use('/uploads', (req, res, next) => {
+  let requested: string;
+  try {
+    requested = path.posix.normalize(decodeURIComponent(req.path)).toLowerCase();
+  } catch {
+    requested = '';
+  }
+  if (!requested || PRIVATE_UPLOAD_PREFIXES.some((prefix) => requested.startsWith(prefix))) {
+    res.status(404).json({ success: false, statusCode: 404, message: 'Not found', data: null, errors: null });
+    return;
+  }
+  next();
+});
+// Stored file names are unique, so a day of caching is safe and keeps
+// repeat views of logos, photos and gallery images off the Node process.
+app.use('/uploads', express.static(UPLOADS_ROOT, {
+  maxAge: '1d',
+  index: false,
+  dotfiles: 'deny',
+  setHeaders: setUploadHeaders,
+}));
 
 // ---------------------------------------------------------------------------
 // Rate Limiting
@@ -96,6 +120,21 @@ const limiter = rateLimit({
     errors: null,
   },
   skip: (req) => req.path === '/v1/health', // Skip health checks — req.path is relative to the '/api/' mount point
+  // Signed-in traffic is counted per account, not per IP: a whole campus or
+  // school office behind one NAT address would otherwise share one budget.
+  // The token's signature is checked, so a made-up user id cannot be used
+  // to dodge the per-IP limit. Everything else stays per IP.
+  keyGenerator: (req) => {
+    const header = req.headers.authorization;
+    if (header?.startsWith('Bearer ')) {
+      try {
+        return `user:${verifyAccessToken(header.slice(7)).userId}`;
+      } catch {
+        // fall through to the IP
+      }
+    }
+    return `ip:${req.ip}`;
+  },
 });
 
 // Authentication protection uses TWO independent limits:

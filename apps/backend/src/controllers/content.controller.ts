@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { escapeRegex } from '../utils/escape-regex';
+import Teacher from '../models/teacher.model';
 
 // This handler is shared across four unrelated models via dynamic `rest`
 // query filters, so the ObjectId-ref fields aren't known ahead of time —
@@ -24,6 +25,36 @@ function getModel(name: ModelName) {
   return mongoose.model(name);
 }
 
+/**
+ * Which content the caller may see and change. Every school only ever
+ * reaches its own items; the platform admin reaches everything (optionally
+ * narrowed with ?school=), including platform-wide items with no school.
+ */
+async function contentScope(req: Request): Promise<Record<string, unknown>> {
+  if (req.user?.role === 'admin') {
+    const school = (req.query as any)?.school;
+    if (school === 'none') return { school: null };
+    return school && mongoose.isValidObjectId(school) ? { school: new mongoose.Types.ObjectId(String(school)) } : {};
+  }
+  let orgId = req.user?.organizationId;
+  if (!orgId && req.user?.role === 'teacher') {
+    // Tokens issued before teachers carried their school in the token.
+    const teacher = await Teacher.findOne({ user: req.user.userId }).select('school').lean();
+    orgId = (teacher as any)?.school?.toString();
+  }
+  if (!orgId || !mongoose.isValidObjectId(orgId)) throw new ForbiddenError('Your account is not assigned to an organization.');
+  return { school: new mongoose.Types.ObjectId(orgId) };
+}
+
+/** Fields a client may never set directly on a content item. */
+const PROTECTED_FIELDS = ['_id', 'school', 'createdBy', 'uploadedBy', 'createdAt', 'updatedAt'];
+
+function editablePayload(req: Request): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...(req.body || {}) };
+  for (const key of PROTECTED_FIELDS) delete payload[key];
+  return payload;
+}
+
 // GET /
 export const getAll = (modelName: ModelName) => async (req: Request, res: Response): Promise<Response> => {
   const Model = getModel(modelName);
@@ -33,10 +64,11 @@ export const getAll = (modelName: ModelName) => async (req: Request, res: Respon
   if (status) filter.status = status;
   // Additional filters from query
   for (const key of Object.keys(rest)) {
-    if (key !== 'page' && key !== 'limit' && key !== 'search') {
+    if (key !== 'page' && key !== 'limit' && key !== 'search' && key !== 'school') {
       filter[key] = rest[key];
     }
   }
+  Object.assign(filter, (await contentScope(req)));
 
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
@@ -97,7 +129,16 @@ export const getAll = (modelName: ModelName) => async (req: Request, res: Respon
 export const create = (modelName: ModelName) => async (req: Request, res: Response): Promise<Response> => {
   const Model = getModel(modelName);
   const userIdField = modelName === 'Gallery' ? 'uploadedBy' : 'createdBy';
-  const payload = { ...req.body, [userIdField]: new mongoose.Types.ObjectId(req.user!.userId) };
+  // A school's content always belongs to that school; the platform admin may
+  // publish for a chosen school or platform-wide (no school).
+  let school: mongoose.Types.ObjectId | null;
+  if (req.user?.role === 'admin') {
+    const requested = req.body?.school;
+    school = requested && mongoose.isValidObjectId(requested) ? new mongoose.Types.ObjectId(String(requested)) : null;
+  } else {
+    school = (await contentScope(req)).school as mongoose.Types.ObjectId;
+  }
+  const payload = { ...editablePayload(req), school, [userIdField]: new mongoose.Types.ObjectId(req.user!.userId) };
   const item = await Model.create(payload);
   const populated = await Model.findById(item._id).populate(userIdField === 'uploadedBy' ? 'uploadedBy' : 'createdBy', 'email').lean();
   return ApiResponse.created(res, populated, `${modelName} created successfully`);
@@ -106,7 +147,7 @@ export const create = (modelName: ModelName) => async (req: Request, res: Respon
 // PATCH /:id
 export const update = (modelName: ModelName) => async (req: Request, res: Response): Promise<Response> => {
   const Model = getModel(modelName);
-  const item = await Model.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true }).lean();
+  const item = await Model.findOneAndUpdate({ $and: [{ _id: req.params.id }, (await contentScope(req))] }, editablePayload(req), { new: true, runValidators: true }).lean();
   if (!item) throw new NotFoundError(modelName);
   return ApiResponse.success(res, item, `${modelName} updated`);
 };
@@ -116,14 +157,14 @@ export const updateStatus = (modelName: ModelName) => async (req: Request, res: 
   const { status } = req.body;
   if (!status) throw new BadRequestError('Status is required');
   const Model = getModel(modelName);
-  const item = await Model.findByIdAndUpdate(req.params.id, { status }, { new: true }).lean();
+  const item = await Model.findOneAndUpdate({ $and: [{ _id: req.params.id }, (await contentScope(req))] }, { status }, { new: true, runValidators: true }).lean();
   if (!item) throw new NotFoundError(modelName);
   return ApiResponse.success(res, item, `Status updated to ${status}`);
 };
 
 // PATCH /:id/toggle-pin (announcements only)
 export const togglePin = async (req: Request, res: Response): Promise<Response> => {
-  const item = await getModel('Announcement').findById(req.params.id);
+  const item = await getModel('Announcement').findOne({ $and: [{ _id: req.params.id }, (await contentScope(req))] });
   if (!item) throw new NotFoundError('Announcement');
   (item as any).isPinned = !(item as any).isPinned;
   await (item as any).save();
@@ -133,7 +174,7 @@ export const togglePin = async (req: Request, res: Response): Promise<Response> 
 // DELETE /:id
 export const remove = (modelName: ModelName) => async (req: Request, res: Response): Promise<Response> => {
   const Model = getModel(modelName);
-  const item = await Model.findByIdAndDelete(req.params.id);
+  const item = await Model.findOneAndDelete({ $and: [{ _id: req.params.id }, (await contentScope(req))] });
   if (!item) throw new NotFoundError(modelName);
   return ApiResponse.noContent(res, `${modelName} deleted`);
 };

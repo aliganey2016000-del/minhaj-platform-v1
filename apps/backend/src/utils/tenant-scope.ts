@@ -20,7 +20,10 @@ import AssignmentSubmission from '../models/assignment-submission.model';
 // endpoint that forgets this and relies solely on applyOrgFilter will NOT be
 // tenant-scoped — see resolveViewableOrgId() below for the one helper that
 // DOES cover every non-admin role uniformly (reads only, by design).
-const TENANT_SCOPED_ROLES = new Set(['org_admin', 'finance_manager', 'cashier', 'auditor']);
+// `staff` normally acts as org_admin after its permission check (see
+// requirePermission); listing it here also scopes any staff request that
+// reaches a helper without one.
+const TENANT_SCOPED_ROLES = new Set(['org_admin', 'finance_manager', 'cashier', 'auditor', 'staff']);
 
 export function isTenantScoped(req: Request): boolean {
   return TENANT_SCOPED_ROLES.has(req.user?.role || '');

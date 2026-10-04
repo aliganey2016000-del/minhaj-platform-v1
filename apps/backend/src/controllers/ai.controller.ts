@@ -335,7 +335,9 @@ export const uploadVoiceNote = async (req: Request, res: Response): Promise<Resp
   const uploadsDir = path.join(process.cwd(), 'uploads', 'voice-notes');
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  const ext = req.file.mimetype === 'audio/mp4' ? 'm4a' : req.file.mimetype.split('/')[1]?.split(';')[0] || 'webm';
+  const declared = req.file.mimetype === 'audio/mp4' ? 'm4a' : req.file.mimetype.split('/')[1]?.split(';')[0] || 'webm';
+  // Only known audio extensions are ever written to disk.
+  const ext = AUDIO_MIME_TYPES[declared] ? declared : 'webm';
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
 

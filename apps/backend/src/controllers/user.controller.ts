@@ -19,7 +19,30 @@ import { normalizeStaffPermissions, STAFF_PERMISSION_CATALOG } from '../utils/st
 import { ADMIN_SIDEBAR_ITEMS, moduleForSidebarKey } from '../utils/sidebar-items';
 import * as XLSX from 'xlsx';
 import School from '../models/school.model';
+import { invalidateAuthState } from '../utils/auth-state';
 import Department from '../models/department.model';
+
+const PRIVILEGED_ROLES = new Set(['admin', 'org_admin']);
+
+function sameOrg(user: any, req: Request): boolean {
+  return Boolean(user.organizationId) && user.organizationId?.toString() === req.user?.organizationId?.toString();
+}
+
+/**
+ * Only the platform admin manages users across schools. Org admins (and staff
+ * acting for one) are confined to their own school and can never touch a
+ * platform admin account; staff additionally cannot manage org admins or
+ * their own account, which is how a delegated account would escalate.
+ */
+function assertCanManageUser(req: Request, user: any): void {
+  if (req.user?.role === 'admin') return;
+  if (!sameOrg(user, req)) throw new ForbiddenError('You can only manage users in your own organization');
+  if (user.role === 'admin') throw new ForbiddenError('You cannot manage platform admin accounts');
+  if (req.user?.isStaff) {
+    if (user.role === 'org_admin') throw new ForbiddenError('Staff cannot manage organization admin accounts');
+    if (user._id?.toString() === req.user.userId) throw new ForbiddenError('Staff cannot change their own account here');
+  }
+}
 
 export const getPermissionCatalog = async (_req: Request, res: Response): Promise<Response> => {
   return ApiResponse.success(res, STAFF_PERMISSION_CATALOG);
@@ -29,13 +52,20 @@ export const updatePermissions = async (req: Request, res: Response): Promise<Re
   const user = await User.findById(req.params.id);
   if (!user) throw new NotFoundError('User');
   if (user.role !== 'staff') throw new BadRequestError('Permissions can only be assigned to Staff users');
+  assertCanManageUser(req, user);
 
-  if (req.user?.role === 'org_admin' && user.organizationId?.toString() !== req.user.organizationId?.toString()) {
-    throw new ForbiddenError('You can only manage users in your own organization');
+  const permissions = normalizeStaffPermissions(req.body.permissions);
+  if (req.user?.isStaff) {
+    // A staff member may pass on only the permissions they hold themselves.
+    const own = new Set(req.user.permissions || []);
+    const extra = permissions.flatMap((permission) => permission.actions
+      .filter((action) => !own.has(`${permission.module}.${action}`) && !(permission.page && own.has(`page:${permission.page}.${action}`)))
+      .map((action) => permission.page ? `page:${permission.page}.${action}` : `${permission.module}.${action}`));
+    if (extra.length) throw new ForbiddenError(`You cannot grant permissions you do not have: ${extra.join(', ')}`);
   }
-
-  user.permissions = normalizeStaffPermissions(req.body.permissions) as any;
+  user.permissions = permissions as any;
   await user.save();
+  invalidateAuthState(user._id);
   return ApiResponse.success(res, { userId: user._id, permissions: user.permissions }, 'Staff permissions updated successfully');
 };
 
@@ -58,9 +88,9 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   //   When ?school= is provided, filters to just that org.
   // Org admin: sees ONLY users in their own organization (including org_admins
   //   and teachers within their org).
-  if (req.user?.role === 'org_admin') {
+  if (req.user?.role !== 'admin') {
     // Org admin is strictly scoped to their own organization
-    filter.organizationId = req.user.organizationId;
+    filter.organizationId = req.user?.organizationId || '__NO_TENANT__';
   } else if (school === 'all') {
     // Super admin requesting "All Organizations" — no org filter at all
     // (leave filter.organizationId undefined = match all)
@@ -158,6 +188,10 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
     .lean();
 
   if (!user) throw new NotFoundError('User');
+  if (req.user?.role !== 'admin') {
+    const orgId = (user as any).organizationId?._id ?? (user as any).organizationId;
+    if (!orgId || orgId.toString() !== req.user?.organizationId?.toString()) throw new NotFoundError('User');
+  }
 
   const profile = await Profile.findOne({ user: user._id }).select('firstName lastName gender').lean();
 
@@ -192,18 +226,18 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (existing) throw new ConflictError('A user with this email already exists');
 
   // Role restrictions for org_admin
-  if (req.user?.role === 'org_admin') {
-    if (role === 'admin' || role === 'org_admin') {
+  if (req.user?.role !== 'admin') {
+    if (PRIVILEGED_ROLES.has(role)) {
       throw new ForbiddenError('You cannot create users with admin or org_admin roles');
     }
     // org_admin always creates users in their own org
-    if (organizationId && organizationId !== req.user.organizationId?.toString()) {
+    if (organizationId && organizationId !== req.user?.organizationId?.toString()) {
       throw new ForbiddenError('You can only create users in your own organization');
     }
   }
 
-  const resolvedOrgId = req.user?.role === 'org_admin'
-    ? req.user.organizationId
+  const resolvedOrgId = req.user?.role !== 'admin'
+    ? req.user?.organizationId
     : (organizationId || null);
 
   let departmentId = department || null;
@@ -270,25 +304,21 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const user = await User.findById(req.params.id);
   if (!user) throw new NotFoundError('User');
 
-  if (req.user?.role === 'org_admin' && user.role === 'staff' && user.organizationId?.toString() !== req.user.organizationId?.toString()) {
-    throw new ForbiddenError('You can only edit Staff in your own organization');
-  }
-
-  // Org admin can only update users in their own org
-  if (req.user?.role === 'org_admin') {
-    if (user.organizationId?.toString() !== req.user.organizationId?.toString()) {
-      throw new ForbiddenError('You can only manage users in your own organization');
-    }
-    // Org admin cannot change role or organizationId
-    if (req.body.role && req.body.role !== user.role) {
+  // Only the platform admin may change who a user is (role) or which school
+  // they belong to; everyone else is limited to their own school's users.
+  if (req.user?.role !== 'admin') {
+    assertCanManageUser(req, user);
+    if (req.body.role !== undefined && req.body.role !== user.role) {
       throw new ForbiddenError('You cannot change user roles');
     }
-    if (req.body.organizationId && req.body.organizationId !== user.organizationId?.toString()) {
+    if (req.body.organizationId !== undefined && String(req.body.organizationId ?? '') !== (user.organizationId?.toString() ?? '')) {
       throw new ForbiddenError('You cannot change a user\'s organization');
     }
   }
 
-  const allowedUpdates = ['email', 'role', 'organizationId', 'isActive', 'isVerified', 'phone', 'title'];
+  const allowedUpdates = req.user?.role === 'admin'
+    ? ['email', 'role', 'organizationId', 'isActive', 'isVerified', 'phone', 'title']
+    : ['email', 'isActive', 'isVerified', 'phone', 'title'];
   const updates: Record<string, unknown> = {};
 
   for (const key of allowedUpdates) {
@@ -319,6 +349,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .lean();
 
   if (!updated) throw new NotFoundError('User');
+  invalidateAuthState(updated._id);
 
   if (req.body.password) {
     user.password = req.body.password;
@@ -362,13 +393,10 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     throw new BadRequestError('You cannot delete your own account');
   }
 
-  // Org admin can only delete users in their own org
-  if (req.user?.role === 'org_admin') {
-    if (user.organizationId?.toString() !== req.user.organizationId?.toString()) {
-      throw new ForbiddenError('You can only manage users in your own organization');
-    }
-    // Org admin cannot delete admins or other org_admins
-    if (user.role === 'admin' || user.role === 'org_admin') {
+  // Org admins (and staff) can only delete non-admin users in their own org
+  if (req.user?.role !== 'admin') {
+    assertCanManageUser(req, user);
+    if (PRIVILEGED_ROLES.has(user.role)) {
       throw new ForbiddenError('You cannot delete admin users');
     }
   }
@@ -390,6 +418,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
     await Promise.all([
       Profile.deleteOne({ user: user._id }),
       User.deleteOne({ _id: user._id }),
+      Promise.resolve(invalidateAuthState(user._id)),
     ]);
     // A 204 must not carry a body — Node's http parser silently drops one if
     // sent, so the caller would never actually see which outcome happened.
@@ -401,6 +430,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   // Soft-delete: set isActive to false
   user.isActive = false;
   await user.save();
+  invalidateAuthState(user._id);
 
   return ApiResponse.success(res, null, 'User deactivated successfully');
 };
@@ -412,7 +442,7 @@ function spreadsheetField(row: Record<string, unknown>, ...names: string[]): str
 
 export const exportStaff = async (req: Request, res: Response): Promise<void> => {
   const filter: Record<string, unknown> = { role: 'staff' };
-  if (req.user?.role === 'org_admin') filter.organizationId = req.user.organizationId;
+  if (req.user?.role !== 'admin') filter.organizationId = req.user?.organizationId || '__NO_TENANT__';
   else if (req.query.school) filter.organizationId = req.query.school;
 
   const users = await User.find(filter).populate('organizationId', 'name').sort({ createdAt: -1 }).lean();
@@ -469,7 +499,7 @@ export const importStaff = async (req: Request, res: Response): Promise<Response
       if (!firstName || !lastName || !email) throw new Error('First Name, Last Name and Email are required');
       if (await User.exists({ email })) throw new Error(`Email "${email}" is already registered`);
 
-      let organizationId = req.user?.role === 'org_admin' ? req.user.organizationId : undefined;
+      let organizationId = req.user?.role !== 'admin' ? req.user?.organizationId : undefined;
       if (!organizationId) {
         const organizationName = spreadsheetField(row, 'Organization', 'School');
         if (!organizationName) throw new Error('Organization is required for Super Admin');
@@ -498,10 +528,9 @@ export const updateSidebarAccess = async (req: Request, res: Response): Promise<
   const user = await User.findById(req.params.id);
   if (!user) throw new NotFoundError('User');
   if (user.role !== 'staff') throw new BadRequestError('Sidebar access can only be assigned to Staff users');
-  if (req.user?.role === 'org_admin' && user.organizationId?.toString() !== req.user.organizationId?.toString()) {
-    throw new ForbiddenError('You can only manage Staff in your own organization');
-  }
+  assertCanManageUser(req, user);
   const validKeys = new Set(ADMIN_SIDEBAR_ITEMS.map((item) => item.key));
+  invalidateAuthState(user._id);
   user.sidebarAccess = Array.isArray(req.body.keys) ? req.body.keys.filter((key: unknown) => typeof key === 'string' && validKeys.has(key)) : [];
   await user.save();
   return ApiResponse.success(res, { userId: user._id, keys: user.sidebarAccess }, 'Staff sidebar access updated successfully');

@@ -29,8 +29,12 @@ export const roleMiddleware = (allowedRoles: AllowedRole[]) => {
     try {
       if (!req.user) throw new UnauthorizedError('Authentication required.');
       const userRole = req.user.role as AllowedRole;
-      if (userRole === 'staff' && (req as any).staffModule) return next();
-      if (!allowedRoles.includes(userRole)) {
+      // Staff never bypass a role list. After their module permission check
+      // passes they act as org_admin of their own school (requirePermission),
+      // so they reach exactly the routes an org_admin can and nothing that is
+      // reserved for the platform admin.
+      const allowed = allowedRoles.includes(userRole) || (req.user.isStaff === true && allowedRoles.includes('staff'));
+      if (!allowed) {
         throw new ForbiddenError(
           `Access denied. Required role(s): ${allowedRoles.join(', ')}. Your role: ${userRole}.`
         );
@@ -113,14 +117,18 @@ export const requirePermission = (module: StaffModule, action: StaffAction) => {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
       if (!req.user) throw new UnauthorizedError('Authentication required.');
-      if (req.user.role !== 'staff') return next();
+      const isStaff = req.user.isStaff === true || req.user.role === 'staff';
+      if (!isStaff) return next();
+      req.user.isStaff = true;
       const page = (req as any).staffPage as string | undefined;
-      if (req.user.permissions.includes(`${module}.${action}`) || (page && req.user.permissions.includes(`page:${page}.${action}`))) {
-        return next();
-      }
-      if (!req.user.permissions.includes(`${module}.${action}`)) {
-        throw new ForbiddenError(`Staff permission required: ${module}.${action}`);
-      }
+      const granted = req.user.permissions.includes(`${module}.${action}`) || (page && req.user.permissions.includes(`page:${page}.${action}`));
+      if (!granted) throw new ForbiddenError(`Staff permission required: ${module}.${action}`);
+      if (!req.user.organizationId) throw new ForbiddenError('Your account is not assigned to an organization.');
+      // Staff are delegated org admins of exactly one school. Acting as
+      // org_admin from here on makes every controller apply its org_admin
+      // tenant scope; a staff role would otherwise fall into the platform
+      // admin branch of checks like `role === 'org_admin' ? own : all`.
+      req.user.role = 'org_admin';
       next();
     } catch (error) {
       next(error);

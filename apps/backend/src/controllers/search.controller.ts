@@ -19,7 +19,7 @@ import Assignment from '../models/assignment.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
-import { getOwnTeacherRecord } from '../utils/tenant-scope';
+import { isTenantScoped, getOwnTeacherRecord } from '../utils/tenant-scope';
 
 const RESULT_LIMIT = 8;
 
@@ -45,7 +45,9 @@ export const search = async (req: Request, res: Response) => {
     courseFilter.teacher = teacher?._id;
     const ownCourses = teacher ? await Course.find({ teacher: teacher._id }).select('_id').lean() : [];
     assignmentFilter.course = { $in: ownCourses.map((c: any) => c._id) };
-  } else if (role === 'org_admin') {
+  } else if (isTenantScoped(req)) {
+    // org_admin, staff and finance roles: their own school only.
+    if (!req.user!.organizationId) return ApiResponse.success(res, { courses: [], assignments: [] });
     courseFilter.school = req.user!.organizationId;
     const orgCourses = await Course.find({ school: req.user!.organizationId }).select('_id').lean();
     assignmentFilter.course = { $in: orgCourses.map((c: any) => c._id) };
@@ -56,6 +58,9 @@ export const search = async (req: Request, res: Response) => {
   } else if (role === 'parent') {
     courseFilter.status = 'published';
     assignmentFilter.course = { $in: [] }; // parents browse courses, not assignments
+  } else if (role !== 'admin') {
+    // Any other role gets nothing rather than the platform-wide view.
+    return ApiResponse.success(res, { courses: [], assignments: [] });
   }
   // admin: no extra scoping — full visibility
 
