@@ -84,7 +84,11 @@ feeStructureSchema.pre<IFeeStructure>('validate', function (next) {
   next();
 });
 
-feeStructureSchema.index({ school: 1, isActive: 1 });
+// GET /fee-structures (fee-structure.controller.ts getAll) filters by
+// {school, isActive?} and always sorts by createdAt desc for pagination.
+// The old {school, isActive} index covered the filter but not the sort, so
+// Mongo had to sort the matched set in memory on every page.
+feeStructureSchema.index({ school: 1, isActive: 1, createdAt: -1 });
 feeStructureSchema.index({ school: 1, scopeType: 1, scopeRef: 1 });
 
 export default mongoose.model<IFeeStructure>('FeeStructure', feeStructureSchema);
