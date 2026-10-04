@@ -252,6 +252,9 @@ jobs:
       - name: Attendance GPS regressions
         run: node scripts/test-attendance-location.mjs && node scripts/test-attendance-settings.mjs
 
+      - name: Legacy attendance local calendar date regression
+        run: node scripts/test-attendance-local-dates.mjs
+
       - name: Build
         run: npm run build
 

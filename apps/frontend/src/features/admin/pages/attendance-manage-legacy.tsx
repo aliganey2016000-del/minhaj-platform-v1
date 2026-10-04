@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { CheckSquare, FileText, BarChart3, Inbox, CalendarX, Clock, ArrowRight, Building2, Layers, User, Search, X, Lock, Unlock, CalendarDays, Award, CalendarCheck } from 'lucide-react';
 import api from '../../../lib/axios';
+import { localCalendarDate } from '../../../lib/local-calendar-date';
 import { useAuth } from '../../../store/auth-context';
 import { categoryLabels, inferCategoryIcon, inferCategoryColor, levelColors, statusColors } from '../../../lib/course-category-visuals';
 
@@ -171,8 +172,9 @@ export function AttendanceManage() {
   const [tab, setTab] = useState<'take' | 'view' | 'report'>('take');
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState('');
-  const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
-  const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [initialDate] = useState(() => localCalendarDate(new Date()));
+  const [dateFrom, setDateFrom] = useState(initialDate);
+  const [dateTo, setDateTo] = useState(initialDate);
   const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'custom'>('today');
   const date = dateFrom; // Take Attendance always marks a single day
 
@@ -180,19 +182,18 @@ export function AttendanceManage() {
   // every time. Week starts Sunday, matching this school's weekly flow.
   const applyDatePreset = (preset: 'today' | 'week' | 'month') => {
     const now = new Date();
-    const toISO = (d: Date) => d.toISOString().split('T')[0];
     if (preset === 'today') {
-      setDateFrom(toISO(now));
-      setDateTo(toISO(now));
+      setDateFrom(localCalendarDate(now));
+      setDateTo(localCalendarDate(now));
     } else if (preset === 'week') {
       const start = new Date(now);
       start.setDate(now.getDate() - now.getDay());
-      setDateFrom(toISO(start));
-      setDateTo(toISO(now));
+      setDateFrom(localCalendarDate(start));
+      setDateTo(localCalendarDate(now));
     } else {
       const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      setDateFrom(toISO(start));
-      setDateTo(toISO(now));
+      setDateFrom(localCalendarDate(start));
+      setDateTo(localCalendarDate(now));
     }
     setDatePreset(preset);
   };
@@ -346,7 +347,7 @@ export function AttendanceManage() {
   }, [filterSchool, filterClass]);
 
   const pickTodaysCourse = (courseId: string, scheduleId: string) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = localCalendarDate(new Date());
     setDateFrom(today);
     setDateTo(today);
     setTab('take');
