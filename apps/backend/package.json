@@ -89,6 +89,11 @@
     "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
+  },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
     "@types/bcrypt": "^5.0.2",
