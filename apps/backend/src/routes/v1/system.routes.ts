@@ -8,14 +8,14 @@ const router = Router();
 router.use(authMiddleware);
 router.use(adminOnly);
 
-// Settings is platform-wide (Setting.find() has no tenant field) and
-// ActivityLog has no org scoping either, so none of these may be opened to
-// org_admin/staff — only the real platform admin. adminOnly above still
-// gates every route here against teachers/students/parents etc; this
-// tightens it further to 'admin' alone for these specific endpoints.
+// Settings remain platform-wide and therefore platform-admin only.
 router.get('/settings', roleMiddleware(['admin']), asyncHandler(ctrl.getSettings));
 router.put('/settings', roleMiddleware(['admin']), asyncHandler(ctrl.updateSettings));
-router.get('/logs', roleMiddleware(['admin']), asyncHandler(ctrl.getLogs));
-router.delete('/logs', roleMiddleware(['admin']), asyncHandler(ctrl.clearLogs));
+
+// Activity Logs are available to the platform admin and organization admins.
+// The controller derives organization scope only from req.user.organizationId;
+// request query/body/header tenant selectors are never trusted.
+router.get('/logs', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.getLogs));
+router.delete('/logs', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.clearLogs));
 
 export default router;
