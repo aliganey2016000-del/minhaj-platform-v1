@@ -37,6 +37,7 @@
     "test:seating-smart-fix": "ts-node src/__tests__/seating-smart-fix.e2e.ts",
     "test:seating-bulk-delete": "ts-node src/__tests__/seating-bulk-delete.e2e.ts",
     "test:exam-duration": "ts-node src/__tests__/exam-attempt-duration.e2e.ts",
+    "test:exam-passing-marks-bound": "ts-node src/__tests__/exam-passing-marks-bound.e2e.ts",
     "test:class-department-filter": "ts-node src/__tests__/class-department-filter.e2e.ts",
     "test:institution-structure-tenant-isolation": "ts-node src/__tests__/institution-structure-tenant-isolation.e2e.ts",
     "test:tenant-data-integrity": "ts-node src/__tests__/tenant-data-integrity.e2e.ts",

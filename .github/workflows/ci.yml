@@ -157,6 +157,9 @@ jobs:
       - name: Dependency supply-chain regression (exceljs/uuid override)
         run: npx ts-node src/__tests__/dependency-supply-chain.e2e.ts
 
+      - name: Exam passing-marks-exceeds-total-marks regression
+        run: npm run test:exam-passing-marks-bound
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
