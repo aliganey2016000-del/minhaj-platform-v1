@@ -38,7 +38,7 @@ async function checkForServiceWorkerUpdate(): Promise<void> {
  * genuine missing asset cannot create an infinite reload loop. A user-initiated
  * retry passes force=true and always performs a clean retry.
  */
-export async function reloadForNewBuild(force = false): Promise<boolean> {
+export function reloadForNewBuild(force = false): boolean {
   if (!force) {
     try {
       const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
@@ -49,12 +49,11 @@ export async function reloadForNewBuild(force = false): Promise<boolean> {
     }
   }
 
-  await Promise.allSettled([
+  void Promise.allSettled([
     clearStaleRuntimeCaches(),
     checkForServiceWorkerUpdate(),
-  ]);
+  ]).then(() => window.location.reload());
 
-  window.location.reload();
   return true;
 }
 
@@ -72,9 +71,7 @@ export function RouteErrorPage() {
     // retrying. This avoids immediately re-requesting a chunk during the same
     // short deployment window.
     const timer = window.setTimeout(() => {
-      reloadForNewBuild().then((didReload) => {
-        if (!didReload) setRecovering(false);
-      }).catch(() => setRecovering(false));
+      if (!reloadForNewBuild()) setRecovering(false);
     }, 1500);
 
     return () => window.clearTimeout(timer);
@@ -107,7 +104,7 @@ export function RouteErrorPage() {
             type="button"
             onClick={() => {
               setRecovering(true);
-              reloadForNewBuild(true).catch(() => window.location.reload());
+              reloadForNewBuild(true);
             }}
             className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
           >
