@@ -23,7 +23,11 @@ export default defineConfig({
         // from precache and are cached on demand by src/sw.ts when a user
         // actually opens the related page. This avoids downloading every
         // Admin/Teacher/Student route after each deployment.
-        globPatterns: ['**/*.{html,css,ico,png,svg,woff2,json}'],
+        // Never precache index.html. A stale precached SPA shell can survive a
+        // deployment, reference lazy chunks from the previous build, and make
+        // a normal browser refresh fail with a route-level chunk error. HTML
+        // navigations are handled by the NetworkFirst NavigationRoute in sw.ts.
+        globPatterns: ['**/*.{css,ico,png,svg,woff2,json}'],
         // Large marketing/landing photos aren't part of the app shell and
         // should never be downloaded just because a service worker installs.
         globIgnores: ['images/**', 'screenshots/**'],

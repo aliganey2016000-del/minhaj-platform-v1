@@ -25,12 +25,12 @@ declare const self: ServiceWorkerGlobalScope;
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// Keep the previous worker active until the user accepts the update prompt.
-// Calling skipWaiting() unconditionally here defeats registerType: 'prompt'
-// and can switch workers while an older tab is still running old hashed chunks.
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
-});
+// Activate updated workers immediately. This is intentionally paired with the
+// "never precache index.html" rule in vite.config.ts: a refreshed page must
+// always get the current HTML shell from the network instead of remaining
+// controlled by an old worker whose precache points at removed lazy chunks.
+// Activating a worker does not itself reload an open page.
+self.skipWaiting();
 clientsClaim();
 
 // ---------------------------------------------------------------------------
