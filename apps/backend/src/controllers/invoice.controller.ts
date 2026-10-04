@@ -400,7 +400,15 @@ export const createInstallmentPlan = async (req: Request, res: Response): Promis
   }));
   if (installments.some((item: any) => !Number.isFinite(item.amount) || item.amount <= 0 || Number.isNaN(item.dueDate.getTime()))) throw new BadRequestError('Each installment needs a valid amount and due date');
   const total = installments.reduce((sum: number, item: any) => sum + item.amount, 0);
-  if (Math.abs(total - invoice.amount) > 0.01) throw new BadRequestError(`Installments must total ${invoice.amount}`);
+  // The payable target is the invoice's NET amount (gross minus any discount
+  // already granted, e.g. via a FeeAdjustment/DiscountGrant applied before
+  // the plan was created) — not the raw gross `amount`. Validating against
+  // the gross amount forced a plan to either be rejected when it correctly
+  // summed to the real remaining balance, or to be accepted while
+  // overstating it, which later installments could never actually collect
+  // (applyInvoicePayment's atomic guard caps collection at amount - discount).
+  const netPayable = invoice.amount - (invoice.discount || 0);
+  if (Math.abs(total - netPayable) > 0.01) throw new BadRequestError(`Installments must total ${netPayable}`);
   invoice.installments = installments as any;
   await syncInvoiceInstallments(invoice);
   await invoice.save();
