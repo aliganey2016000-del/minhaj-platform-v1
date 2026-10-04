@@ -357,9 +357,21 @@ export function WebsiteManagement() {
     if (!activePage) return;
     updateSite((current) => ({ ...current, pages: current.pages.map((page) => page.id === activePage.id ? { ...page, ...patch } : page) }));
   };
+  const updateSectionById = (sectionId: string, patch: Partial<WebsiteSection>) => {
+    if (!activePage) return;
+    updateSite((current) => ({
+      ...current,
+      pages: current.pages.map((page) => page.id === activePage.id
+        ? { ...page, sections: page.sections.map((section) => section.id === sectionId ? { ...section, ...patch } : section) }
+        : page),
+    }));
+  };
   const updateSection = (patch: Partial<WebsiteSection>) => {
-    if (!activePage || !activeSection) return;
-    updatePage({ sections: activePage.sections.map((section) => section.id === activeSection.id ? { ...section, ...patch } : section) });
+    if (!activeSection) return;
+    updateSectionById(activeSection.id, patch);
+  };
+  const toggleSectionVisibility = (sectionId: string, visible: boolean) => {
+    updateSectionById(sectionId, { visible: !visible });
   };
 
   const saveDraft = async (silent = false) => {
@@ -636,11 +648,21 @@ export function WebsiteManagement() {
                 <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Sections · click one to edit</p>
                 <div className={`grid gap-2 ${showSidePreview ? 'sm:grid-cols-2' : ''}`}>{activePage.sections.map((section, index) => {
                   const color = SECTION_COLORS[section.type] || '#64748b';
-                  return <button key={section.id} type="button" onClick={() => setActiveSectionId(section.id)} className={`flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition ${activeSection?.id === section.id ? 'border-primary-400 bg-primary-50 ring-2 ring-primary-500/15 dark:border-primary-700 dark:bg-primary-950/20' : 'border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)]'} ${section.visible ? '' : 'opacity-55'}`}>
-                    <span style={{ backgroundColor: color }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-black text-white">{index + 1}</span>
-                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{section.title || SECTION_PRESETS.find((x) => x.type === section.type)?.label}</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{SECTION_PRESETS.find((x) => x.type === section.type)?.label || section.type} · {section.visible ? 'Shown' : 'Hidden'}</p></div>
-                    {!section.visible && <EyeOff className="h-4 w-4 shrink-0 text-[var(--color-text-tertiary)]" />}
-                  </button>;
+                  return <div key={section.id} className={`flex w-full items-center gap-2 rounded-xl border p-2.5 transition ${activeSection?.id === section.id ? 'border-primary-400 bg-primary-50 ring-2 ring-primary-500/15 dark:border-primary-700 dark:bg-primary-950/20' : 'border-[var(--color-border-subtle)] hover:bg-[var(--color-surface-secondary)]'} ${section.visible ? '' : 'opacity-70'}`}>
+                    <button type="button" onClick={() => setActiveSectionId(section.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                      <span style={{ backgroundColor: color }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-black text-white">{index + 1}</span>
+                      <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{section.title || SECTION_PRESETS.find((x) => x.type === section.type)?.label}</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{SECTION_PRESETS.find((x) => x.type === section.type)?.label || section.type} · {section.visible ? 'Shown' : 'Hidden'}</p></div>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={section.visible ? `Hide ${section.title || 'section'}` : `Show ${section.title || 'section'}`}
+                      title={section.visible ? 'Hide section' : 'Show section'}
+                      onClick={() => toggleSectionVisibility(section.id, section.visible)}
+                      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition ${section.visible ? 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-900/50 dark:bg-green-950/20 dark:text-green-300' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)] hover:border-primary-300 hover:text-primary-600'}`}
+                    >
+                      {section.visible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    </button>
+                  </div>;
                 })}</div>
                 <details className="group mt-4 border-t border-[var(--color-border-subtle)] pt-4">
                   <summary className="flex cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-dashed border-primary-300 px-3 py-2.5 text-sm font-bold text-primary-700 hover:bg-primary-50/60 dark:text-primary-300 dark:hover:bg-primary-950/10 [&::-webkit-details-marker]:hidden"><Plus className="h-4 w-4 transition group-open:rotate-45" />Add a section</summary>
@@ -648,7 +670,7 @@ export function WebsiteManagement() {
                 </details>
               </div>
               {activeSection ? <div className={`${panelClass} p-5 sm:p-6`}>
-                <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><span className="rounded-lg bg-primary-50 px-2 py-1 text-[11px] font-bold uppercase text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{activeSection.type}</span><h2 className="text-lg font-bold">{activeSection.title || 'Untitled section'}</h2></div><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Edit content, media, layout and visibility.</p></div><div className="flex gap-1"><button type="button" onClick={() => moveSection(-1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowUp className="h-4 w-4" /></button><button type="button" onClick={() => moveSection(1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowDown className="h-4 w-4" /></button><button type="button" onClick={() => updateSection({ visible: !activeSection.visible })} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${activeSection.visible ? 'border-green-200 text-green-700' : 'border-[var(--color-border-default)] text-[var(--color-text-tertiary)]'}`}>{activeSection.visible ? 'Visible' : 'Hidden'}</button><button type="button" onClick={removeSection} className="rounded-lg border border-red-200 p-2 text-red-500"><Trash2 className="h-4 w-4" /></button></div></div>
+                <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><span className="rounded-lg bg-primary-50 px-2 py-1 text-[11px] font-bold uppercase text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{activeSection.type}</span><h2 className="text-lg font-bold">{activeSection.title || 'Untitled section'}</h2></div><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Edit content, media, layout and visibility.</p></div><div className="flex gap-1"><button type="button" onClick={() => moveSection(-1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowUp className="h-4 w-4" /></button><button type="button" onClick={() => moveSection(1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowDown className="h-4 w-4" /></button><button type="button" onClick={() => toggleSectionVisibility(activeSection.id, activeSection.visible)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${activeSection.visible ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-950/20 dark:text-green-300' : 'border-[var(--color-border-default)] text-[var(--color-text-tertiary)]'}`}>{activeSection.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}{activeSection.visible ? 'Shown' : 'Hidden'}</button><button type="button" onClick={removeSection} className="rounded-lg border border-red-200 p-2 text-red-500"><Trash2 className="h-4 w-4" /></button></div></div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="md:col-span-2"><label className={labelClass}>Title</label><input className={fieldClass} value={activeSection.title} onChange={(e) => updateSection({ title: e.target.value })} /></div>
                   <div className="md:col-span-2"><label className={labelClass}>Subtitle</label><input className={fieldClass} value={activeSection.subtitle} onChange={(e) => updateSection({ subtitle: e.target.value })} /></div>
