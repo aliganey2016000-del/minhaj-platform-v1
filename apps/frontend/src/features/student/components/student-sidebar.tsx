@@ -41,6 +41,7 @@ export function StudentSidebar() {
     ]},
     { title: 'RESULTS & PERFORMANCE', icon: '📊', items: [
       { path: '/student/exams', label: 'Exam Schedule', icon: '🗓️' },
+      { path: '/student/exams/active', label: 'Active Exams', icon: '🧪' },
       { path: '/student/exams/seating', label: 'Seat & Hall', icon: '🪑' },
       { path: '/student/exams/attendance', label: 'Attendance History', icon: '✅' },
       { path: '/student/exams/results', label: 'Exam Results & Grades', icon: '📊' },
@@ -80,9 +81,9 @@ export function StudentSidebar() {
       </div>
 
       <nav className="hide-scrollbar flex-1 overflow-y-auto px-3 py-3">
-        <Link to="/student" onClick={() => setIsMobileOpen(false)} className={`mb-3 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${isActive('/student') ? 'bg-primary-50 text-primary-700 shadow-sm dark:bg-primary-950/40 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+        {visibility?.student !== false && <Link to="/student" onClick={() => setIsMobileOpen(false)} className={`mb-3 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${isActive('/student') ? 'bg-primary-50 text-primary-700 shadow-sm dark:bg-primary-950/40 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
           <span className="w-7 text-center text-lg">🏠</span><span>Dashboard</span>
-        </Link>
+        </Link>}
 
         {visibleSections.map((section) => {
           const open = openSection === section.title;
