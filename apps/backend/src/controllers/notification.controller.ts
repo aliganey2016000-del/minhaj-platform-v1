@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import Notification from '../models/notification.model';
+import User from '../models/user.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import { notifyUser } from '../utils/notify';
 
 // GET /my — Student's notifications (with unreadCount)
@@ -58,6 +59,18 @@ export const remove = async (req: Request, res: Response) => {
 export const create = async (req: Request, res: Response) => {
   const { user, title, message, type, link } = req.body;
   if (!user || !title || !message) throw new BadRequestError('user, title, and message required');
+
+  // This route is gated by adminOnly (admin + org_admin, incl. staff acting
+  // as org_admin). The platform admin may notify anyone, but an org_admin
+  // must be confined to users in their own organization — otherwise they
+  // could spam/phish any user platform-wide just by knowing their user id.
+  if (req.user?.role !== 'admin') {
+    const target = await User.findById(user).select('organizationId').lean();
+    if (!target || !req.user?.organizationId || (target as any).organizationId?.toString() !== req.user.organizationId) {
+      throw new ForbiddenError('You can only send notifications to users in your own organization');
+    }
+  }
+
   const n = await notifyUser({ userId: user, title, message, type: type || 'info', link: link || '' });
   return ApiResponse.created(res, n, 'Notification created');
 };
