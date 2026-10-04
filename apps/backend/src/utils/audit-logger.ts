@@ -43,7 +43,12 @@ const auditLogSchema = new Schema<IAuditLog>(
     ip: String,
     userAgent: String,
     severity: { type: String, enum: ['info', 'warning', 'critical'], default: 'info', index: true },
-    timestamp: { type: Date, default: Date.now, index: true },
+    // No `index: true` here — the TTL index below already covers the bare
+    // `{ timestamp: 1 }` key. MongoDB treats a second index with the same
+    // key pattern but different options/name as a conflict (error 85) and
+    // refuses to create it, so declaring both here and in the TTL index
+    // below is a hard failure at boot, not just redundant.
+    timestamp: { type: Date, default: Date.now },
   },
   { collection: 'auditLogs' }
 );
