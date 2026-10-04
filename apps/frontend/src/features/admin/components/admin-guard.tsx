@@ -80,6 +80,7 @@ function staffPageForLocation(pathname: string, search: string): string | null {
   if (pathname.startsWith('/admin/events')) return 'admin/events';
   if (pathname.startsWith('/admin/gallery')) return 'admin/gallery';
   if (pathname.startsWith('/admin/roles')) return 'admin/roles';
+  if (pathname.startsWith('/admin/settings/org-sidebar') || pathname.startsWith('/admin/settings/branding')) return '__unmapped__';
   if (pathname.startsWith('/admin/settings/sidebar')) return 'admin/settings/sidebar';
   if (pathname.startsWith('/admin/settings')) return 'admin/settings';
   if (pathname.startsWith('/admin/analytics')) return search.includes('tab=overview') ? 'admin/analytics?tab=overview' : 'admin/analytics';
@@ -93,6 +94,7 @@ function moduleForKey(key: string): string | null {
   if (key.startsWith('admin/payments')) return 'finance';
   if (key.startsWith('admin/exams') || key.startsWith('admin/results') || key === 'admin/certificates') return 'exams';
   if (key.startsWith('admin/students') || key === 'admin/activity') return 'admissions';
+  if (key === 'admin/analytics?tab=overview') return 'system';
   if (key.startsWith('admin/courses') || key.startsWith('admin/analytics')) return 'courses';
   if (['admin/parents','admin/teachers','admin/staff','admin/schools','admin/website','admin/users','admin/classes','admin/hr?tab=structure','admin/hr?tab=attendance','admin/hr?tab=attendance&view=settings','admin/hr','admin/hr/access'].includes(key)) return 'organization';
   if (['admin/schedules','admin/attendance','admin/assignments'].includes(key)) return 'academic';
