@@ -104,7 +104,15 @@ export const enforceHttps = (req: Request, res: Response, next: NextFunction): v
     !isHealthCheck &&
     req.header('x-forwarded-proto') !== 'https'
   ) {
-    return res.redirect(301, `https://${req.header('host')}${req.url}`);
+    // Only redirect to a syntactically valid host. The Host header is
+    // attacker-controlled; echoing anything else back in a (cacheable) 301
+    // turns the redirect into a way to send visitors to another site.
+    const host = String(req.header('host') || '');
+    if (!/^[a-z0-9.-]+(:\d{1,5})?$/i.test(host)) {
+      res.status(400).type('text/plain').send('Invalid host');
+      return;
+    }
+    return res.redirect(301, `https://${host}${req.url}`);
   }
   next();
 };
@@ -206,6 +214,25 @@ export const validateSecurityEnv = (): void => {
       `Missing critical security environment variables: ${missingVars.join(', ')}`
     );
   }
+
+  // A placeholder copied from .env.example, a short secret or one secret used
+  // for both token types is as good as no secret: tokens can be forged or an
+  // access/refresh token confused for the other. Refuse to boot in production.
+  if (process.env.NODE_ENV === 'production') {
+    const access = String(process.env.JWT_ACCESS_SECRET);
+    const refresh = String(process.env.JWT_REFRESH_SECRET);
+    const problems: string[] = [];
+    for (const [name, value] of [['JWT_ACCESS_SECRET', access], ['JWT_REFRESH_SECRET', refresh]] as const) {
+      // A short secret still works, so it only warns (refusing to boot would
+      // take a running deployment offline); rotate it to 32+ random characters.
+      if (value.length < 32) console.warn(`[SECURITY] ${name} is shorter than 32 characters — rotate it to a long random value.`);
+      if (/your-super-secret|change[-_ ]?me|replace[-_ ]?me|example|placeholder/i.test(value)) problems.push(`${name} is still a placeholder value`);
+    }
+    if (access === refresh) problems.push('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different');
+    if (problems.length > 0) {
+      throw new Error(`Insecure production configuration: ${problems.join('; ')}`);
+    }
+  }
 };
 
 /**
@@ -265,11 +292,17 @@ export const securityLogging = (
 ): void => {
   // Log requests with suspicious patterns
   const suspiciousPatterns = ['<script', 'drop table', 'union select', '--', '/*'];
-  const checkString = `${req.url}${JSON.stringify(req.body)}`.toLowerCase();
+  // Serialising a multi-megabyte body (bulk imports) on every request just to
+  // look for a few strings doubled its memory use; scan the URL and, for
+  // ordinary-sized bodies, the body. The request URL is not logged unless it
+  // matches, and reset/verification tokens are redacted from it.
+  const contentLength = Number(req.headers['content-length'] || 0);
+  const bodyText = contentLength > 0 && contentLength <= 64 * 1024 ? JSON.stringify(req.body ?? '') : '';
+  const checkString = `${req.url}${bodyText}`.toLowerCase();
 
   if (suspiciousPatterns.some((pattern) => checkString.includes(pattern))) {
     console.warn(`[SECURITY] Suspicious request detected from ${req.ip}:`, {
-      url: req.url,
+      url: req.url.replace(/(reset-password|verify-email)\/[^/?#]+/i, '$1/[redacted]'),
       method: req.method,
       ip: req.ip,
       timestamp: new Date().toISOString(),

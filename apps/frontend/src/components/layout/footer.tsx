@@ -9,8 +9,9 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { StarGlyph } from '../landing/_decor';
+import { currentCustomSite } from '../../lib/site-hosts';
 
-const isSuganhub = typeof window !== 'undefined' && window.location.hostname.replace(/^www\./, '') === 'suganhub.com';
+const isSuganhub = currentCustomSite() === 'suganhub';
 const BRAND_NAME = isSuganhub ? 'Suganhub' : 'Sahal Education Platform';
 
 function SuganhubFooter() {

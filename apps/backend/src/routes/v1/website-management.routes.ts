@@ -22,6 +22,14 @@ const publicWriteLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Domain checks do DNS/TLS lookups and Cloudflare API calls; keep them cheap to abuse-proof.
+const domainLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+});
+
 // Public tenant website endpoints. These never expose unpublished drafts.
 router.get('/public/current', tenantMiddleware, asyncHandler(ctrl.getPublicWebsite));
 router.get('/public/media/:schoolId', asyncHandler(ctrl.getPublicMedia));
@@ -54,7 +62,8 @@ router.post('/versions/:version/rollback', asyncHandler(advanced.rollbackVersion
 router.get('/templates', asyncHandler(advanced.listTemplates));
 router.post('/templates/:templateId/apply', asyncHandler(advanced.applyTemplate));
 
-router.get('/domain/status', asyncHandler(advanced.getDomainStatus));
-router.post('/domain/provision', asyncHandler(advanced.provisionManagedDomain));
+router.get('/domain/status', domainLimiter, asyncHandler(advanced.getDomainStatus));
+router.post('/domain/provision', domainLimiter, asyncHandler(advanced.provisionManagedDomain));
+router.post('/domain/verify', domainLimiter, asyncHandler(advanced.verifyCustomDomain));
 
 export default router;

@@ -1,4 +1,7 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import User from '../models/user.model';
+import { homeSchoolId } from '../utils/home-school';
 import Notification from '../models/notification.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
@@ -58,6 +61,27 @@ export const remove = async (req: Request, res: Response) => {
 export const create = async (req: Request, res: Response) => {
   const { user, title, message, type, link } = req.body;
   if (!user || !title || !message) throw new BadRequestError('user, title, and message required');
-  const n = await notifyUser({ userId: user, title, message, type: type || 'info', link: link || '' });
+  if (!mongoose.isValidObjectId(String(user))) throw new BadRequestError('A valid user is required');
+
+  // A notification becomes an in-app message, a live event and a push
+  // notification, so it is only ever sent to someone the sender administers.
+  // Only the platform admin may address any account; an organization admin
+  // only its own organization's users.
+  if (req.user?.role !== 'admin') {
+    const recipient = await User.findById(String(user)).select('role organizationId').lean();
+    const recipientSchool = recipient ? await homeSchoolId(recipient) : undefined;
+    if (!recipient || !req.user?.organizationId || recipientSchool !== String(req.user.organizationId)) {
+      throw new NotFoundError('User');
+    }
+  }
+
+  // Links open inside the app: a relative path only, never an external or
+  // script URL an administrator could use to lure users off the platform.
+  const safeLink = String(link || '');
+  if (safeLink && !/^\/(?!\/)[^\s\\]*$/.test(safeLink)) {
+    throw new BadRequestError('link must be a relative path inside the app, e.g. /student/assignments');
+  }
+
+  const n = await notifyUser({ userId: String(user), title: String(title).slice(0, 200), message: String(message).slice(0, 2000), type: type || 'info', link: safeLink });
   return ApiResponse.created(res, n, 'Notification created');
 };

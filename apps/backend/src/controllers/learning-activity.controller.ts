@@ -23,6 +23,7 @@ import { logActivityFromRequest } from '../utils/learning-activity-logger';
 import { escapeRegex } from '../utils/escape-regex';
 import { assertCanViewStudent, visibleCourseIdsForStudent } from '../utils/student-visibility';
 import { isUserOnline } from '../realtime/socket';
+import { safeRows } from '../utils/spreadsheet-safe';
 
 // ---------------------------------------------------------------------------
 // Shared scoping — the set of Student _ids the caller is allowed to see.
@@ -468,7 +469,7 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
   const studentName = `${(student as any).profile?.firstName || ''}-${(student as any).profile?.lastName || ''}`.replace(/\s+/g, '');
 
   if (format === 'csv') {
-    const csv = [headers, ...rows]
+    const csv = [headers, ...safeRows(rows)]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -477,7 +478,7 @@ export const exportTimeline = async (req: Request, res: Response): Promise<void>
     return;
   }
 
-  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...safeRows(rows)]);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, 'Activity Log');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });

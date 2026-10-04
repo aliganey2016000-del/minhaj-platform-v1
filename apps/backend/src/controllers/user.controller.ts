@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 import School from '../models/school.model';
 import { invalidateAuthState } from '../utils/auth-state';
 import Department from '../models/department.model';
+import { safeRecord } from '../utils/spreadsheet-safe';
 
 const PRIVILEGED_ROLES = new Set(['admin', 'org_admin']);
 
@@ -458,7 +459,7 @@ export const exportStaff = async (req: Request, res: Response): Promise<void> =>
     };
   });
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Staff');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows.map(safeRecord)), 'Staff');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename=staff-export-${new Date().toISOString().slice(0, 10)}.xlsx`);

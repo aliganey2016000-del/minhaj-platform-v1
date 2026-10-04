@@ -9,6 +9,11 @@ import WebsiteMessage from '../models/website-message.model';
 import WebsiteAnalyticsDaily from '../models/website-analytics.model';
 import WebsiteVersion from '../models/website-version.model';
 import ApiResponse from '../utils/api-response';
+import {
+  generateDomainVerificationToken,
+  portalUrlForSchool,
+  verificationRecordName,
+} from '../utils/tenant-host';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import {
   cloudflareAutoProvisionEnabled,
@@ -30,7 +35,7 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function currentTenantSchool(req: Request) {
   if (!req.tenant?.slug) throw new NotFoundError('Organization');
   return School.findOne({ slug: req.tenant.slug, status: 'active' })
-    .select('name slug subdomain customDomain branding address phone email institutionType')
+    .select('name slug subdomain customDomain customDomainVerified branding address phone email institutionType')
     .lean();
 }
 
@@ -349,6 +354,82 @@ async function dnsCheck(hostname: string) {
   return { resolved: a.length + aaaa.length + cname.length > 0, a, aaaa, cname };
 }
 
+/**
+ * Whether DNS points at the expected target. A CNAME is compared directly;
+ * proxied/flattened records (only A/AAAA visible) compare against the
+ * target's own addresses. `null` means it cannot be determined (e.g. the
+ * target's addresses cannot be resolved), which is not treated as a mismatch.
+ */
+function dnsTargetMatches(
+  status: { a: string[]; aaaa: string[]; cname: string[] },
+  target: string,
+): boolean | null {
+  const wanted = String(target || '').toLowerCase().replace(/\.$/, '');
+  if (!wanted) return null;
+  if (status.cname.length) {
+    return status.cname.some((c) => c.toLowerCase().replace(/\.$/, '') === wanted);
+  }
+  return null;
+}
+
+async function dnsTargetMatchesResolved(
+  status: { a: string[]; aaaa: string[]; cname: string[] },
+  target: string,
+): Promise<boolean | null> {
+  const direct = dnsTargetMatches(status, target);
+  if (direct !== null) return direct;
+  const wanted = String(target || '').trim();
+  if (!wanted || (!status.a.length && !status.aaaa.length)) return null;
+  const [a, aaaa] = await Promise.all([
+    dns.resolve4(wanted).catch(() => [] as string[]),
+    dns.resolve6(wanted).catch(() => [] as string[]),
+  ]);
+  if (!a.length && !aaaa.length) return null;
+  const targetIps = new Set([...a, ...aaaa]);
+  return [...status.a, ...status.aaaa].some((ip) => targetIps.has(ip));
+}
+
+async function customDomainVerificationState(school: any) {
+  const domain = String(school.customDomain || '').toLowerCase();
+  if (!domain) return { required: false, verified: true, recordType: null, recordName: null, recordValue: null };
+  const verified = school.customDomainVerified !== false;
+  let token = school.customDomainVerificationToken as string | undefined;
+  if (!verified && !token) {
+    // Legacy claim without a token: issue one so the owner can verify.
+    token = generateDomainVerificationToken();
+    await School.updateOne({ _id: school._id }, { $set: { customDomainVerificationToken: token } });
+  }
+  return {
+    required: true,
+    verified,
+    recordType: 'TXT',
+    recordName: verified ? null : verificationRecordName(domain),
+    recordValue: verified ? null : token,
+  };
+}
+
+export async function verifyCustomDomain(req: Request, res: Response): Promise<Response> {
+  const school = await getManagedSchool(req, req.body?.schoolId || req.query.schoolId);
+  const domain = String(school.customDomain || '').toLowerCase();
+  if (!domain) throw new BadRequestError('This organization has no custom domain to verify.');
+  if (school.customDomainVerified !== false) {
+    return ApiResponse.success(res, { verified: true }, 'Custom domain is already verified.');
+  }
+  const state = await customDomainVerificationState(school);
+  const records = await dns.resolveTxt(verificationRecordName(domain)).catch(() => [] as string[][]);
+  const values = records.map((chunks) => chunks.join(''));
+  if (!state.recordValue || !values.includes(state.recordValue)) {
+    throw new BadRequestError(
+      `TXT record not found. Add a TXT record named ${state.recordName} with the value ${state.recordValue}, wait for DNS to propagate, then try again.`,
+    );
+  }
+  await School.updateOne(
+    { _id: school._id, customDomain: domain },
+    { $set: { customDomainVerified: true, customDomainVerifiedAt: new Date() } },
+  );
+  return ApiResponse.success(res, { verified: true }, 'Custom domain verified.');
+}
+
 export async function getDomainStatus(req: Request, res: Response): Promise<Response> {
   const school = await getManagedSchool(req, req.query.schoolId);
   const managedHostname = managedHostnameForSchool(school);
@@ -356,6 +437,9 @@ export async function getDomainStatus(req: Request, res: Response): Promise<Resp
   const hostname = customHostname || managedHostname;
   const type = customHostname ? 'custom' : 'managed';
   const [dnsStatus, ssl] = await Promise.all([dnsCheck(hostname), tlsCheck(hostname)]);
+  const expectedTarget = expectedTargetForSchool(school, type);
+  const targetMatches = await dnsTargetMatchesResolved(dnsStatus, expectedTarget);
+  const verification = await customDomainVerificationState(school);
 
   const automationConfigured = cloudflareDnsConfigured();
   let zoneAccess = null;
@@ -375,14 +459,16 @@ export async function getDomainStatus(req: Request, res: Response): Promise<Resp
     type,
     dns: dnsStatus,
     ssl,
-    connected: dnsStatus.resolved && ssl.active && ssl.authorized,
+    connected: dnsStatus.resolved && targetMatches !== false && ssl.active && ssl.authorized && verification.verified,
+    targetMatches,
+    verification,
     cloudflareAutomationConfigured: automationConfigured,
     cloudflareCanProvision: Boolean(zoneAccess),
     cloudflareZone: zoneAccess?.name || null,
     cloudflareAutoProvisionEnabled: cloudflareAutoProvisionEnabled(),
     automationError: automationError || null,
     expected: {
-      cnameTarget: expectedTargetForSchool(school, type),
+      cnameTarget: expectedTarget,
     },
   });
 }
@@ -410,8 +496,13 @@ export async function provisionManagedDomain(req: Request, res: Response): Promi
   );
 }
 
-function requestHost(req: Request): string {
-  return (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim().replace(/:\d+$/, '').toLowerCase();
+/**
+ * Canonical hostname for sitemap/robots URLs. Derived from the resolved
+ * organization (never from client-supplied headers) so a spoofed
+ * X-Forwarded-Host cannot inject URLs into a cached response.
+ */
+function canonicalHost(school: { slug: string; subdomain?: string; customDomain?: string; customDomainVerified?: boolean }): string {
+  return new URL(portalUrlForSchool(school)).hostname;
 }
 
 export async function getSitemap(req: Request, res: Response): Promise<void> {
@@ -426,14 +517,14 @@ export async function getSitemap(req: Request, res: Response): Promise<void> {
     return;
   }
   const site = normalizeSite(config.published, school);
-  const host = requestHost(req);
+  const host = canonicalHost(school);
   const base = `https://${host}`;
   const lastmod = (config.updatedAt || new Date()).toISOString();
   const urls = site.pages.map((page) => {
     const loc = page.slug ? `${base}/${page.slug}` : base + '/';
     return `<url><loc>${loc.replace(/&/g, '&amp;')}</loc><lastmod>${lastmod}</lastmod></url>`;
   }).join('');
-  res.set('Cache-Control', 'public, max-age=3600');
+  res.set('Cache-Control', 'public, max-age=300');
   res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);
 }
 
@@ -443,7 +534,7 @@ export async function getRobots(req: Request, res: Response): Promise<void> {
     res.status(404).type('text/plain').send('Not found');
     return;
   }
-  const host = requestHost(req);
-  res.set('Cache-Control', 'public, max-age=3600');
+  const host = canonicalHost(school);
+  res.set('Cache-Control', 'public, max-age=300');
   res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /student/\nDisallow: /teacher/\nSitemap: https://${host}/sitemap.xml\n`);
 }

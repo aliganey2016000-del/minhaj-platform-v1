@@ -4,6 +4,7 @@
  * configure any course; a teacher may only configure/view their own courses.
  */
 
+import { assertStudentsInSchool } from '../utils/tenant-refs';
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import Course from '../models/course.model';
@@ -19,6 +20,7 @@ import { computeCourseGrade, validateCategoryWeights } from '../utils/grade-calc
 import { computeCourseGradesBulk } from '../utils/bulk-grade-calculator';
 import ensureStudentRecord from '../utils/ensure-student';
 import { escapeRegex } from '../utils/escape-regex';
+import { safeRows } from '../utils/spreadsheet-safe';
 
 async function assertOwnsCourseIfTeacher(req: Request, course: any): Promise<void> {
   if (req.user?.role !== 'teacher') return;
@@ -177,10 +179,21 @@ export const getMyCourseGrade = async (req: Request, res: Response): Promise<Res
 export const setManualGrade = async (req: Request, res: Response): Promise<Response> => {
   const { courseId, studentId } = req.params;
   const { categoryKey, score } = req.body;
-  await loadCourseAndAssertAccess(req, courseId);
+  const course = await loadCourseAndAssertAccess(req, courseId);
 
   if (!categoryKey || typeof score !== 'number' || score < 0 || score > 100) {
     throw new BadRequestError('categoryKey and a score between 0 and 100 are required.');
+  }
+  await assertStudentsInSchool([studentId], course.school);
+
+  // A teacher may not enter scores for a category the school kept hidden from
+  // teachers (the bulk entry sheet already enforces this; this single-entry
+  // endpoint did not).
+  const scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  const category = (scheme?.categories || []).find((c: any) => c.key === categoryKey);
+  if (scheme && !category) throw new BadRequestError('Unknown grading category for this course.');
+  if (req.user?.role === 'teacher' && category?.teacherVisible === false) {
+    throw new ForbiddenError('This grading category is managed by the school administration.');
   }
 
   const entry = await ManualGradeEntry.findOneAndUpdate(
@@ -362,12 +375,14 @@ export const getManualEntryRoster = async (req: Request, res: Response): Promise
 // ---------------------------------------------------------------------------
 export const bulkSetManualGrades = async (req: Request, res: Response): Promise<Response> => {
   const { courseId } = req.params;
-  await loadCourseAndAssertAccess(req, courseId);
+  const courseForEntries = await loadCourseAndAssertAccess(req, courseId);
 
   const { entries } = req.body as { entries?: { studentId: string; slot: ManualEntrySlot; score: number }[] };
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new BadRequestError('At least one entry is required.');
   }
+
+  await assertStudentsInSchool(entries.map((entry) => entry?.studentId), courseForEntries.school);
 
   let scheme = await GradingScheme.findOne({ course: courseId }).lean();
   scheme = await ensureManualEntryCategories(courseId, scheme);
@@ -430,14 +445,14 @@ export const exportClassGrades = async (req: Request, res: Response): Promise<vo
   const filename = `gradebook-${((course as any).title?.en || courseId).replace(/\s+/g, '-')}`;
 
   if (format === 'csv') {
-    const csv = [headers, ...rows].map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = [headers, ...safeRows(rows)].map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename=${filename}.csv`);
     res.end('﻿' + csv);
     return;
   }
 
-  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...safeRows(rows)]);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, 'Gradebook');
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });

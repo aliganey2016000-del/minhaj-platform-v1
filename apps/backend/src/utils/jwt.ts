@@ -40,7 +40,7 @@ interface TokenPair {
 export function generateAccessToken(payload: AccessTokenPayload): string {
   const expiresIn = process.env.JWT_ACCESS_EXPIRY || '15m';
 
-  return jwt.sign(payload, ACCESS_SECRET, { expiresIn } as jwt.SignOptions);
+  return jwt.sign(payload, ACCESS_SECRET, { expiresIn, algorithm: 'HS256' } as jwt.SignOptions);
 }
 
 /**
@@ -49,7 +49,7 @@ export function generateAccessToken(payload: AccessTokenPayload): string {
 export function generateRefreshToken(payload: RefreshTokenPayload): string {
   const expiresIn = process.env.JWT_REFRESH_EXPIRY || '7d';
 
-  return jwt.sign(payload, REFRESH_SECRET, { expiresIn } as jwt.SignOptions);
+  return jwt.sign(payload, REFRESH_SECRET, { expiresIn, algorithm: 'HS256' } as jwt.SignOptions);
 }
 
 /**
@@ -70,7 +70,7 @@ export function generateTokenPair(
  */
 export function verifyAccessToken(token: string): AccessTokenPayload {
   try {
-    const decoded = jwt.verify(token, ACCESS_SECRET) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, ACCESS_SECRET, { algorithms: ['HS256'] }) as jwt.JwtPayload;
     return {
       userId: decoded.userId as string,
       role: decoded.role as string,
@@ -93,7 +93,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
  */
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
   try {
-    const decoded = jwt.verify(token, REFRESH_SECRET) as jwt.JwtPayload;
+    const decoded = jwt.verify(token, REFRESH_SECRET, { algorithms: ['HS256'] }) as jwt.JwtPayload;
     return {
       userId: decoded.userId as string,
       tokenVersion: decoded.tokenVersion as number,

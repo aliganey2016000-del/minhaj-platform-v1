@@ -272,7 +272,7 @@ export async function getManagedSchool(req: Request, requestedSchoolId?: unknown
     throw new BadRequestError('Select a valid organization.');
   }
 
-  const school = await School.findById(schoolId).select('name slug subdomain customDomain branding address phone email status institutionType').lean();
+  const school = await School.findById(schoolId).select('name slug subdomain customDomain customDomainVerified +customDomainVerificationToken branding address phone email status institutionType').lean();
   if (!school) throw new NotFoundError('Organization');
   return school;
 }
@@ -284,7 +284,11 @@ export function schoolSummary(school: any) {
     slug: school.slug,
     subdomain: school.subdomain,
     customDomain: school.customDomain || '',
-    branding: school.branding || {},
+    // Public payload: expose only logo and colour, never internal storage keys.
+    branding: {
+      ...(school.branding?.logo ? { logo: school.branding.logo } : {}),
+      ...(school.branding?.themeColor ? { themeColor: school.branding.themeColor } : {}),
+    },
     address: school.address || '',
     phone: school.phone || '',
     email: school.email || '',

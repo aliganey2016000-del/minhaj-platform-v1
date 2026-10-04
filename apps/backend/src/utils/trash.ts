@@ -43,6 +43,7 @@ export async function logTrashActivity(
       action: action === 'restore' ? 'update' : 'delete',
       resource,
       resourceId,
+      school: req.user.organizationId || null,
       details,
       ip: req.ip || '',
     });

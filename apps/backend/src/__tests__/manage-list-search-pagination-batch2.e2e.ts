@@ -245,7 +245,7 @@ async function main() {
     for (let i = 0; i < 12; i += 1) {
       await ActivityLog.collection.insertOne({ _id: id(), action: 'update', resource: `Resource ${i}`, details: '', createdAt: filler(i) });
     }
-    const page1 = await call(systemController.getLogs as any, { query: { search: 'Needle-Resource', page: '1', limit: '5' } });
+    const page1 = await call(systemController.getLogs as any, { user: { role: 'admin' }, query: { search: 'Needle-Resource', page: '1', limit: '5' } });
     assert(page1?.data?.length === 1, `finds the log entry even though it sorts onto a later page (got ${page1?.data?.length})`);
     assert(page1?.meta?.total === 1, `total reflects the real match count (got ${page1?.meta?.total})`);
   }

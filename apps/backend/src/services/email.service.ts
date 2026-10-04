@@ -56,7 +56,14 @@ interface MailPayload {
 async function sendMail(payload: MailPayload): Promise<void> {
   const mailer = getTransporter();
   if (!mailer) {
-    // SMTP not configured — surface the link in the logs for local testing.
+    // SMTP not configured. Outside production the message (with its reset or
+    // verification link) is printed so it can be used locally. In production
+    // the link is a credential — anyone able to read the logs could take over
+    // the account — so only the fact that nothing was sent is recorded.
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[EMAIL] SMTP is not configured: "${payload.subject}" was NOT sent. Set SMTP_HOST/SMTP_USER/SMTP_PASS.`);
+      return;
+    }
     console.log(`\n[EMAIL] SMTP not configured. Would send "${payload.subject}" to ${payload.to}:`);
     console.log(`[EMAIL] ${payload.text}\n`);
     return;

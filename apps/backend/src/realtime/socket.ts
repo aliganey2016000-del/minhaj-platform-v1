@@ -25,7 +25,19 @@ let io: SocketIOServer | null = null;
 // userId -> number of currently-open sockets (tabs/devices) for that user.
 const connectionCounts = new Map<string, number>();
 
-const PRESENCE_ROOM = 'presence:watchers';
+// Presence is tenant-scoped: an organization's admins/teachers only ever hear
+// about people of their own organization. A single shared room used to push
+// every user's id and online status on the whole platform to any admin or
+// teacher of any school. Only the platform admin gets the platform-wide room.
+const PLATFORM_PRESENCE_ROOM = 'presence:platform';
+const orgPresenceRoom = (organizationId: string) => `presence:org:${organizationId}`;
+
+function emitPresence(organizationId: string | undefined, payload: { userId: string; online: boolean; lastSeenAt: string }): void {
+  if (!io) return;
+  let target = io.to(PLATFORM_PRESENCE_ROOM);
+  if (organizationId) target = target.to(orgPresenceRoom(organizationId));
+  target.emit('presence:update', payload);
+}
 
 function userRoom(userId: string): string {
   return `user:${userId}`;
@@ -72,13 +84,15 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     const now = new Date();
     void User.updateOne({ _id: userId }, { lastSeenAt: now }).catch(() => {});
     if (wasOffline) {
-      io?.to(PRESENCE_ROOM).emit('presence:update', { userId, online: true, lastSeenAt: now.toISOString() });
+      emitPresence(organizationId, { userId, online: true, lastSeenAt: now.toISOString() });
     }
 
     // Admin/teacher clients watching the Activity dashboard subscribe here.
     socket.on('presence:watch', () => {
-      if (role === 'admin' || role === 'teacher' || role === 'org_admin') {
-        socket.join(PRESENCE_ROOM);
+      if (role === 'admin') {
+        socket.join(PLATFORM_PRESENCE_ROOM);
+      } else if ((role === 'teacher' || role === 'org_admin') && organizationId) {
+        socket.join(orgPresenceRoom(organizationId));
       }
     });
 
@@ -111,7 +125,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         connectionCounts.delete(userId);
         const seenAt = new Date();
         void User.updateOne({ _id: userId }, { lastSeenAt: seenAt }).catch(() => {});
-        io?.to(PRESENCE_ROOM).emit('presence:update', { userId, online: false, lastSeenAt: seenAt.toISOString() });
+        emitPresence(organizationId, { userId, online: false, lastSeenAt: seenAt.toISOString() });
       } else {
         connectionCounts.set(userId, remaining);
       }

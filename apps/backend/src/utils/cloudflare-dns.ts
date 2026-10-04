@@ -1,3 +1,4 @@
+import { getBaseDomain } from './tenant-host';
 import https from 'https';
 
 const MANAGED_RECORD_COMMENT = 'Managed by Sahal Education Platform';
@@ -43,7 +44,7 @@ function cleanHost(value?: string): string {
 }
 
 export function baseDomain(): string {
-  return cleanHost(process.env.BASE_DOMAIN || 'sahaledu.com');
+  return getBaseDomain();
 }
 
 export function managedHostnameForSchool(school: SchoolDomainLike): string {

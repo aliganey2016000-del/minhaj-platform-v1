@@ -30,7 +30,7 @@ import {
   type StopCheckTypeMode,
 } from '../utils/deepseek';
 import { extractTextFromDocument } from '../utils/document-parser';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 
 // ---------------------------------------------------------------------------
@@ -338,7 +338,8 @@ export const uploadVoiceNote = async (req: Request, res: Response): Promise<Resp
   const declared = req.file.mimetype === 'audio/mp4' ? 'm4a' : req.file.mimetype.split('/')[1]?.split(';')[0] || 'webm';
   // Only known audio extensions are ever written to disk.
   const ext = AUDIO_MIME_TYPES[declared] ? declared : 'webm';
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  // The uploader's id leads the name so playback can be limited to them.
+  const filename = `${req.user!.userId}_${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
 
   // Served back through getVoiceNote below (authenticated stream), not a
@@ -358,6 +359,10 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
 export const getVoiceNote = async (req: Request, res: Response): Promise<Response | void> => {
   const { filename } = req.params;
   if (!VOICE_NOTE_FILENAME_RE.test(filename)) throw new BadRequestError('Invalid filename.');
+  // Notes uploaded since the owner's id became part of the name are private to
+  // that account (and the platform admin); older notes keep their old access.
+  const owner = filename.match(/^([a-f0-9]{24})_/i)?.[1];
+  if (owner && owner !== req.user?.userId && req.user?.role !== 'admin') throw new ForbiddenError('This voice note is not yours.');
 
   const filePath = path.join(process.cwd(), 'uploads', 'voice-notes', filename);
   if (!fs.existsSync(filePath)) throw new NotFoundError('Voice note');

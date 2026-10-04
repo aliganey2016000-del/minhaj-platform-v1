@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { mapLimit } from '../utils/map-limit';
 import mongoose from 'mongoose';
 import Invoice from '../models/invoice.model';
 import FeeStructure from '../models/fee-structure.model';
@@ -319,7 +320,7 @@ export const generateBulk = async (req: Request, res: Response): Promise<Respons
     targets.forEach((id) => affectedStudentIds.add(id.toString()));
   }
 
-  await Promise.all([...affectedStudentIds].map((id) => recalcStudentBalance(id)));
+  await mapLimit([...affectedStudentIds], 20, (id) => recalcStudentBalance(id));
 
   return ApiResponse.created(
     res,
@@ -535,7 +536,7 @@ export const voidBatch = async (req: Request, res: Response): Promise<Response> 
       { $set: { status: 'void', voidedAt: new Date(), voidedBy: req.user!.userId, voidReason: 'Bulk void — incorrect bulk generation' } }
     );
     const affectedStudentIds = new Set(voidable.map((inv) => inv.student.toString()));
-    await Promise.all([...affectedStudentIds].map((id) => recalcStudentBalance(id)));
+    await mapLimit([...affectedStudentIds], 20, (id) => recalcStudentBalance(id));
   }
 
   return ApiResponse.success(
@@ -568,7 +569,7 @@ export const bulkDelete = async (req: Request, res: Response): Promise<Response>
   if (deletableIds.length > 0) {
     await Invoice.deleteMany({ _id: { $in: deletableIds } });
     const affectedStudentIds = new Set(deletable.map((inv) => inv.student.toString()));
-    await Promise.all([...affectedStudentIds].map((id) => recalcStudentBalance(id)));
+    await mapLimit([...affectedStudentIds], 20, (id) => recalcStudentBalance(id));
   }
 
   return ApiResponse.success(

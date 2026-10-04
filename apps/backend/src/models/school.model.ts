@@ -10,6 +10,7 @@
  * so a tenant can never accidentally claim a system route.
  */
 
+import { getBaseDomain, normalizeHostname, isLocalOrIpHost } from '../utils/tenant-host';
 import mongoose, { Schema, Document } from 'mongoose';
 import { INSTITUTION_TYPES, OWNERSHIP_TYPES, resolveInstitutionType, type InstitutionType, type OwnershipType } from '../utils/academic-config';
 
@@ -131,6 +132,11 @@ export interface ISchool extends Document {
   /** A fully custom domain (e.g. "yourschool.edu") an org points its own
    * DNS at, resolved before the platform's <slug>.<base domain> routing. */
   customDomain?: string;
+  /** Ownership proof for `customDomain`. `undefined` = legacy/grandfathered
+   * (treated as verified); `false` = claimed but not yet proven by DNS TXT. */
+  customDomainVerified?: boolean;
+  customDomainVerificationToken?: string;
+  customDomainVerifiedAt?: Date;
   branding: IBranding;
   examSchedulingRules: IExamSchedulingRules;
   examRoomPlanSettings: IExamRoomPlanSettings;
@@ -345,18 +351,15 @@ const schoolSchema = new Schema<ISchool>(
       validate: {
         validator(v?: string) {
           if (!v) return true;
-          const base = String(process.env.BASE_DOMAIN || 'sahaledu.com')
-            .trim()
-            .toLowerCase()
-            .replace(/^https?:\/\//, '')
-            .replace(/^www\./, '')
-            .replace(/:\d+$/, '')
-            .replace(/\/$/, '');
+          const base = getBaseDomain();
           return v !== base && v !== `www.${base}` && !v.endsWith(`.${base}`);
         },
         message: 'Use the Subdomain field for sahaledu.com addresses; Custom Domain is only for external domains.',
       },
     },
+    customDomainVerified: { type: Boolean },
+    customDomainVerificationToken: { type: String, select: false },
+    customDomainVerifiedAt: { type: Date },
     branding: { type: brandingSchema, default: () => ({}) },
     examSchedulingRules: { type: examSchedulingRulesSchema, default: () => ({}) },
     examRoomPlanSettings: { type: examRoomPlanSettingsSchema, default: () => ({}) },
@@ -565,14 +568,17 @@ schoolSchema.statics.findByHost = async function (
   host: string
 ): Promise<TenantBranding | null> {
   // Strip port if present
-  const hostname = host.replace(/:\d+$/, '').toLowerCase();
+  const hostname = normalizeHostname(host);
 
-  if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+  if (isLocalOrIpHost(hostname)) {
     return null;
   }
 
+  // Only verified (or grandfathered, i.e. flag never set) custom domains
+  // resolve: an unverified claim must not serve the org's site.
   const byCustomDomain = await this.findOne({
     customDomain: hostname,
+    customDomainVerified: { $ne: false },
     status: 'active',
   })
     .select('slug subdomain customDomain name institutionType organizationType branding')
@@ -582,13 +588,7 @@ schoolSchema.statics.findByHost = async function (
     return { ...byCustomDomain, institutionType: resolveInstitutionType(byCustomDomain) } as TenantBranding;
   }
 
-  const configuredBaseDomain = String(process.env.BASE_DOMAIN || 'sahaledu.com')
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/:\d+$/, '')
-    .replace(/\/$/, '');
+  const configuredBaseDomain = getBaseDomain();
 
   const suffix = '.' + configuredBaseDomain;
   if (!hostname.endsWith(suffix)) {

@@ -9,6 +9,7 @@
  * Tutor chat requires only authentication (student-accessible).
  */
 
+import rateLimit from 'express-rate-limit';
 import { Router } from 'express';
 import multer from 'multer';
 import * as aiController from '../../controllers/ai.controller';
@@ -44,15 +45,29 @@ const audioUpload = multer({
   },
 });
 
+// Every call below reaches a paid model provider, so the platform-wide limit
+// (1000 requests per minute) is far too generous per person. Counted per
+// signed-in account, after authMiddleware has run.
+const aiLimit = (max: number, windowMinutes: number) => rateLimit({
+  windowMs: windowMinutes * 60 * 1000,
+  max,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, statusCode: 429, message: 'AI request limit reached, please wait a few minutes and try again', data: null, errors: null },
+  keyGenerator: (req) => `ai:${req.user?.userId || req.ip}`,
+});
+const tutorLimiter = aiLimit(60, 10);
+const generationLimiter = aiLimit(30, 10);
+
 const router = Router();
 
 // ── Student-accessible routes (auth only, no role check) ──
 // POST /api/v1/ai/tutor/chat — AI Tutor conversation (student-facing)
-router.post('/tutor/chat', authMiddleware, asyncHandler(aiController.tutorChat));
+router.post('/tutor/chat', authMiddleware, tutorLimiter, asyncHandler(aiController.tutorChat));
 
 // POST /api/v1/ai/tutor/voice-note — stores a recorded voice message (no
 // transcription — see controller comment for why), field name "file"
-router.post('/tutor/voice-note', authMiddleware, audioUpload.single('file'), asyncHandler(aiController.uploadVoiceNote));
+router.post('/tutor/voice-note', authMiddleware, tutorLimiter, audioUpload.single('file'), asyncHandler(aiController.uploadVoiceNote));
 
 // GET /api/v1/ai/tutor/voice-note/:filename — stream it back for playback
 router.get('/tutor/voice-note/:filename', authMiddleware, asyncHandler(aiController.getVoiceNote));
@@ -60,7 +75,7 @@ router.get('/tutor/voice-note/:filename', authMiddleware, asyncHandler(aiControl
 // ── Admin/Teacher routes (require auth + adminOrTeacher) ──
 // Apply admin/teacher middleware for ALL remaining routes *after* the
 // student route so tutor/chat is only gated by authentication.
-router.use(authMiddleware, adminOrTeacher);
+router.use(authMiddleware, adminOrTeacher, generationLimiter);
 
 // POST /api/v1/ai/generate-lesson  { mode: 'title' | 'notes', title?, notes? }
 router.post('/generate-lesson', asyncHandler(aiController.generateFromText));

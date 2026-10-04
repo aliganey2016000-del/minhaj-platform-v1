@@ -66,6 +66,14 @@ interface DomainStatus {
   dns: { resolved: boolean; a: string[]; aaaa: string[]; cname: string[] };
   ssl: { active: boolean; authorized: boolean; expiresAt?: string };
   connected: boolean;
+  targetMatches?: boolean | null;
+  verification?: {
+    required: boolean;
+    verified: boolean;
+    recordType: string | null;
+    recordName: string | null;
+    recordValue: string | null;
+  };
   cloudflareAutomationConfigured: boolean;
   cloudflareCanProvision: boolean;
   cloudflareZone?: string | null;
@@ -280,12 +288,16 @@ function DomainPanel({ schoolId, showNotice }: Pick<Props, 'schoolId' | 'organiz
   const [status, setStatus] = useState<DomainStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [provisioning, setProvisioning] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [domainInput, setDomainInput] = useState('');
+  const [savingDomain, setSavingDomain] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
       const { data } = await api.get('/website-management/domain/status', { params: { schoolId } });
       setStatus(data.data);
+      setDomainInput(data.data.customHostname || '');
     } catch (err: any) {
       showNotice({ type: 'error', text: err.response?.data?.message || 'Could not verify domain.' });
     } finally {
@@ -308,6 +320,37 @@ function DomainPanel({ schoolId, showNotice }: Pick<Props, 'schoolId' | 'organiz
       showNotice({ type: 'error', text: err.response?.data?.message || 'Could not provision domain.' });
     } finally {
       setProvisioning(false);
+    }
+  };
+
+  const verifyOwnership = async () => {
+    setVerifying(true);
+    try {
+      await api.post('/website-management/domain/verify', { schoolId });
+      showNotice({ type: 'success', text: 'Domain ownership verified. The custom domain is now active.' });
+      await load();
+    } catch (err: any) {
+      showNotice({ type: 'error', text: err.response?.data?.message || 'Could not verify domain ownership.' });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const saveCustomDomain = async () => {
+    const domain = domainInput.trim().toLowerCase();
+    if (domain && !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) {
+      showNotice({ type: 'error', text: 'Enter a plain domain, e.g. yourschool.edu (no https:// or trailing slash).' });
+      return;
+    }
+    setSavingDomain(true);
+    try {
+      await api.patch(`/schools/${schoolId}`, { customDomain: domain });
+      showNotice({ type: 'success', text: domain ? 'Custom domain saved. Follow the steps below to verify it.' : 'Custom domain removed.' });
+      await load();
+    } catch (err: any) {
+      showNotice({ type: 'error', text: err.response?.data?.message || 'Could not save custom domain.' });
+    } finally {
+      setSavingDomain(false);
     }
   };
 
@@ -359,6 +402,38 @@ function DomainPanel({ schoolId, showNotice }: Pick<Props, 'schoolId' | 'organiz
             </div>
           ))}
         </div>
+
+        <div className="mt-5 rounded-xl border border-[var(--color-border-subtle)] p-4">
+          <p className="text-sm font-bold">Custom domain</p>
+          <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Use your own domain (e.g. yourschool.edu). Leave empty to use {status.managedHostname}.</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input value={domainInput} onChange={(e) => setDomainInput(e.target.value)} placeholder="yourschool.edu" className="min-w-0 flex-1 rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" />
+            <button disabled={savingDomain || domainInput.trim().toLowerCase() === (status.customHostname || '')} onClick={saveCustomDomain} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              {savingDomain && <Loader2 className="h-4 w-4 animate-spin" />}Save
+            </button>
+          </div>
+        </div>
+
+        {status.verification?.required && !status.verification.verified && (
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
+            <p className="text-sm font-bold">Verify domain ownership</p>
+            <p className="mt-2">Add this TXT record at your DNS provider. The custom domain will not serve your website until it is verified.</p>
+            <dl className="mt-3 space-y-2">
+              <div><dt className="font-semibold">Type</dt><dd>{status.verification.recordType}</dd></div>
+              <div><dt className="font-semibold">Name</dt><dd className="break-all font-mono">{status.verification.recordName}</dd></div>
+              <div><dt className="font-semibold">Value</dt><dd className="break-all font-mono">{status.verification.recordValue}</dd></div>
+            </dl>
+            <button disabled={verifying} onClick={verifyOwnership} className="mt-3 inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              {verifying && <Loader2 className="h-4 w-4 animate-spin" />}Verify ownership
+            </button>
+          </div>
+        )}
+
+        {status.targetMatches === false && (
+          <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-xs leading-5 text-red-800 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+            DNS for <strong>{status.hostname}</strong> does not point to <strong>{status.expected.cnameTarget}</strong>. Update the CNAME record, then refresh.
+          </div>
+        )}
 
         {status.cloudflareAutomationConfigured && status.cloudflareCanProvision ? (
           <div className="mt-5 rounded-xl border border-green-200 bg-green-50 p-4 dark:border-green-900/50 dark:bg-green-950/20">

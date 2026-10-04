@@ -1,7 +1,8 @@
 import * as XLSX from 'xlsx';
+import { safeCell } from './spreadsheet-safe';
 
 export function buildXlsxBuffer(headers: string[], rows: Array<Array<unknown>>, sheetName: string): Buffer {
-  const normalizedRows = rows.map((row) => row.map((value) => (value === undefined || value === null ? '' : value)));
+  const normalizedRows = rows.map((row) => row.map((value) => (value === undefined || value === null ? '' : safeCell(value))));
   const sheet = XLSX.utils.aoa_to_sheet([headers, ...normalizedRows]);
 
   const widths = headers.map((header, colIdx) => {
