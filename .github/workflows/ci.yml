@@ -252,6 +252,7 @@ jobs:
       - name: Attendance GPS regressions
         run: node scripts/test-attendance-location.mjs && node scripts/test-attendance-settings.mjs
 
+
       - name: Build
         run: npm run build
 
