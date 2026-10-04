@@ -320,6 +320,19 @@ async function deleteTeacherToTrash(teacherId: string, req: Request): Promise<vo
     Profile.findByIdAndDelete(teacher.profile),
     Teacher.findByIdAndDelete(teacher._id),
   ]);
+
+  // TeacherDocument rows (and the files they point at under
+  // uploads/teacher-documents/<school>/<teacherId>/) are not part of the
+  // Trash snapshot above and restoreFromTrash() never recreates them, so
+  // without this they were never cleaned up on delete: the DB rows and the
+  // files on disk stayed behind forever, orphaned, for every teacher ever
+  // deleted (uploadDocument in this same file is the only writer of that
+  // directory). Deleting them here matches that they were already
+  // unrecoverable, and the TeacherDocument.deleteMany/fs.rm below do the
+  // cleanup restore was never going to undo anyway.
+  await TeacherDocument.deleteMany({ teacher: teacher._id });
+  const documentsDir = path.join(UPLOADS_ROOT, 'teacher-documents', String(teacher.school || 'unassigned'), String(teacher._id));
+  await fs.promises.rm(documentsDir, { recursive: true, force: true }).catch(() => {});
 }
 
 export const remove = async (req: Request, res: Response): Promise<Response> => {

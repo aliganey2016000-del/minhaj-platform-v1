@@ -154,6 +154,9 @@ jobs:
       - name: Dependency supply-chain regression (exceljs/uuid override)
         run: npx ts-node src/__tests__/dependency-supply-chain.e2e.ts
 
+      - name: Finance payment-status race and upload-cleanup regression
+        run: npx ts-node src/__tests__/finance-upload-round4.e2e.ts
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
