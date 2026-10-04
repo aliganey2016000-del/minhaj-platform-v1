@@ -75,6 +75,9 @@ jobs:
       - name: Reliability phase 5 regression (boot hardening, health check, TTL retention, balance pagination, host caching)
         run: npx ts-node src/__tests__/reliability-phase5.e2e.ts
 
+      - name: Phase 6 regression (scheduler race-safety, auth-state/socket invalidation wiring)
+        run: npx ts-node src/__tests__/scheduler-socket-pwa-phase6.e2e.ts
+
       - name: Smart staff attendance profiles and settings regression
         run: npx ts-node --files src/__tests__/staff-attendance-profiles.e2e.ts
 

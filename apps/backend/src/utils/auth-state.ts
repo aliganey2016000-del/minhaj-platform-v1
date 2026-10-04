@@ -23,6 +23,22 @@ export interface AuthState {
 
 const cache = new Map<string, { state: AuthState; expiresAt: number }>();
 
+// Anything that needs to react the instant an account's auth state is
+// invalidated (deactivation, role change, permission/sidebar change) —
+// currently just the Socket.IO layer, which otherwise has no reason to
+// re-check a connection after its initial handshake and would keep an
+// already-open socket alive (still receiving notifications/presence/live
+// updates) for as long as the browser tab stays open, even though the same
+// account's next HTTP request would already be rejected. Registered via
+// `onAuthStateInvalidated` rather than importing socket.ts directly here,
+// to avoid a circular import (socket.ts already imports this module).
+type InvalidationListener = (userId: string) => void;
+const invalidationListeners: InvalidationListener[] = [];
+
+export function onAuthStateInvalidated(listener: InvalidationListener): void {
+  invalidationListeners.push(listener);
+}
+
 export function flattenPermissions(permissions: any[] | undefined): string[] {
   return (permissions || []).flatMap((permission: any) => (permission.actions || []).map((action: string) =>
     permission.page ? `page:${permission.page}.${action}` : `${permission.module}.${action}`));
@@ -47,7 +63,17 @@ export async function getAuthState(userId: string): Promise<AuthState> {
 }
 
 export function invalidateAuthState(userId: unknown): void {
-  if (userId) cache.delete(String(userId));
+  if (!userId) return;
+  const id = String(userId);
+  cache.delete(id);
+  for (const listener of invalidationListeners) {
+    try {
+      listener(id);
+    } catch (error) {
+      // A listener failure must never block the cache invalidation itself.
+      console.error('onAuthStateInvalidated listener failed:', error);
+    }
+  }
 }
 
 /** Why a token no longer matches its account, or null when it still does. */
