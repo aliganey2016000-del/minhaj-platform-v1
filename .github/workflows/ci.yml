@@ -130,6 +130,9 @@ jobs:
       - name: Financial core payment tests
         run: npm run test:financial-core
 
+      - name: Payment/invoice date school-timezone boundary regression
+        run: npm run test:payment-date-timezone-boundary
+
       - name: Parent portal privacy and authorization tests
         run: npm run test:parent-portal
 

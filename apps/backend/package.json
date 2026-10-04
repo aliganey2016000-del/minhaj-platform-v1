@@ -56,6 +56,7 @@
     "test:course-completion": "ts-node src/__tests__/course-completion.e2e.ts",
     "test:payment-reference": "ts-node src/__tests__/payment-reference-and-receipt.e2e.ts",
     "test:finance-upload-round4": "ts-node src/__tests__/finance-upload-round4.e2e.ts",
+    "test:payment-date-timezone-boundary": "ts-node --files src/__tests__/payment-date-school-timezone-boundary.e2e.ts",
     "test:financial-core": "ts-node src/__tests__/financial-core.e2e.ts",
     "test:fee-adjustment": "ts-node src/__tests__/fee-adjustment.e2e.ts",
     "test:discount-grant": "ts-node src/__tests__/discount-grant.e2e.ts",
