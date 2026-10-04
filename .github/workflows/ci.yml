@@ -175,6 +175,9 @@ jobs:
       - name: AI routes rate-limit coverage
         run: npm run test:ai-rate-limit
 
+      - name: Gamification integrity regression (quiz-attempt race, lesson-XP replay, XP-injection endpoint removal)
+        run: npm run test:gamification-integrity
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest

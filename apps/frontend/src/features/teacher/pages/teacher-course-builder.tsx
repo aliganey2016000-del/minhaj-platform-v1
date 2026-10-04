@@ -10,10 +10,11 @@
  * - Fallback to student view if permission is revoked
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { CourseBuilder as CourseBuilderWorkspace } from '../../../features/admin/pages/course-builder';
+import { useCourseBuilderMobileMenu } from '../../shared/hooks/use-course-builder-mobile-menu';
 
 // ---------------------------------------------------------------------------
 // Permission Guard & Wrapper
@@ -22,9 +23,12 @@ import { CourseBuilder as CourseBuilderWorkspace } from '../../../features/admin
 export function TeacherCourseBuilder() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
+  const rootRef = useRef<HTMLDivElement>(null);
   const [permission, setPermission] = useState<'COURSE_BUILDER' | 'STUDENT_VIEW' | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  useCourseBuilderMobileMenu(rootRef);
 
   useEffect(() => {
     const checkPermission = async () => {
@@ -110,7 +114,21 @@ export function TeacherCourseBuilder() {
   // Permission Granted — Render the existing admin course builder workspace
   // -----------------------------------------------------------------------
   if (permission === 'COURSE_BUILDER') {
-    return <CourseBuilderWorkspace basePath="/teacher" />;
+    // The mobile-responsive layout fixes for this workspace (revealing the
+    // otherwise hover-only edit/publish/delete actions on touch screens via
+    // useCourseBuilderMobileMenu, and constraining item rows so they don't
+    // overflow narrow viewports — see assets/styles/course-builder-responsive.css)
+    // are scoped to this class. The admin route picks it up via
+    // institution-course-builder.tsx; this teacher-facing route rendered the
+    // same workspace without it, so on a phone a teacher could see a
+    // lesson/quiz/assignment row but had no way to edit, publish/unpublish
+    // or delete it (those controls are opacity-0 until :hover, which never
+    // fires on a touchscreen).
+    return (
+      <div ref={rootRef} className="institution-course-builder-approved">
+        <CourseBuilderWorkspace basePath="/teacher" />
+      </div>
+    );
   }
 
   // -----------------------------------------------------------------------

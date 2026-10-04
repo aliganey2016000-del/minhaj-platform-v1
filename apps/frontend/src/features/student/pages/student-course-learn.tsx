@@ -411,7 +411,7 @@ export function StudentCourseLearn() {
           await queueAction({ type: 'mark-complete', url: '/students/my/progress', body: progressBody });
         }
         if (currentItem.item.type === 'lesson') {
-          await queueAction({ type: 'gamification-lesson', url: '/gamification/complete-lesson', body: { timeSpentSeconds } });
+          await queueAction({ type: 'gamification-lesson', url: '/gamification/complete-lesson', body: { timeSpentSeconds, courseId, lessonId: currentItem.item._id } });
         }
         await queueAction({ type: 'gamification-streak', url: '/gamification/streak/update', body: {} });
 
@@ -455,7 +455,7 @@ export function StudentCourseLearn() {
       // so it isn't repeated here.
       const awardGamification = async () => {
         if (currentItem.item.type === 'lesson') {
-          await api.post('/gamification/complete-lesson', { timeSpentSeconds });
+          await api.post('/gamification/complete-lesson', { timeSpentSeconds, courseId, lessonId: currentItem.item._id });
         }
         await api.post('/gamification/streak/update');
       };
