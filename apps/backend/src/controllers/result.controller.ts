@@ -79,6 +79,25 @@ async function assertCanManageExamResults(req: Request, examId: string): Promise
   }
 }
 
+/**
+ * Every student a result is written for must belong to the exam's own school.
+ * assertCanManageExamResults only proves the *exam* is the caller's; without
+ * this a school's staff could attach results (and rewrite the GPA) of another
+ * school's student by sending that student's id.
+ */
+async function assertStudentsBelongToExamSchool(
+  exam: { school?: unknown },
+  studentIds: unknown[],
+): Promise<void> {
+  const ids = [...new Set(studentIds.map((id) => String(id ?? '')))];
+  if (ids.some((id) => !mongoose.isValidObjectId(id))) throw new BadRequestError('Invalid student id.');
+  if (!exam.school) return;
+  const matching = await Student.countDocuments({ _id: { $in: ids }, school: exam.school });
+  if (matching !== ids.length) {
+    throw new BadRequestError('Every student must belong to the same organization as the exam.');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GET /results — List all or by exam, with exam attendance status
 // ---------------------------------------------------------------------------
@@ -189,7 +208,18 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 export const getMyResults = async (req: Request, res: Response): Promise<Response> => {
   const student = await ensureStudentRecord(req.user!.userId);
 
-  const publishedExamIds = await Exam.find({ resultsPublished: true }).distinct('_id');
+  // Start from this student's own results (indexed by student) instead of
+  // scanning every published exam on the platform, and only show exams of the
+  // student's own organization.
+  const ownExamIds = await Result.find({ student: student._id }).distinct('exam');
+  const studentSchool = (student as any).school;
+  const publishedExamIds = ownExamIds.length
+    ? await Exam.find({
+        _id: { $in: ownExamIds },
+        resultsPublished: true,
+        ...(studentSchool ? { $or: [{ school: studentSchool }, { school: null }] } : {}),
+      }).distinct('_id')
+    : [];
 
   const results = await Result.find({ student: student._id, exam: { $in: publishedExamIds } })
     .populate({
@@ -379,6 +409,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   ]);
   if (!exam) throw new NotFoundError('Exam');
   if (!student) throw new NotFoundError('Student');
+  await assertStudentsBelongToExamSchool(exam, [studentId]);
 
   // Look up exam attendance to determine if student was present/absent
   const examAttendance = await ExamAttendance.findOne({ exam: examId, student: studentId }).lean();
@@ -434,6 +465,7 @@ export const bulkCreate = async (req: Request, res: Response): Promise<Response>
 
   const exam = await Exam.findById(examId).lean();
   if (!exam) throw new NotFoundError('Exam');
+  await assertStudentsBelongToExamSchool(exam, resultsArray.map((r: any) => r?.student));
 
   // Fetch all exam attendances for this exam to determine present/absent
   const attendances = await ExamAttendance.find({ exam: examId }).lean();
@@ -512,10 +544,12 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!existing) throw new NotFoundError('Result');
   await assertCanManageExamResults(req, existing.exam.toString());
 
-  const updates = { ...req.body };
-  delete updates.exam;
-  delete updates.student;
-  delete updates.enteredBy;
+  // Only these fields are editable. percentage/grade are always derived
+  // below, so a caller cannot write them (or any other field) directly.
+  const updates: Record<string, any> = {};
+  for (const key of ['marksObtained', 'totalMarks', 'remarks', 'feedback', 'status']) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
 
   // If marks or status changed, recalculate. `isAbsent` prefers an explicit
   // status in this request; otherwise it only stays absent if the caller

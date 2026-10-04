@@ -243,6 +243,13 @@ export async function collectPaymentService(params: CollectPaymentParams): Promi
   if (idempotencyKey) {
     const existing = await Payment.findOne({ idempotencyKey });
     if (existing) {
+      // The key is globally unique, so it can collide with (or be replayed
+      // against) another student's payment — possibly in another school.
+      // Only the same student's own retry may be answered with the stored
+      // payment; anything else would hand back someone else's record.
+      if (String(existing.student) !== String(studentId)) {
+        throw new BadRequestError('This idempotency key was already used for a different payment');
+      }
       const existingInvoice = existing.invoice ? await Invoice.findById(existing.invoice) : null;
       if (existingInvoice) return { payment: existing, invoice: existingInvoice };
       throw new BadRequestError('This idempotency key is already associated with an invalid payment record');

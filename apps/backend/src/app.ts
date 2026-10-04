@@ -180,9 +180,57 @@ const authIpLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 
+// Public account endpoints that send email or mint accounts. Unlike the login
+// limiters above these count every request (not only failures): a successful
+// call is exactly what an attacker repeats to flood a victim's inbox or to
+// create unlimited accounts.
+const publicAccountMessage = (message: string) => ({
+  success: false,
+  statusCode: 429,
+  message,
+  data: null,
+  errors: null,
+});
+const emailActionAccountLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: publicAccountMessage('Too many requests for this account, please try again later'),
+  keyGenerator: (req) => `mail-account:${typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : 'unknown'}`,
+});
+const emailActionIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: publicAccountMessage('Too many requests from this network, please try again later'),
+  keyGenerator: (req) => `mail-ip:${req.ip}`,
+});
+const registerIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: parseInt(process.env.REGISTER_RATE_LIMIT_MAX || '60'),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: publicAccountMessage('Too many registrations from this network, please try again later'),
+  keyGenerator: (req) => `register-ip:${req.ip}`,
+});
+const tokenGuessLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: publicAccountMessage('Too many attempts, please try again later'),
+  keyGenerator: (req) => `token-ip:${req.ip}`,
+});
+
 app.use('/api/', limiter);
 app.use('/api/v1/auth/login', authAccountLimiter, authIpLimiter);
-app.use('/api/v1/auth/register', authAccountLimiter, authIpLimiter);
+app.use('/api/v1/auth/register', registerIpLimiter, authAccountLimiter, authIpLimiter);
+app.use('/api/v1/auth/forgot-password', emailActionAccountLimiter, emailActionIpLimiter);
+app.use('/api/v1/auth/resend-verification', emailActionAccountLimiter, emailActionIpLimiter);
+app.use('/api/v1/auth/reset-password', tokenGuessLimiter);
+app.use('/api/v1/auth/verify-email', tokenGuessLimiter);
 
 // ---------------------------------------------------------------------------
 // Data Sanitization

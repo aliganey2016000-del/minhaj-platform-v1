@@ -63,6 +63,52 @@ async function assertCanManageAssignment(req: Request, assignmentId: string) {
   return assignment;
 }
 
+/**
+ * Who may read an assignment (and its materials): a student enrolled in the
+ * course, the course's teacher, a parent of an enrolled child, a platform
+ * admin, or school staff of the course's own organization. Anyone else —
+ * including any other school's users — is refused.
+ */
+async function assertCanViewAssignment(req: Request, courseRef: unknown): Promise<void> {
+  const courseId = (courseRef as any)?._id ?? courseRef;
+  const role = req.user?.role;
+
+  if (role === 'admin') return;
+
+  if (role === 'student') {
+    const student = await ensureStudentRecord(req.user!.userId);
+    const enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
+    if (!courseId || !enrolledIds.includes(String(courseId))) {
+      throw new ForbiddenError('You can only view assignments for your enrolled courses');
+    }
+    return;
+  }
+
+  if (role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    const courseDoc = await Course.findById(courseId).select('teacher').lean();
+    if (!teacher || !courseDoc || (courseDoc as any).teacher?.toString() !== teacher._id.toString()) {
+      throw new ForbiddenError('You can only view assignments for your own courses');
+    }
+    return;
+  }
+
+  if (role === 'parent') {
+    const parent = await Parent.findOne({ user: req.user!.userId }).select('children').lean();
+    const enrolled = parent?.children?.length
+      ? await Student.exists({ _id: { $in: parent.children }, enrolledCourses: courseId })
+      : null;
+    if (!enrolled) throw new ForbiddenError("You can only view assignments for your children's courses");
+    return;
+  }
+
+  // org_admin, staff acting as org_admin, and any other school role.
+  const courseDoc = await Course.findById(courseId).select('school').lean();
+  if (!req.user?.organizationId || !courseDoc || (courseDoc as any).school?.toString() !== req.user.organizationId) {
+    throw new ForbiddenError('You can only view assignments for courses in your organization');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // POST / — Create assignment (admin / org_admin / teacher)
 // ---------------------------------------------------------------------------
@@ -170,15 +216,7 @@ export const getById = async (req: Request, res: Response) => {
 
   if (!assignment) throw new NotFoundError('Assignment');
 
-  // Student check: scoped to enrolled courses
-  if (req.user?.role === 'student') {
-    const student = await ensureStudentRecord(req.user.userId);
-    const enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
-    const courseId = (assignment.course as any)?._id?.toString();
-    if (courseId && !enrolledIds.includes(courseId)) {
-      throw new ForbiddenError('You can only view assignments for your enrolled courses');
-    }
-  }
+  await assertCanViewAssignment(req, (assignment as any).course);
 
   const now = new Date();
   const start = (assignment as any).startDate ? new Date((assignment as any).startDate) : null;
@@ -379,6 +417,7 @@ export const update = async (req: Request, res: Response) => {
 export const updateStatus = async (req: Request, res: Response) => {
   const { status } = req.body;
   if (!status) throw new BadRequestError('Status required');
+  if (!['active', 'inactive'].includes(status)) throw new BadRequestError('Status must be "active" or "inactive"');
   await assertCanManageAssignment(req, req.params.id);
   const item = await Assignment.findByIdAndUpdate(req.params.id, { status }, { new: true }).lean();
   if (!item) throw new NotFoundError('Assignment');
@@ -432,31 +471,7 @@ export const viewMaterial = async (req: Request, res: Response) => {
   const assignment = await Assignment.findById(assignmentId).select('attachments course').lean();
   if (!assignment) throw new NotFoundError('Assignment');
 
-  if (req.user?.role === 'student') {
-    const student = await ensureStudentRecord(req.user.userId);
-    const enrolledIds = (student.enrolledCourses || []).map((id: any) => id.toString());
-    if (!enrolledIds.includes((assignment as any).course.toString())) {
-      throw new ForbiddenError('You can only view materials for your enrolled courses');
-    }
-  } else if (req.user?.role === 'teacher') {
-    const teacher = await getOwnTeacherRecord(req);
-    const courseDoc = await Course.findById((assignment as any).course).select('teacher').lean();
-    if (!teacher || !courseDoc || (courseDoc as any).teacher?.toString() !== teacher._id.toString()) {
-      throw new ForbiddenError('You can only view materials for your own courses');
-    }
-  } else if (req.user?.role === 'parent') {
-    const parent = await Parent.findOne({ user: req.user.userId }).select('children').lean();
-    const enrolled = parent?.children?.length
-      ? await Student.exists({ _id: { $in: parent.children }, enrolledCourses: (assignment as any).course })
-      : null;
-    if (!enrolled) throw new ForbiddenError("You can only view materials for your children's courses");
-  } else if (req.user?.role !== 'admin') {
-    // org_admin, staff acting as org_admin, and any other school role.
-    const courseDoc = await Course.findById((assignment as any).course).select('school').lean();
-    if (!req.user?.organizationId || !courseDoc || (courseDoc as any).school?.toString() !== req.user.organizationId) {
-      throw new ForbiddenError('You can only view materials for courses in your organization');
-    }
-  }
+  await assertCanViewAssignment(req, (assignment as any).course);
 
   const attachIndex = parseInt(req.params.id, 10);
   if (isNaN(attachIndex) || attachIndex < 0 || attachIndex >= (assignment.attachments?.length || 0)) {

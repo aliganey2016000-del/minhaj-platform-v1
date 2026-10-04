@@ -7,6 +7,7 @@ import Department from '../models/department.model';
 import Program from '../models/program.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { assertCourseInSchool, assertTeacherInSchool } from '../utils/tenant-refs';
 import { resolveInstitutionType, isHigherEdInstitutionType } from '../utils/academic-config';
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -85,6 +86,9 @@ export async function validateAcademicClass(req: Request, _res: Response, next: 
       throw new BadRequestError('Selected program does not belong to the selected department');
     }
   }
+
+  await assertTeacherInSchool(req.body?.teacher, schoolId);
+  await assertCourseInSchool(req.body?.course, schoolId);
 
   if (isSchool) {
     if (!req.body?.department) throw new BadRequestError('Department is required for schools');

@@ -19,5 +19,8 @@ RUN npm run build
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY security-headers.inc /etc/nginx/security-headers.inc
+COPY docker-entrypoint.d/40-tenant-proxy-secret.sh /docker-entrypoint.d/40-tenant-proxy-secret.sh
+RUN chmod +x /docker-entrypoint.d/40-tenant-proxy-secret.sh
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

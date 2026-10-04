@@ -1484,6 +1484,16 @@ export const getById = async (req: Request, res: Response): Promise<Response> =>
   return ApiResponse.success(res, exam);
 };
 
+// An exam may only point at an exam period of its own organization; a client
+// supplied `period` id from another school must be refused.
+async function assertPeriodInSchool(period: unknown, schoolId: unknown): Promise<void> {
+  if (period === undefined || period === null || period === '') return;
+  const id = String(period);
+  if (!/^[a-f0-9]{24}$/i.test(id)) throw new BadRequestError('Invalid exam period.');
+  const ok = schoolId ? await ExamPeriod.exists({ _id: id, school: schoolId as any }) : null;
+  if (!ok) throw new BadRequestError('The exam period does not belong to this organization.');
+}
+
 // POST /exams
 export const create = async (req: Request, res: Response): Promise<Response> => {
   const { course: courseId } = req.body;
@@ -1493,6 +1503,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (!course) throw new NotFoundError('Course');
   assertOwnsOrg(req, course, 'school');
   await assertOwnsExamIfTeacher(req, { course });
+  await assertPeriodInSchool(req.body.period, course.school);
 
   await validateFixedExamSchedule({
     schoolId: String(course.school || ''),
@@ -1548,6 +1559,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   delete updates.course;
   delete updates.school;
   delete updates.createdBy;
+  await assertPeriodInSchool(updates.period, existing.school || (existing.course as any)?.school);
 
   const existingCourse = existing.course as any;
   const nextAutoSchedule = updates.autoSchedule ?? existing.autoSchedule;

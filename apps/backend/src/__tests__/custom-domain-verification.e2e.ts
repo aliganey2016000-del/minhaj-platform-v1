@@ -3,7 +3,7 @@ import dnsPromises from 'dns/promises';
 import express from 'express';
 import mongoose from 'mongoose';
 import request from 'supertest';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { startTestDb } from './support/test-db';
 import School from '../models/school.model';
 import WebsiteConfig from '../models/website-config.model';
 import { tenantMiddleware } from '../middleware/tenant.middleware';
@@ -34,9 +34,8 @@ async function main() {
   delete process.env.TENANT_PROXY_SECRET;
   process.env.BASE_DOMAIN = 'sahaledu.com';
 
-  const mongo = await MongoMemoryServer.create();
+  const db = await startTestDb('custom-domain-verification');
   try {
-    await mongoose.connect(mongo.getUri());
 
     const base = { status: 'active', institutionType: 'school', branding: {} };
     const legacyId = new mongoose.Types.ObjectId();
@@ -65,6 +64,7 @@ async function main() {
     // 3. Unverified custom domain => sitemap/robots/portal use managed host.
     await WebsiteConfig.create({
       school: orgId,
+      updatedBy: new mongoose.Types.ObjectId(),
       isPublished: true,
       published: normalizeSite(buildDefaultSite({ name: 'Org', slug: 'org' } as any), { name: 'Org', slug: 'org' } as any),
       draft: buildDefaultSite({ name: 'Org', slug: 'org' } as any),
@@ -130,8 +130,7 @@ async function main() {
 
     console.log('PASS: custom domain verification, canonical sitemap host and tenant header trust');
   } finally {
-    await mongoose.disconnect();
-    await mongo.stop();
+    await db.stop();
   }
 }
 

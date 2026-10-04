@@ -65,12 +65,14 @@ router.post('/', adminOrTeacher, attendanceCourseScope, asyncHandler(attendanceP
 router.patch('/school/unlock', roleMiddleware(['admin', 'org_admin']), attendanceCourseScope, asyncHandler(attendanceProController.unlockSchoolSession));
 router.patch('/unlock', roleMiddleware(['admin']), attendanceCourseScope, asyncHandler(attendanceController.unlockSession));
 
-// Generic attendance reads now share the same tenant/course guard. The report
+// Course-wide attendance reads (every student's record) are staff-only: a
+// student or parent of the same school must not see their classmates'
+// attendance. They also share the same tenant/course guard. The report
 // implementation keeps Excused separate from Absent and treats Late as
 // attendance rather than arbitrary half-credit.
-router.get('/course', attendanceCourseScope, asyncHandler(attendanceController.getByCourseAndDate));
-router.get('/report', attendanceCourseScope, asyncHandler(attendanceReportController.getCourseReport));
-router.get('/insights', attendanceCourseScope, asyncHandler(attendanceController.getReportInsights));
+router.get('/course', adminOrTeacher, attendanceCourseScope, asyncHandler(attendanceController.getByCourseAndDate));
+router.get('/report', adminOrTeacher, attendanceCourseScope, asyncHandler(attendanceReportController.getCourseReport));
+router.get('/insights', adminOrTeacher, attendanceCourseScope, asyncHandler(attendanceController.getReportInsights));
 router.get('/history', attendanceCourseScope, attendanceStudentScope, asyncHandler(attendanceController.getStudentCourseHistory));
 router.get('/student/:studentId', attendanceStudentScope, asyncHandler(attendanceSummaryController.getStudentSummary));
 

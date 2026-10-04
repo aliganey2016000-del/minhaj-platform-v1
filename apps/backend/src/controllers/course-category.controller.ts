@@ -3,6 +3,7 @@
  * Per-organization CRUD for course categories, managed inline from the
  * Add/Edit Course form (see courses-manage.tsx).
  */
+import { escapeRegex } from '../utils/escape-regex';
 import { Request, Response } from 'express';
 import CourseCategory from '../models/course-category.model';
 import Course from '../models/course.model';
@@ -54,7 +55,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   if (!schoolId) throw new BadRequestError('Organization is required');
 
   const trimmedName = String(name).trim();
-  const existing = await CourseCategory.findOne({ school: schoolId, name: new RegExp(`^${trimmedName}$`, 'i') });
+  const existing = await CourseCategory.findOne({ school: schoolId, name: new RegExp(`^${escapeRegex(trimmedName)}$`, 'i') });
   if (existing) throw new ConflictError('A category with this name already exists in this organization');
 
   const slug = await uniqueSlug(slugify(trimmedName), schoolId);
@@ -81,7 +82,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const conflicting = await CourseCategory.findOne({
     school: category.school,
     _id: { $ne: category._id },
-    name: new RegExp(`^${trimmedName}$`, 'i'),
+    name: new RegExp(`^${escapeRegex(trimmedName)}$`, 'i'),
   });
   if (conflicting) throw new ConflictError('A category with this name already exists in this organization');
 

@@ -6,9 +6,12 @@
  */
 
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import Student from '../models/student.model';
+import { resolveViewableOrgId } from '../utils/tenant-scope';
 import Gamification, { ALL_BADGES, xpForLevel, totalXpForLevel } from '../models/gamification.model';
 import ApiResponse from '../utils/api-response';
-import { NotFoundError } from '../utils/api-error';
+import { BadRequestError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
 import { notifyUser } from '../utils/notify';
 
@@ -427,7 +430,20 @@ export const completeQuiz = async (req: Request, res: Response): Promise<Respons
 export const getLeaderboard = async (req: Request, res: Response): Promise<Response> => {
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
 
-  const leaderboard = await Gamification.find()
+  // The leaderboard ranks students of the caller's own organization only.
+  // It used to rank every student on the platform, so any signed-in user
+  // could read other schools' student names, ids, photos and progress. Only
+  // the platform admin (no organization of their own) may widen it, and may
+  // narrow it with ?school=.
+  const schoolId = resolveViewableOrgId(req, req.query.school);
+  if (req.user?.role !== 'admin' && !schoolId) return ApiResponse.success(res, []);
+  const filter: Record<string, unknown> = {};
+  if (schoolId) {
+    if (!mongoose.isValidObjectId(schoolId)) throw new BadRequestError('Invalid organization.');
+    filter.student = { $in: await Student.find({ school: schoolId }).distinct('_id') };
+  }
+
+  const leaderboard = await Gamification.find(filter)
     .sort({ xp: -1 })
     .limit(limit)
     .populate('student', 'studentId')

@@ -14,6 +14,7 @@ import Student from '../models/student.model';
 import School from '../models/school.model';
 import Teacher from '../models/teacher.model';
 import Parent from '../models/parent.model';
+import { homeSchoolId } from '../utils/home-school';
 import { requestTenantSchool } from '../utils/request-tenant';
 import ClassModel from '../models/class.model';
 import { generateTokenPair, verifyRefreshToken } from '../utils/jwt';
@@ -97,21 +98,6 @@ async function resolveEffectiveOrganization(user: any): Promise<OrganizationPayl
   }
 
   return {};
-}
-
-/** The school an account belongs to, whatever its approval state. */
-async function homeSchoolId(user: any): Promise<string | undefined> {
-  if (user.role === 'student') {
-    const student = await Student.findOne({ user: user._id }).select('school').lean();
-    if (student?.school) return student.school.toString();
-  }
-  if (user.organizationId) return (user.organizationId._id ?? user.organizationId).toString();
-  if (user.role === 'teacher' || user.role === 'parent') {
-    const Model: any = user.role === 'teacher' ? Teacher : Parent;
-    const record = await Model.findOne({ user: user._id }).select('school').lean();
-    if (record?.school) return record.school.toString();
-  }
-  return undefined;
 }
 
 /**
@@ -636,36 +622,26 @@ export const updatePreferences = async (req: Request, res: Response): Promise<Re
 
 export const forgotPassword = async (req: Request, res: Response): Promise<Response> => {
   const { email } = req.body;
+  const genericMessage = 'If an account with that email exists, a password reset link has been sent.';
 
-  const user = await User.findOne({ email: email.toLowerCase() });
-  if (!user) {
-    // Return success even if user not found (prevent email enumeration)
-    return ApiResponse.success(
-      res,
-      null,
-      'If an account with that email exists, a password reset link has been sent.'
-    );
-  }
+  // The reply must not depend on whether the account exists, including its
+  // timing: a found account used to cost a database write and an email send
+  // before replying, a missing one returned at once. The work now runs after
+  // the response has been decided, identically for both cases.
+  void (async () => {
+    const user = await User.findOne({ email: String(email).toLowerCase() });
+    if (!user) return;
 
-  // Generate reset token
-  const resetToken = crypto.randomBytes(32).toString('hex');
-  user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-  user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save({ validateBeforeSave: false });
 
-  await user.save({ validateBeforeSave: false });
-
-  try {
     const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
     await sendPasswordResetEmail(user.email, (profile?.firstName as string) || '', resetToken);
-  } catch (error) {
-    console.error('Failed to send password reset email:', error);
-  }
+  })().catch((error) => console.error('Failed to process password reset request:', error));
 
-  return ApiResponse.success(
-    res,
-    null,
-    'If an account with that email exists, a password reset link has been sent.'
-  );
+  return ApiResponse.success(res, null, genericMessage);
 };
 
 // ---------------------------------------------------------------------------

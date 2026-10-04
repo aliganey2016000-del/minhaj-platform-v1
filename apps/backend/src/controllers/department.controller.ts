@@ -100,7 +100,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     resolvedFacultyId = undefined;
   }
 
-  const existing = await Department.findOne({ tenantId, name: new RegExp(`^${String(name).trim()}$`, 'i') });
+  const existing = await Department.findOne({ tenantId, name: new RegExp(`^${escapeRegex(String(name).trim())}$`, 'i') });
   if (existing) throw new ConflictError('A department with this name already exists in this organization');
 
   const department = await Department.create({
@@ -137,7 +137,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   }
 
   if (name) {
-    const conflicting = await Department.findOne({ tenantId: department.tenantId, _id: { $ne: department._id }, name: new RegExp(`^${String(name).trim()}$`, 'i') });
+    const conflicting = await Department.findOne({ tenantId: department.tenantId, _id: { $ne: department._id }, name: new RegExp(`^${escapeRegex(String(name).trim())}$`, 'i') });
     if (conflicting) throw new ConflictError('A department with this name already exists in this organization');
     department.name = String(name).trim();
   }

@@ -12,6 +12,14 @@ import School, { resolveInstitutionType } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 
+/** Only the fields the browser needs; internal storage keys never leave the API. */
+function publicBranding(branding?: { logo?: string; themeColor?: string } | null) {
+  return {
+    ...(branding?.logo ? { logo: branding.logo } : {}),
+    ...(branding?.themeColor ? { themeColor: branding.themeColor } : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/v1/tenant/:slug/branding — Public branding by slug
 // ---------------------------------------------------------------------------
@@ -42,7 +50,7 @@ export const getBrandingBySlug = async (req: Request, res: Response): Promise<Re
     institutionType: resolveInstitutionType(school),
     // @deprecated kept for API back-compat — use institutionType
     organizationType: school.organizationType,
-    branding: school.branding || {},
+    branding: publicBranding(school.branding),
     portalUrl: portalUrlForSchool(school),
   });
 };
@@ -67,6 +75,7 @@ export const getCurrentBranding = async (req: Request, res: Response): Promise<R
   return ApiResponse.success(res, {
     isMainSite: false,
     ...req.tenant,
+    branding: publicBranding(req.tenant.branding),
     portalUrl: portalUrlForSchool(req.tenant),
   });
 };

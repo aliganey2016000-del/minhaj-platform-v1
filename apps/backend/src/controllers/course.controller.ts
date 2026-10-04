@@ -4,6 +4,7 @@
  * CRUD operations, enrollment, listing.
  */
 
+import { assertClassInSchool, assertTeacherInSchool } from '../utils/tenant-refs';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
@@ -236,6 +237,8 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   }
 
   const resolvedSchool = resolveOrgIdForCreate(req, school) || null;
+  await assertTeacherInSchool(teacher, resolvedSchool);
+  await assertClassInSchool(classId, resolvedSchool);
   if (category && resolvedSchool) {
     const categoryExists = await CourseCategory.exists({ school: resolvedSchool, slug: String(category).toLowerCase() });
     if (!categoryExists) throw new BadRequestError(`Category "${category}" does not exist for this organization`);
@@ -353,6 +356,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (updates.title && (updates.title as any).en) {
     updates.slug = slugify((updates.title as any).en);
   }
+
+  const schoolForRefs = updates.school || existing.school;
+  await assertTeacherInSchool(updates.teacher, schoolForRefs);
+  await assertClassInSchool(updates.class, schoolForRefs);
 
   if (updates.category) {
     const schoolForCategory = updates.school || existing.school;
@@ -504,6 +511,35 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
 };
 
 // ---------------------------------------------------------------------------
+// Seat accounting. The capacity check and the counter change must be ONE
+// atomic update: reading `enrolledStudents`, comparing and saving the
+// document let two simultaneous enrolments both take the last seat and lose
+// each other's increment, so a full course kept accepting students and the
+// counter drifted from the real roster.
+// ---------------------------------------------------------------------------
+
+async function claimCourseSeat(course: { _id: unknown; maxStudents?: number | null }): Promise<void> {
+  // The limit is compared inside the update's own filter, so check and
+  // increment are one atomic step. (maxStudents is read once above; it is a
+  // setting, not a counter, so that read cannot go stale in a harmful way.)
+  const limit = typeof course.maxStudents === 'number' ? course.maxStudents : Number.MAX_SAFE_INTEGER;
+  const claimed = await Course.findOneAndUpdate(
+    {
+      _id: course._id,
+      status: 'published',
+      $or: [{ enrolledStudents: { $lt: limit } }, { enrolledStudents: { $exists: false } }],
+    },
+    { $inc: { enrolledStudents: 1 } },
+    { new: true },
+  ).select('_id');
+  if (!claimed) throw new BadRequestError('Course has reached maximum capacity');
+}
+
+async function releaseCourseSeat(courseId: unknown): Promise<void> {
+  await Course.updateOne({ _id: courseId, enrolledStudents: { $gt: 0 } }, { $inc: { enrolledStudents: -1 } });
+}
+
+// ---------------------------------------------------------------------------
 // Enroll Student in Course
 // ---------------------------------------------------------------------------
 
@@ -530,10 +566,14 @@ export const enrollStudent = async (req: Request, res: Response): Promise<Respon
   }
 
   // Enroll
+  await claimCourseSeat(course);
   student.enrolledCourses.push(course._id);
-  course.enrolledStudents += 1;
-
-  await Promise.all([student.save(), course.save()]);
+  try {
+    await student.save();
+  } catch (error) {
+    await releaseCourseSeat(course._id);
+    throw error;
+  }
 
   return ApiResponse.success(res, null, 'Student enrolled successfully');
 };
@@ -559,9 +599,8 @@ export const unenrollStudent = async (req: Request, res: Response): Promise<Resp
   student.enrolledCourses = student.enrolledCourses.filter(
     (id) => id.toString() !== courseId
   );
-  course.enrolledStudents = Math.max(0, course.enrolledStudents - 1);
-
-  await Promise.all([student.save(), course.save()]);
+  await student.save();
+  await releaseCourseSeat(course._id);
 
   return ApiResponse.success(res, null, 'Student unenrolled successfully');
 };
@@ -627,9 +666,14 @@ export const selfEnroll = async (req: Request, res: Response): Promise<Response>
     throw new ForbiddenError('This course is not available to your organization or class.');
   }
 
+  await claimCourseSeat(course);
   student.enrolledCourses.push(course._id);
-  course.enrolledStudents += 1;
-  await Promise.all([student.save(), course.save()]);
+  try {
+    await student.save();
+  } catch (error) {
+    await releaseCourseSeat(course._id);
+    throw error;
+  }
   return ApiResponse.success(res, { enrolled: true }, 'Successfully enrolled in course');
 };
 
@@ -646,8 +690,8 @@ export const selfUnenroll = async (req: Request, res: Response): Promise<Respons
   if (!student.enrolledCourses.some((id: any) => id.toString() === req.params.id)) throw new BadRequestError('You are not enrolled in this course');
 
   student.enrolledCourses = student.enrolledCourses.filter((id: any) => id.toString() !== req.params.id);
-  course.enrolledStudents = Math.max(0, course.enrolledStudents - 1);
-  await Promise.all([student.save(), course.save()]);
+  await student.save();
+  await releaseCourseSeat(course._id);
   return ApiResponse.success(res, { enrolled: false }, 'Successfully unenrolled from course');
 };
 
