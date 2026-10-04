@@ -263,9 +263,18 @@ export const securityLogging = (
   res: Response,
   next: NextFunction
 ): void => {
-  // Log requests with suspicious patterns
+  // Log requests with suspicious patterns. Skip inspecting the body when
+  // it's absent or large — JSON.stringify-ing req.body on every request
+  // (including big file-upload-adjacent payloads) is a needless hot-path
+  // cost, so only small, present bodies are stringified.
   const suspiciousPatterns = ['<script', 'drop table', 'union select', '--', '/*'];
-  const checkString = `${req.url}${JSON.stringify(req.body)}`.toLowerCase();
+  const contentLength = Number(req.headers['content-length']);
+  const hasSmallBody =
+    req.body &&
+    typeof req.body === 'object' &&
+    Object.keys(req.body).length > 0 &&
+    !(contentLength > 65536);
+  const checkString = `${req.url}${hasSmallBody ? JSON.stringify(req.body) : ''}`.toLowerCase();
 
   if (suspiciousPatterns.some((pattern) => checkString.includes(pattern))) {
     console.warn(`[SECURITY] Suspicious request detected from ${req.ip}:`, {
