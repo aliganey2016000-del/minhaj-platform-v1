@@ -65,12 +65,12 @@ async function main() {
   const teacherUser = await User.create({ email: 'teacher@test.local', password: 'Password123!', role: 'teacher' });
   const teacherProfile = await Profile.create({ user: teacherUser._id, firstName: 'Liban', lastName: 'Hassan', gender: 'male' });
   const teacher = await Teacher.create({ user: teacherUser._id, profile: teacherProfile._id, school: school._id });
-  const teacherToken = tokenFor(teacherUser._id.toString(), 'teacher');
+  const teacherToken = tokenFor(teacherUser._id.toString(), 'teacher', school._id.toString());
 
   const otherTeacherUser = await User.create({ email: 'other-teacher@test.local', password: 'Password123!', role: 'teacher' });
   const otherTeacherProfile = await Profile.create({ user: otherTeacherUser._id, firstName: 'Amina', lastName: 'Yusuf', gender: 'female' });
   await Teacher.create({ user: otherTeacherUser._id, profile: otherTeacherProfile._id, school: school._id });
-  const otherTeacherToken = tokenFor(otherTeacherUser._id.toString(), 'teacher');
+  const otherTeacherToken = tokenFor(otherTeacherUser._id.toString(), 'teacher', school._id.toString());
 
   const orgAdminUser = await User.create({ email: 'orgadmin@test.local', password: 'Password123!', role: 'org_admin', organizationId: school._id });
   const orgAdminToken = tokenFor(orgAdminUser._id.toString(), 'org_admin', school._id.toString());
