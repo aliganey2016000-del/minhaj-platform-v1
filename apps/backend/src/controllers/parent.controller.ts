@@ -20,6 +20,7 @@ import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
 import { nextFormattedId } from '../utils/id-sequence';
+import PushSubscription from '../models/push-subscription.model';
 
 /**
  * PRN-<year>-<0000> — atomically reserved (utils/id-sequence.ts) instead of
@@ -329,6 +330,7 @@ async function deleteParentToTrash(parentId: string, req: Request): Promise<void
 
   await Promise.all([
     User.findByIdAndDelete(parent.user),
+    PushSubscription.deleteMany({ user: parent.user }),
     Profile.findByIdAndDelete(parent.profile),
     Parent.findByIdAndDelete(parent._id),
   ]);
@@ -440,6 +442,7 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
         ? Student.updateMany({ _id: { $in: childrenIds } }, { $unset: { parent: '' } })
         : Promise.resolve(null),
       userIds.length > 0 ? User.deleteMany({ _id: { $in: userIds } }) : Promise.resolve(null),
+      userIds.length > 0 ? PushSubscription.deleteMany({ user: { $in: userIds } }) : Promise.resolve(null),
       profileIds.length > 0 ? Profile.deleteMany({ _id: { $in: profileIds } }) : Promise.resolve(null),
       Parent.deleteMany({ _id: { $in: allowed.map((p) => p._id) } }),
     ]);

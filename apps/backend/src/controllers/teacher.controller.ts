@@ -23,6 +23,7 @@ import { persistStudentPhoto } from './student-documents.controller';
 import TeacherDocument from '../models/teacher-document.model';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
+import PushSubscription from '../models/push-subscription.model';
 import { nextFormattedId } from '../utils/id-sequence';
 
 /**
@@ -317,6 +318,7 @@ async function deleteTeacherToTrash(teacherId: string, req: Request): Promise<vo
 
   await Promise.all([
     User.findByIdAndDelete(teacher.user),
+    PushSubscription.deleteMany({ user: teacher.user }),
     Profile.findByIdAndDelete(teacher.profile),
     Teacher.findByIdAndDelete(teacher._id),
   ]);
@@ -448,6 +450,7 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
 
     await Promise.all([
       userIds.length > 0 ? User.deleteMany({ _id: { $in: userIds } }) : Promise.resolve(null),
+      userIds.length > 0 ? PushSubscription.deleteMany({ user: { $in: userIds } }) : Promise.resolve(null),
       profileIds.length > 0 ? Profile.deleteMany({ _id: { $in: profileIds } }) : Promise.resolve(null),
       Teacher.deleteMany({ _id: { $in: allowed.map((t) => t._id) } }),
     ]);
