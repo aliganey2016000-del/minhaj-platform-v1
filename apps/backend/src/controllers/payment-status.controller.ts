@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import Payment from '../models/payment.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
-import { applyInvoicePayment, reverseInvoicePayment, recalcStudentBalance } from '../services/billing.service';
+import { applyInvoicePayment, recalcStudentBalance } from '../services/billing.service';
 import { assertOwnsOrg } from '../utils/tenant-scope';
 
 /**
@@ -27,19 +27,39 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
   const effectiveAmount = Math.max(0, existing.amount - (existing.discount || 0));
   if (effectiveAmount <= 0) throw new BadRequestError('Pending payment has no positive collectible amount');
 
-  const invoice = await applyInvoicePayment(existing.invoice, existing.amount, existing.discount || 0);
+  // Claim the pending -> completed transition atomically before touching the
+  // invoice. The check above (existing.status === 'completed') is a plain
+  // findById read with no lock: two concurrent "mark completed" requests for
+  // the same payment can both read status 'pending', both pass that check,
+  // and both then call applyInvoicePayment — which guards against the
+  // INVOICE'S remaining balance going negative, but has no idea this is the
+  // same payment being applied twice, so if the invoice has enough headroom
+  // (e.g. a larger invoice than this one payment) both calls succeed and the
+  // invoice is credited twice for money that was only ever received once.
+  // The later existing.save() doesn't catch this either — Mongoose has no
+  // optimistic concurrency enabled here, so both saves just overwrite status
+  // to 'completed' with no conflict. Claiming the transition with a single
+  // atomic findOneAndUpdate guarded on status:'pending' means only one of
+  // two concurrent callers can ever win it.
+  const claimed = await Payment.findOneAndUpdate(
+    { _id: existing._id, status: 'pending' },
+    { $set: { status: 'completed' } }
+  );
+  if (!claimed) {
+    const fresh = await Payment.findById(existing._id).select('status').lean();
+    if ((fresh as any)?.status === 'completed') return ApiResponse.success(res, fresh, 'Payment is already completed');
+    throw new BadRequestError('This payment is no longer pending and cannot be completed');
+  }
 
+  let invoice;
   try {
-    existing.status = 'completed';
-    await existing.save();
+    invoice = await applyInvoicePayment(claimed.invoice!, claimed.amount, claimed.discount || 0);
   } catch (err) {
-    await reverseInvoicePayment(existing.invoice, effectiveAmount).catch(() => {});
-    if ((existing.discount || 0) > 0) {
-      await (await import('../models/invoice.model')).default.findByIdAndUpdate(existing.invoice, { $inc: { discount: -(existing.discount || 0) } }).catch(() => {});
-    }
+    await Payment.findByIdAndUpdate(claimed._id, { $set: { status: 'pending' } }).catch(() => {});
     throw err;
   }
 
-  await recalcStudentBalance(existing.student);
-  return ApiResponse.success(res, { payment: existing, invoice }, 'Payment completed successfully');
+  await recalcStudentBalance(claimed.student);
+  const completed = await Payment.findById(claimed._id);
+  return ApiResponse.success(res, { payment: completed, invoice }, 'Payment completed successfully');
 };

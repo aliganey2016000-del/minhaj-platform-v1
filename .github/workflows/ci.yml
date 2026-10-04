@@ -166,6 +166,9 @@ jobs:
       - name: Password-reset token race regression (concurrent reset-password completions)
         run: npm run test:password-reset-race
 
+      - name: Finance payment-status race and upload-cleanup regression
+        run: npx ts-node src/__tests__/finance-upload-round4.e2e.ts
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
