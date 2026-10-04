@@ -153,6 +153,20 @@ export const bulkMark = async (req: Request, res: Response): Promise<Response> =
   // so without this the "who changed what, and from what" history is lost
   // the moment the next save overwrites it.
   const studentIds = records.map((r) => r.student);
+
+  // Every student being marked must actually be enrolled in this exam's
+  // course — otherwise an invigilator request (or a forged one) could
+  // write attendance rows for students who have nothing to do with this
+  // exam, affecting their eligibility/records elsewhere.
+  const uniqueStudentIds = [...new Set(studentIds.map(String))];
+  const enrolledCount = await Student.countDocuments({
+    _id: { $in: uniqueStudentIds },
+    enrolledCourses: exam.course,
+  });
+  if (enrolledCount !== uniqueStudentIds.length) {
+    throw new BadRequestError('One or more students are not enrolled in this exam\'s course.');
+  }
+
   const existingDocs = await ExamAttendance.find({ exam: exam._id, student: { $in: studentIds } })
     .select('student status notes')
     .lean();
