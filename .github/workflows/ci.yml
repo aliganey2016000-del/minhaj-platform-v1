@@ -148,6 +148,9 @@ jobs:
       - name: Admin and teacher performance regression
         run: npx ts-node src/__tests__/staff-performance.e2e.ts
 
+      - name: Dependency supply-chain regression (exceljs/uuid override)
+        run: npx ts-node src/__tests__/dependency-supply-chain.e2e.ts
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
