@@ -45,34 +45,44 @@ async function main() {
     } = await import('../utils/login-lockout');
     const { isTrustedProxyRequest, requestHostname } = await import('../utils/request-tenant');
 
+    // requestHostname() is written against Express's Request and calls
+    // req.get(name) (a case-insensitive header getter), not req.headers[...]
+    // directly — a plain { headers } object doesn't have that method. This
+    // mock adds it so the unit-level calls below exercise the real function.
+    function mockReq(headers: Record<string, string>): any {
+      const lower: Record<string, string> = {};
+      for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = v;
+      return { headers: lower, get: (name: string) => lower[name.toLowerCase()] };
+    }
+
     // -----------------------------------------------------------------
     section('Item 1: TENANT_PROXY_KEY trusted-proxy gate');
     // -----------------------------------------------------------------
     {
       // With TENANT_PROXY_KEY unset, legacy behaviour is kept: headers are
       // trusted from anyone (with a one-time startup warning).
-      const reqNoKey: any = { headers: { 'x-tenant-host': 'evil.example.com', host: 'api.sahaledu.com' } };
+      const reqNoKey = mockReq({ 'x-tenant-host': 'evil.example.com', host: 'api.sahaledu.com' });
       assert(
         requestHostname(reqNoKey) === 'evil.example.com',
         'TENANT_PROXY_KEY unset: X-Tenant-Host is still trusted (legacy behaviour)'
       );
 
       process.env.TENANT_PROXY_KEY = 'super-secret-proxy-key';
-      const reqNoProof: any = { headers: { 'x-tenant-host': 'evil.example.com', host: 'api.sahaledu.com' } };
+      const reqNoProof = mockReq({ 'x-tenant-host': 'evil.example.com', host: 'api.sahaledu.com' });
       assert(!isTrustedProxyRequest(reqNoProof), 'no X-Sahal-Proxy-Key header: request is not trusted');
       assert(
         requestHostname(reqNoProof) === 'api.sahaledu.com',
         'TENANT_PROXY_KEY set, no proxy key presented: X-Tenant-Host is ignored, falls back to Host'
       );
 
-      const reqWrongProof: any = {
-        headers: { 'x-tenant-host': 'evil.example.com', host: 'api.sahaledu.com', 'x-sahal-proxy-key': 'wrong-key' },
-      };
+      const reqWrongProof = mockReq(
+        { 'x-tenant-host': 'evil.example.com', host: 'api.sahaledu.com', 'x-sahal-proxy-key': 'wrong-key' },
+      );
       assert(!isTrustedProxyRequest(reqWrongProof), 'wrong X-Sahal-Proxy-Key: request is not trusted');
 
-      const reqRightProof: any = {
-        headers: { 'x-tenant-host': 'myschool.sahaledu.com', host: 'api.sahaledu.com', 'x-sahal-proxy-key': 'super-secret-proxy-key' },
-      };
+      const reqRightProof = mockReq(
+        { 'x-tenant-host': 'myschool.sahaledu.com', host: 'api.sahaledu.com', 'x-sahal-proxy-key': 'super-secret-proxy-key' },
+      );
       assert(isTrustedProxyRequest(reqRightProof), 'correct X-Sahal-Proxy-Key: request is trusted');
       assert(
         requestHostname(reqRightProof) === 'myschool.sahaledu.com',
@@ -118,7 +128,7 @@ async function main() {
     section('Item 2: login lockout is bound to (email, IP)');
     // -----------------------------------------------------------------
     {
-      const email = 'phase5-lockout@test.local';
+      const email = 'phase5-lockout@example.com';
       const ipA = '10.0.0.1';
       const ipB = '10.0.0.2';
 
@@ -140,7 +150,7 @@ async function main() {
     // way. This just confirms the plain (non-locked, non-rate-limited)
     // path still behaves as a normal 401 over HTTP.
     {
-      const user = await User.create({ email: 'p5-lockout-user@test.local', password: 'CorrectPass123!', role: 'admin' });
+      const user = await User.create({ email: 'p5-lockout-user@example.com', password: 'CorrectPass123!', role: 'admin' });
       const ipA = '203.0.113.10';
 
       let lastStatus = 0;
@@ -170,7 +180,7 @@ async function main() {
       const res = await request(app)
         .post('/api/v1/auth/login')
         .set('X-Forwarded-For', '198.51.100.5')
-        .send({ email: 'this-email-does-not-exist@test.local', password: 'whatever123' });
+        .send({ email: 'this-email-does-not-exist@example.com', password: 'whatever123' });
       assert(res.status === 401, `unknown email returns 401, not 404/500 (got ${res.status})`);
       assert(
         /invalid email or password/i.test(res.body?.message || ''),
@@ -182,7 +192,7 @@ async function main() {
     section('Item 3: refresh-token reuse is still detected');
     // -----------------------------------------------------------------
     {
-      const user = await User.create({ email: 'p5-refresh@test.local', password: 'Password123!', role: 'admin' });
+      const user = await User.create({ email: 'p5-refresh@example.com', password: 'Password123!', role: 'admin' });
 
       const loginRes = await request(app)
         .post('/api/v1/auth/login')
@@ -228,7 +238,7 @@ async function main() {
     // should not both succeed — exactly one rotates it, the other is
     // treated as reuse.
     {
-      const user = await User.create({ email: 'p5-refresh-race@test.local', password: 'Password123!', role: 'admin' });
+      const user = await User.create({ email: 'p5-refresh-race@example.com', password: 'Password123!', role: 'admin' });
       const loginRes = await request(app)
         .post('/api/v1/auth/login')
         .set('X-Forwarded-For', '192.0.2.60')
@@ -251,7 +261,7 @@ async function main() {
     section('Item 4: forgot-password / resend-verification are rate-limited');
     // -----------------------------------------------------------------
     {
-      const email = 'p5-forgot@test.local';
+      const email = 'p5-forgot@example.com';
       await User.create({ email, password: 'Password123!', role: 'admin' });
 
       let statuses: number[] = [];
@@ -264,7 +274,7 @@ async function main() {
         `forgot-password is rate-limited after 5 requests for one account (got ${statuses.join(',')})`
       );
 
-      const emailVerify = 'p5-resend@test.local';
+      const emailVerify = 'p5-resend@example.com';
       await User.create({ email: emailVerify, password: 'Password123!', role: 'admin', isVerified: false });
       statuses = [];
       for (let i = 0; i < 6; i += 1) {
@@ -277,7 +287,7 @@ async function main() {
       );
 
       // Same generic response body whether or not the account exists.
-      const unknownRes = await request(app).post('/api/v1/auth/forgot-password').send({ email: 'totally-unknown-xyz@test.local' });
+      const unknownRes = await request(app).post('/api/v1/auth/forgot-password').send({ email: 'totally-unknown-xyz@example.com' });
       assert(
         unknownRes.status === 200 && /if an account/i.test(unknownRes.body?.message || ''),
         `forgot-password on an unknown email still returns the generic success body (got ${unknownRes.status} ${unknownRes.body?.message})`

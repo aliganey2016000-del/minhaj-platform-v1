@@ -26,9 +26,24 @@ async function ensureSeeded(key: string, seed: () => Promise<number>): Promise<v
   const existing = await IdSequence.findOne({ key }).select('_id').lean();
   if (existing) return;
   const initial = await seed();
+  // A plain findOne-then-create race relies on the schema's unique index on
+  // `key` to reject a concurrent duplicate insert — but that index is built
+  // asynchronously after the model first connects, so a brand-new key's
+  // very first few concurrent callers (most likely right after a fresh
+  // deploy introduces this collection) could land before it exists and both
+  // "win" the create, producing two counter documents for one key. $setOnInsert
+  // via findOneAndUpdate is atomic per document at the storage-engine level
+  // regardless of any secondary index, so it can't double-create either way.
   try {
-    await IdSequence.create({ key, seq: initial });
+    await IdSequence.findOneAndUpdate(
+      { key },
+      { $setOnInsert: { key, seq: initial } },
+      { upsert: true },
+    );
   } catch (error: any) {
+    // A genuinely concurrent upsert losing a duplicate-key race (the index
+    // this relies on existing) is the expected, harmless outcome here —
+    // whoever won already seeded the counter, which is all this call needed.
     if (error?.code !== 11000) throw error;
   }
 }

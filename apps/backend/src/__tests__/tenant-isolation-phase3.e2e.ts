@@ -90,7 +90,12 @@ async function main() {
     const orgAdminB = await User.create({ email: 'p3-orgadmin-b@example.com', password: 'Password123!', role: 'org_admin', organizationId: schoolB._id });
     const staffA = await User.create({
       email: 'p3-staff-a@example.com', password: 'Password123!', role: 'staff', organizationId: schoolA._id,
-      permissions: ['system.read', 'system.edit', 'organization.create', 'academic.read', 'courses.read'],
+      permissions: [
+        { module: 'system', actions: ['read', 'edit'] },
+        { module: 'organization', actions: ['create'] },
+        { module: 'academic', actions: ['read'] },
+        { module: 'courses', actions: ['read'] },
+      ],
     });
 
     const teacherUserA = await User.create({ email: 'p3-teacher-a@example.com', password: 'Password123!', role: 'teacher', organizationId: schoolA._id });
@@ -126,7 +131,7 @@ async function main() {
     // Flat module.action strings, exactly what requirePermission checks
     // against — distinct from the {module, actions} shape stored on the
     // User document, which generateAccessToken does not read.
-    const staffAToken = token(staffA, { permissions: ['system.read', 'system.delete', 'organization.create'] });
+    const staffAToken = token(staffA, { permissions: ['system.read', 'system.edit', 'organization.create', 'academic.read', 'courses.read'] });
     const teacherAToken = token(teacherUserA);
     const teacherBToken = token(teacherUserB);
     const studentAToken = token(studentUserA);
@@ -229,11 +234,11 @@ async function main() {
     const otherParentProfile = await Profile.create({ user: otherParentUser._id, firstName: 'O', lastName: 'P', gender: 'female' });
     const otherParent = await Parent.create({ user: otherParentUser._id, profile: otherParentProfile._id, school: schoolA._id, children: [] });
     const otherStudent = await Student.create({ user: otherStudentUser._id, profile: otherStudentProfile._id, school: schoolA._id, parent: otherParent._id });
-    res = await request(app).put(`/api/v1/parents/${parentA._id}/unlink-child`).set(auth(orgAToken)).send({ childId: otherStudent._id.toString() });
+    res = await request(app).post(`/api/v1/parents/${parentA._id}/unlink-child`).set(auth(orgAToken)).send({ childId: otherStudent._id.toString() });
     assert(res.status === 400, `cannot unlink a student who is not this parent's child (got ${res.status})`);
     const otherStudentAfter: any = await Student.findById(otherStudent._id).lean();
     assert(String(otherStudentAfter.parent) === String(otherParent._id), "the unrelated student's own parent link was left untouched");
-    res = await request(app).put(`/api/v1/parents/${parentA._id}/unlink-child`).set(auth(orgAToken)).send({ childId: studentA._id.toString() });
+    res = await request(app).post(`/api/v1/parents/${parentA._id}/unlink-child`).set(auth(orgAToken)).send({ childId: studentA._id.toString() });
     assert(res.status === 200, `unlinking the parent's actual child still works (got ${res.status})`);
 
     section('Finding 11: notification create is scoped to the org_admin\'s own organization');

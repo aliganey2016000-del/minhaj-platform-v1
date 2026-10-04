@@ -94,13 +94,18 @@ async function main() {
     let res = await request(app).get('/api/v1/health');
     assert(res.status === 200 && res.body?.data?.database === 'connected', `healthy DB -> 200/connected (got ${res.status}/${res.body?.data?.database})`);
 
-    const originalReadyState = Object.getOwnPropertyDescriptor(mongoose.connection, 'readyState');
+    // readyState is a getter inherited from NativeConnection's prototype, not
+    // an own property, so Object.getOwnPropertyDescriptor finds nothing to
+    // restore from — deleting the own override we add below is what brings
+    // the prototype's getter back (confirmed: without this, readyState stays
+    // stuck at 0 for the rest of the process and later sections/teardown
+    // fail with "MongoDB connection is not ready").
     Object.defineProperty(mongoose.connection, 'readyState', { value: 0, configurable: true });
     try {
       res = await request(app).get('/api/v1/health');
       assert(res.status === 503 && res.body?.data?.database === 'disconnected', `disconnected DB -> 503/disconnected (got ${res.status}/${res.body?.data?.database})`);
     } finally {
-      if (originalReadyState) Object.defineProperty(mongoose.connection, 'readyState', originalReadyState);
+      delete (mongoose.connection as any).readyState;
     }
 
     section('1: repairStudentRegistrationIndex does not throw on duplicates (non-strict)');
@@ -119,7 +124,7 @@ async function main() {
 
     section('7: student-balance endpoints paginate in the DB');
     const classModel = (await import('../models/class.model')).default;
-    const cls = await classModel.create({ school: school._id, title: 'Grade 5', section: 'A', academicYear: '2025-2026', gradeLevel: 5 });
+    const cls = await classModel.create({ school: school._id, title: 'Grade 5', section: 'A', academicYear: '2025-2026', gradeLevel: 5, room: 'Room 5A' });
     for (let i = 0; i < 5; i += 1) {
       const sUser = await User.create({ email: `p5-student-${i}@test.local`, password: 'Password123!', role: 'student' });
       const profile = await Profile.create({ user: sUser._id, firstName: `Student${i}`, lastName: 'Balance', gender: 'male' });
