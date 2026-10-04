@@ -7,11 +7,83 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Keep CI attached to every main-branch push so dashboard changes get a fresh run.
+concurrency:
+  group: sahal-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  backend:
-    name: Backend build and tests
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect affected app(s)
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+
+          if [[ -z "${BASE:-}" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "Could not resolve a safe diff base; running both app suites."
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git diff --name-only "$BASE" "$HEAD" > /tmp/changed-files.txt
+          echo "Changed files:"
+          cat /tmp/changed-files.txt
+
+          backend=false
+          frontend=false
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              apps/backend/*)
+                backend=true
+                ;;
+              apps/frontend/*)
+                frontend=true
+                ;;
+              .github/workflows/*|package.json|package-lock.json|npm-shrinkwrap.json|tsconfig*.json|Dockerfile*|docker-compose*.yml|docker-compose*.yaml|scripts/*)
+                backend=true
+                frontend=true
+                ;;
+            esac
+          done < /tmp/changed-files.txt
+
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+
+  backend-quality:
+    name: Backend quality gate
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,6 +108,34 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Tenant sidebar and Staff/Admin access security regression
+        run: npx ts-node src/__tests__/tenant-sidebar-staff-access.e2e.ts
+
+      - name: Activity Logs org-admin tenant isolation regression
+        run: npx ts-node src/__tests__/activity-logs-tenant-scope.e2e.ts
+
+  backend-schedule-attendance:
+    name: Backend schedule, attendance and promotion
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Class Schedule & Timetable A-Z QA
         run: npm run test:schedule-qa
 
@@ -50,51 +150,6 @@ jobs:
 
       - name: Class-based attendance requires a schedule regression
         run: npx ts-node src/__tests__/class-based-attendance-requires-schedule.e2e.ts
-
-      - name: Forum newest-messages and course list limit regression
-        run: npx ts-node src/__tests__/forum-latest-messages-and-course-limits.e2e.ts
-
-      - name: Staff escalation, certificate scope and exam deadline security regression
-        run: npx ts-node src/__tests__/staff-escalation-certificates-exam-deadline.e2e.ts
-
-      - name: Tenant sidebar and Staff/Admin access security regression
-        run: npx ts-node src/__tests__/tenant-sidebar-staff-access.e2e.ts
-
-      - name: Tenant isolation phase 2 regression (staff, content, resources, login domain, pending students, catalog)
-        run: npx ts-node src/__tests__/tenant-isolation-phase2.e2e.ts
-
-      - name: Upload safety regression (file types, private documents, traversal, headers)
-        run: npx ts-node src/__tests__/upload-safety.e2e.ts
-
-      - name: Ops hardening regression (Telegram webhook, per-account rate limit, TTL, live token checks, deploy scripts)
-        run: npx ts-node src/__tests__/ops-hardening-phase4.e2e.ts
-
-      - name: Activity Logs org-admin tenant isolation regression
-        run: npx ts-node src/__tests__/activity-logs-tenant-scope.e2e.ts
-
-      - name: Tenant isolation phase 3 regression (settings admin-only, tenant-scoped logs, content/grading/schools/staff/notifications/attendance scoping)
-        run: npx ts-node src/__tests__/tenant-isolation-phase3.e2e.ts
-
-      - name: Security hardening phase 5 regression (trusted-proxy tenant host, login lockout, refresh rotation, jwt algorithm pinning)
-        run: npx ts-node src/__tests__/security-hardening-phase5.e2e.ts
-
-      - name: Exam and finance integrity regression (answer leaks, review gating, result validation, id sequences, billing)
-        run: npx ts-node src/__tests__/exam-finance-integrity.e2e.ts
-
-      - name: Reliability phase 5 regression (boot hardening, health check, TTL retention, balance pagination, host caching)
-        run: npx ts-node src/__tests__/reliability-phase5.e2e.ts
-
-      - name: List-query index coverage regression (teacher/class/fee-structure/content list+pagination endpoints)
-        run: npm run test:list-query-index-coverage
-
-      - name: XLSX export Content-Type header regression
-        run: npx ts-node src/__tests__/xlsx-export-content-type.e2e.ts
-
-      - name: Gradebook teacherVisible bypass regression (single-entry grade endpoint)
-        run: npx ts-node src/__tests__/gradebook-teacher-visible-bypass.e2e.ts
-
-      - name: Phase 6 regression (scheduler race-safety, auth-state/socket invalidation wiring)
-        run: npx ts-node src/__tests__/scheduler-socket-pwa-phase6.e2e.ts
 
       - name: Attendance notification duplicate-send race regression
         run: npx ts-node src/__tests__/attendance-notification-race.e2e.ts
@@ -111,6 +166,27 @@ jobs:
       - name: Teacher smart attendance workflow regressions
         run: npx ts-node --files src/__tests__/teacher-smart-attendance.e2e.ts
 
+  backend-promotion:
+    name: Backend promotion and student repair
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Promotion tests
         run: npm run test:promotion
@@ -121,41 +197,76 @@ jobs:
       - name: Corrupt student date repair tests
         run: npm run test:student-corrupt-dates
 
-      - name: Dashboard tenant aggregation tests
-        run: npm run test:dashboard-aggregations
+  backend-security-core:
+    name: Backend security core
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Staff escalation, certificate scope and exam deadline security regression
+        run: npx ts-node src/__tests__/staff-escalation-certificates-exam-deadline.e2e.ts
+
+      - name: Tenant isolation phase 2 regression (staff, content, resources, login domain, pending students, catalog)
+        run: npx ts-node src/__tests__/tenant-isolation-phase2.e2e.ts
+
+      - name: Upload safety regression (file types, private documents, traversal, headers)
+        run: npx ts-node src/__tests__/upload-safety.e2e.ts
+
+      - name: Ops hardening regression (Telegram webhook, per-account rate limit, TTL, live token checks, deploy scripts)
+        run: npx ts-node src/__tests__/ops-hardening-phase4.e2e.ts
+
+      - name: Tenant isolation phase 3 regression (settings admin-only, tenant-scoped logs, content/grading/schools/staff/notifications/attendance scoping)
+        run: npx ts-node src/__tests__/tenant-isolation-phase3.e2e.ts
+
+      - name: Security hardening phase 5 regression (trusted-proxy tenant host, login lockout, refresh rotation, jwt algorithm pinning)
+        run: npx ts-node src/__tests__/security-hardening-phase5.e2e.ts
 
       - name: Cloudflare client IP resolution tests
         run: npm run test:cloudflare-client-ip
 
-      - name: Manage list search/pagination tests
-        run: npm run test:list-search
-
-      - name: Manage list search/pagination tests (batch 2)
-        run: npm run test:list-search-2
-
-      - name: User search-by-name tests
-        run: npm run test:user-search
-
-      - name: Dashboard micro-cache tests
-        run: npm run test:dashboard-cache
-
-      - name: Teacher CRUD & import tests
-        run: npm run test:teacher-crud
-
-      - name: Gate report tests
-        run: npm run test:gate-report
-
-      - name: Financial core payment tests
-        run: npm run test:financial-core
-
-      - name: Payment/invoice date school-timezone boundary regression
-        run: npm run test:payment-date-timezone-boundary
-
-      - name: Installment-plan vs. discount mismatch regression
-        run: npm run test:installment-plan-discount-mismatch
-
       - name: Parent portal privacy and authorization tests
         run: npm run test:parent-portal
+
+      - name: Org-reassignment JWT revocation regression
+        run: npm run test:auth-org-reassignment
+
+  backend-tenant-integrity:
+    name: Backend tenant and auth integrity
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Tenant data integrity tests
         run: npm run test:tenant-data-integrity
@@ -171,6 +282,128 @@ jobs:
 
       - name: Push subscription orphan cleanup regression
         run: npm run test:push-subscription-cleanup
+
+      - name: Password-reset token race regression (concurrent reset-password completions)
+        run: npm run test:password-reset-race
+
+      - name: AI routes rate-limit coverage
+        run: npm run test:ai-rate-limit
+
+      - name: CSV export formula-injection regression
+        run: npm run test:csv-injection
+
+      - name: Email template HTML-injection regression (verification email)
+        run: npm run test:email-html-injection
+
+  backend-exam-finance:
+    name: Backend exam and finance
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Exam and finance integrity regression (answer leaks, review gating, result validation, id sequences, billing)
+        run: npx ts-node src/__tests__/exam-finance-integrity.e2e.ts
+
+      - name: XLSX export Content-Type header regression
+        run: npx ts-node src/__tests__/xlsx-export-content-type.e2e.ts
+
+      - name: Gradebook teacherVisible bypass regression (single-entry grade endpoint)
+        run: npx ts-node src/__tests__/gradebook-teacher-visible-bypass.e2e.ts
+
+      - name: Gate report tests
+        run: npm run test:gate-report
+
+      - name: Financial core payment tests
+        run: npm run test:financial-core
+
+      - name: Payment/invoice date school-timezone boundary regression
+        run: npm run test:payment-date-timezone-boundary
+
+      - name: Installment-plan vs. discount mismatch regression
+        run: npm run test:installment-plan-discount-mismatch
+
+      - name: Exam room capacity shrink regression (room edit/import vs seated students)
+        run: npm run test:exam-room-capacity-shrink
+
+      - name: Finance payment-status race and upload-cleanup regression
+        run: npx ts-node src/__tests__/finance-upload-round4.e2e.ts
+
+      - name: Exam seating-plan import capacity-advisory regression
+        run: npm run test:seating-plan-import-capacity
+
+      - name: Exam Seating smart-fix (capacity-advisory + duplicate-seat suggestion) regression
+        run: npm run test:seating-smart-fix
+
+      - name: Exam passing-marks-exceeds-total-marks regression
+        run: npm run test:exam-passing-marks-bound
+
+  backend-platform:
+    name: Backend platform and performance
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Forum newest-messages and course list limit regression
+        run: npx ts-node src/__tests__/forum-latest-messages-and-course-limits.e2e.ts
+
+      - name: Reliability phase 5 regression (boot hardening, health check, TTL retention, balance pagination, host caching)
+        run: npx ts-node src/__tests__/reliability-phase5.e2e.ts
+
+      - name: List-query index coverage regression (teacher/class/fee-structure/content list+pagination endpoints)
+        run: npm run test:list-query-index-coverage
+
+      - name: Phase 6 regression (scheduler race-safety, auth-state/socket invalidation wiring)
+        run: npx ts-node src/__tests__/scheduler-socket-pwa-phase6.e2e.ts
+
+      - name: Dashboard tenant aggregation tests
+        run: npm run test:dashboard-aggregations
+
+      - name: Manage list search/pagination tests
+        run: npm run test:list-search
+
+      - name: Manage list search/pagination tests (batch 2)
+        run: npm run test:list-search-2
+
+      - name: User search-by-name tests
+        run: npm run test:user-search
+
+      - name: Dashboard micro-cache tests
+        run: npm run test:dashboard-cache
+
+      - name: Teacher CRUD & import tests
+        run: npm run test:teacher-crud
 
       - name: Student activity time-tracking tests
         run: npm run test:activity-tracking
@@ -190,41 +423,60 @@ jobs:
       - name: Backup/restore regression (scripts/backup.ts packaging, encryption, and dump-dir resolution)
         run: npx ts-node src/__tests__/backup-restore.e2e.ts
 
-      - name: Exam room capacity shrink regression (room edit/import vs seated students)
-        run: npm run test:exam-room-capacity-shrink
-
-      - name: Password-reset token race regression (concurrent reset-password completions)
-        run: npm run test:password-reset-race
-
-      - name: Finance payment-status race and upload-cleanup regression
-        run: npx ts-node src/__tests__/finance-upload-round4.e2e.ts
-
-      - name: AI routes rate-limit coverage
-        run: npm run test:ai-rate-limit
-
       - name: Gamification integrity regression (quiz-attempt race, lesson-XP replay, XP-injection endpoint removal)
         run: npm run test:gamification-integrity
 
-      - name: CSV export formula-injection regression
-        run: npm run test:csv-injection
+  backend:
+    name: Backend build and tests
+    needs:
+      - changes
+      - backend-quality
+      - backend-schedule-attendance
+      - backend-promotion
+      - backend-security-core
+      - backend-tenant-integrity
+      - backend-exam-finance
+      - backend-platform
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify backend CI result
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SHOULD_RUN: ${{ needs.changes.outputs.backend }}
+          QUALITY: ${{ needs.backend-quality.result }}
+          SCHEDULE_ATTENDANCE: ${{ needs.backend-schedule-attendance.result }}
+          PROMOTION: ${{ needs.backend-promotion.result }}
+          SECURITY_CORE: ${{ needs.backend-security-core.result }}
+          TENANT_INTEGRITY: ${{ needs.backend-tenant-integrity.result }}
+          EXAM_FINANCE: ${{ needs.backend-exam-finance.result }}
+          PLATFORM: ${{ needs.backend-platform.result }}
+        run: |
+          set -euo pipefail
 
-      - name: Email template HTML-injection regression (verification email)
-        run: npm run test:email-html-injection
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "Changed-area detection failed."
+            exit 1
+          fi
 
-      - name: Exam seating-plan import capacity-advisory regression
-        run: npm run test:seating-plan-import-capacity
+          if [[ "$SHOULD_RUN" != "true" ]]; then
+            echo "No backend-impacting files changed; backend suite intentionally skipped."
+            exit 0
+          fi
 
-      - name: Exam Seating smart-fix (capacity-advisory + duplicate-seat suggestion) regression
-        run: npm run test:seating-smart-fix
+          for result in "$QUALITY" "$SCHEDULE_ATTENDANCE" "$PROMOTION" "$SECURITY_CORE" "$TENANT_INTEGRITY" "$EXAM_FINANCE" "$PLATFORM"; do
+            if [[ "$result" != "success" ]]; then
+              echo "One or more backend CI shards failed, were cancelled, or were skipped unexpectedly."
+              exit 1
+            fi
+          done
 
-      - name: Org-reassignment JWT revocation regression
-        run: npm run test:auth-org-reassignment
+          echo "All backend CI shards passed."
 
-      - name: Exam passing-marks-exceeds-total-marks regression
-        run: npm run test:exam-passing-marks-bound
-
-  frontend:
-    name: Frontend build and lint
+  frontend-checks:
+    name: Frontend checks
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -240,12 +492,9 @@ jobs:
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
 
-      # npm 11.14+ has a regression that can reject valid lockfiles during npm ci.
-      # Pin the known-good npm 11.13.0 client until that regression is resolved.
       - name: Use known-good npm
         run: npx --yes npm@11.13.0 --version
 
-      # Keep frontend installation deterministic from package-lock.json.
       - name: Install dependencies
         run: npx --yes npm@11.13.0 ci
 
@@ -257,3 +506,36 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+  frontend:
+    name: Frontend build and lint
+    needs:
+      - changes
+      - frontend-checks
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify frontend CI result
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SHOULD_RUN: ${{ needs.changes.outputs.frontend }}
+          FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "Changed-area detection failed."
+            exit 1
+          fi
+
+          if [[ "$SHOULD_RUN" != "true" ]]; then
+            echo "No frontend-impacting files changed; frontend suite intentionally skipped."
+            exit 0
+          fi
+
+          if [[ "$FRONTEND_RESULT" != "success" ]]; then
+            echo "Frontend checks failed, were cancelled, or were skipped unexpectedly."
+            exit 1
+          fi
+
+          echo "Frontend checks passed."
