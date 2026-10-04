@@ -48,6 +48,7 @@ export const STAFF_PERMISSION_CATALOG: Array<{
  * merely by crafting a request body.
  */
 export function allowedActionsForSidebarKey(key: string, module: StaffModule): StaffAction[] {
+  if (key.startsWith('group:')) return [];
   if (key === 'admin/results/enter') return ['read', 'enter_results', 'edit', 'submit', 'publish'];
   if (key === 'admin/exams/review' || key === 'admin/exams/papers' || key === 'admin/exams/paper-review') return ['read', 'approve', 'publish', 'print'];
   if (key === 'admin/exams/attendance') return ['read', 'edit', 'submit', 'print'];
