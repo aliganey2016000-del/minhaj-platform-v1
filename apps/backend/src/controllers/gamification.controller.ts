@@ -7,8 +7,9 @@
 
 import { Request, Response } from 'express';
 import Gamification, { ALL_BADGES, xpForLevel, totalXpForLevel } from '../models/gamification.model';
+import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
-import { NotFoundError } from '../utils/api-error';
+import { ForbiddenError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
 import { notifyUser } from '../utils/notify';
 
@@ -427,7 +428,18 @@ export const completeQuiz = async (req: Request, res: Response): Promise<Respons
 export const getLeaderboard = async (req: Request, res: Response): Promise<Response> => {
   const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
 
-  const leaderboard = await Gamification.find()
+  // This route has no role gate — any authenticated user (student, parent,
+  // teacher, org_admin...) can call it, so it must never return a
+  // platform-wide ranking: restrict to students in the caller's own school.
+  // Only the platform admin may see across every organization.
+  const filter: Record<string, unknown> = {};
+  if (req.user?.role !== 'admin') {
+    if (!req.user?.organizationId) throw new ForbiddenError('Your account is not assigned to an organization.');
+    const schoolStudents = await Student.find({ school: req.user.organizationId }).select('_id').lean();
+    filter.student = { $in: schoolStudents.map((s) => s._id) };
+  }
+
+  const leaderboard = await Gamification.find(filter)
     .sort({ xp: -1 })
     .limit(limit)
     .populate('student', 'studentId')

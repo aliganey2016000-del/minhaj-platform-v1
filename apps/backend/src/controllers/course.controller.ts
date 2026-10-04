@@ -518,10 +518,6 @@ export const enrollStudent = async (req: Request, res: Response): Promise<Respon
     throw new BadRequestError('Cannot enroll in a course that is not published');
   }
 
-  if (course.enrolledStudents >= course.maxStudents) {
-    throw new BadRequestError('Course has reached maximum capacity');
-  }
-
   const student = await Student.findById(studentId);
   if (!student) throw new NotFoundError('Student');
 
@@ -529,11 +525,20 @@ export const enrollStudent = async (req: Request, res: Response): Promise<Respon
     throw new ConflictError('Student is already enrolled in this course');
   }
 
-  // Enroll
-  student.enrolledCourses.push(course._id);
-  course.enrolledStudents += 1;
+  // Read-modify-write (`if (enrolledStudents >= maxStudents) …` then
+  // `enrolledStudents += 1; save()`) let two concurrent enrollments both
+  // read the same under-capacity count and both proceed, oversubscribing
+  // the course. The capacity check and increment now happen atomically in
+  // one update: the filter re-checks capacity server-side at write time,
+  // so only as many concurrent requests as there are open seats succeed.
+  const reserved = await Course.findOneAndUpdate(
+    { _id: course._id, enrolledStudents: { $lt: course.maxStudents } },
+    { $inc: { enrolledStudents: 1 } },
+    { new: true },
+  );
+  if (!reserved) throw new BadRequestError('Course has reached maximum capacity');
 
-  await Promise.all([student.save(), course.save()]);
+  await Student.updateOne({ _id: student._id }, { $addToSet: { enrolledCourses: course._id } });
 
   return ApiResponse.success(res, null, 'Student enrolled successfully');
 };
@@ -616,7 +621,6 @@ export const selfEnroll = async (req: Request, res: Response): Promise<Response>
   if (!course) throw new NotFoundError('Course');
 
   if (course.status !== 'published') throw new BadRequestError('Cannot enroll in a course that is not published');
-  if (course.enrolledStudents >= course.maxStudents) throw new BadRequestError('Course has reached maximum capacity');
   if (student.enrolledCourses.some((id: any) => id.toString() === req.params.id)) throw new ConflictError('You are already enrolled in this course');
 
   const studentSchoolId = (student as any).school?.toString();
@@ -627,9 +631,17 @@ export const selfEnroll = async (req: Request, res: Response): Promise<Response>
     throw new ForbiddenError('This course is not available to your organization or class.');
   }
 
-  student.enrolledCourses.push(course._id);
-  course.enrolledStudents += 1;
-  await Promise.all([student.save(), course.save()]);
+  // Atomic capacity check + increment — see enrollStudent above for why a
+  // read-modify-write here would oversubscribe the course under
+  // concurrent self-enrollments.
+  const reserved = await Course.findOneAndUpdate(
+    { _id: course._id, enrolledStudents: { $lt: course.maxStudents } },
+    { $inc: { enrolledStudents: 1 } },
+    { new: true },
+  );
+  if (!reserved) throw new BadRequestError('Course has reached maximum capacity');
+
+  await Student.updateOne({ _id: student._id }, { $addToSet: { enrolledCourses: course._id } });
   return ApiResponse.success(res, { enrolled: true }, 'Successfully enrolled in course');
 };
 

@@ -59,6 +59,19 @@ router.patch(
       if (!ownedCourse) {
         throw new ForbiddenError('This submission belongs to a course you do not teach.');
       }
+    } else if (req.user?.role === 'org_admin') {
+      // org_admin (including staff acting as org_admin) is confined to their
+      // own organization — without this, an org_admin could grade any
+      // submission platform-wide, since only the teacher branch above
+      // checked ownership.
+      const ownedCourse = await Course.findOne({
+        _id: submission.course,
+        school: req.user.organizationId,
+      }).select('_id').lean();
+
+      if (!ownedCourse) {
+        throw new ForbiddenError('This submission belongs to a course outside your organization.');
+      }
     }
 
     if (grade !== null && grade !== undefined && grade > assignment.totalMarks) {

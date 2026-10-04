@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 import School from '../models/school.model';
 import { invalidateAuthState } from '../utils/auth-state';
 import Department from '../models/department.model';
+import { nextFormattedId } from '../utils/id-sequence';
 
 const PRIVILEGED_ROLES = new Set(['admin', 'org_admin']);
 
@@ -230,6 +231,15 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     if (PRIVILEGED_ROLES.has(role)) {
       throw new ForbiddenError('You cannot create users with admin or org_admin roles');
     }
+    // A staff account acts as org_admin after its module permission check
+    // (see requirePermission), but it is a delegated account, not a real
+    // organization admin — it may provision only ordinary school members
+    // (student/teacher/parent). Finance roles (finance_manager/cashier/
+    // auditor) and further staff accounts carry real org-wide permissions
+    // and must be created only by a genuine org_admin or platform admin.
+    if (req.user?.isStaff && !['student', 'teacher', 'parent'].includes(role)) {
+      throw new ForbiddenError('Staff can only create student, teacher, or parent accounts');
+    }
     // org_admin always creates users in their own org
     if (organizationId && organizationId !== req.user?.organizationId?.toString()) {
       throw new ForbiddenError('You can only create users in your own organization');
@@ -272,17 +282,35 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       enrollmentDate: new Date(),
     });
   } else if (role === 'teacher') {
-    const count = await Teacher.countDocuments();
+    // Same TCH-<year>-<0000> sequence namespace as teacher.controller.ts's
+    // generateTeacherId — atomically reserved (utils/id-sequence.ts) so
+    // this generic entry point can't mint a teacherId that collides with
+    // one created directly, or reissue a retired one after a delete.
+    const year = new Date().getFullYear();
+    const teacherId = await nextFormattedId(
+      `teacher:TCH-${year}`,
+      (n) => `TCH-${year}-${String(n).padStart(4, '0')}`,
+      (candidate) => Teacher.exists({ teacherId: candidate }).then(Boolean),
+      async () => Teacher.countDocuments({ teacherId: { $regex: `^TCH-${year}-` } }),
+    );
     await Teacher.create({
       user: user._id, profile: profile._id,
-      teacherId: `TCH-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`,
+      teacherId,
       school: resolvedOrgId || undefined,
     });
   } else if (role === 'parent') {
-    const count = await Parent.countDocuments();
+    // Same PRN-<year>-<0000> sequence namespace as parent.controller.ts's
+    // generateParentId.
+    const year = new Date().getFullYear();
+    const parentId = await nextFormattedId(
+      `parent:PRN-${year}`,
+      (n) => `PRN-${year}-${String(n).padStart(4, '0')}`,
+      (candidate) => Parent.exists({ parentId: candidate }).then(Boolean),
+      async () => Parent.countDocuments({ parentId: { $regex: `^PRN-${year}-` } }),
+    );
     await Parent.create({
       user: user._id, profile: profile._id,
-      parentId: `PRN-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`,
+      parentId,
       school: resolvedOrgId || undefined,
       children: [],
     });

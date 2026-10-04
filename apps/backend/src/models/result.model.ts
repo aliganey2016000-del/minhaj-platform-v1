@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import Exam from './exam.model';
 
 export interface IResult extends Document {
   exam: mongoose.Types.ObjectId;
@@ -34,7 +35,7 @@ const resultSchema = new Schema<IResult>(
 resultSchema.index({ exam: 1, student: 1 }, { unique: true });
 
 // Auto-calculate percentage and grade
-resultSchema.pre<IResult>('save', function (next) {
+resultSchema.pre<IResult>('save', async function (next) {
   if (this.totalMarks > 0) {
     this.percentage = Math.round((this.marksObtained / this.totalMarks) * 100);
   }
@@ -54,7 +55,20 @@ resultSchema.pre<IResult>('save', function (next) {
   }
 
   if (this.status !== 'absent') {
-    const passThreshold = 50; // 50% default passing mark
+    // Exam.passingMarks is a raw mark out of Exam.totalMarks (not a
+    // percent) — convert it to the same percent basis as `percentage`
+    // above. Falls back to the old flat 50% when the exam can't be
+    // resolved or its totalMarks is unusable, so this never throws a
+    // result save over an exam-lookup hiccup.
+    let passThreshold = 50;
+    try {
+      const exam = await Exam.findById(this.exam).select('passingMarks totalMarks').lean();
+      if (exam && exam.totalMarks > 0 && typeof exam.passingMarks === 'number' && exam.passingMarks > 0) {
+        passThreshold = (exam.passingMarks / exam.totalMarks) * 100;
+      }
+    } catch {
+      // keep the 50% fallback
+    }
     this.status = this.percentage >= passThreshold ? 'passed' : 'failed';
   }
 

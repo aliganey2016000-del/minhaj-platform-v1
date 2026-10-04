@@ -15,6 +15,9 @@ import path from 'path';
 import fs from 'fs';
 import CourseContent, { type ICourseContent } from '../models/course-content.model';
 import Course from '../models/course.model';
+import Student from '../models/student.model';
+import Parent from '../models/parent.model';
+import { assertOwnsOrg, getOwnTeacherRecord, isTenantScoped } from '../utils/tenant-scope';
 import {
   generateLessonHtml,
   generateQuizQuestions,
@@ -30,7 +33,7 @@ import {
   type StopCheckTypeMode,
 } from '../utils/deepseek';
 import { extractTextFromDocument } from '../utils/document-parser';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 
 // ---------------------------------------------------------------------------
@@ -257,8 +260,36 @@ export const tutorChat = async (req: Request, res: Response): Promise<Response> 
   if (!message || !message.trim()) throw new BadRequestError('message is required.');
 
   // 1. Fetch the course to get the title
-  const course = await Course.findById(courseId).select('title').lean();
+  const course = await Course.findById(courseId).select('title school teacher').lean();
   if (!course) throw new NotFoundError('Course not found.');
+
+  // This route is authenticated-only at the router (no role gate) and the
+  // tutor response is grounded in the lesson's full text, including content
+  // a student shouldn't see outside their own enrolled courses — scope it
+  // the same way course-content/assignment reads already are.
+  const role = req.user?.role;
+  if (role === 'student') {
+    const student = await Student.findOne({ user: req.user!.userId }).select('enrolledCourses').lean();
+    const enrolledIds = (student?.enrolledCourses || []).map((id: any) => id.toString());
+    if (!enrolledIds.includes(courseId)) {
+      throw new ForbiddenError('You can only use the tutor for your enrolled courses.');
+    }
+  } else if (role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    if (!teacher || (course as any).teacher?.toString() !== teacher._id.toString()) {
+      throw new ForbiddenError('You can only use the tutor for your own courses.');
+    }
+  } else if (role === 'parent') {
+    const parent = await Parent.findOne({ user: req.user!.userId }).select('children').lean();
+    const enrolled = parent?.children?.length
+      ? await Student.exists({ _id: { $in: parent.children }, enrolledCourses: courseId })
+      : null;
+    if (!enrolled) throw new ForbiddenError("You can only use the tutor for your children's courses.");
+  } else if (isTenantScoped(req)) {
+    assertOwnsOrg(req, course, 'school');
+  } else if (role !== 'admin') {
+    throw new ForbiddenError('You do not have permission to use the tutor for this course.');
+  }
 
   const courseTitle =
     (course.title as any)?.en || (course.title as any)?.so || (course.title as any)?.ar || 'Untitled Course';
@@ -338,7 +369,11 @@ export const uploadVoiceNote = async (req: Request, res: Response): Promise<Resp
   const declared = req.file.mimetype === 'audio/mp4' ? 'm4a' : req.file.mimetype.split('/')[1]?.split(';')[0] || 'webm';
   // Only known audio extensions are ever written to disk.
   const ext = AUDIO_MIME_TYPES[declared] ? declared : 'webm';
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  // There is no DB record for voice notes — the uploader's own userId is
+  // encoded as a filename prefix so getVoiceNote below can check ownership
+  // without adding a new collection just for this. userId is a 24-hex
+  // ObjectId, which already satisfies VOICE_NOTE_FILENAME_RE.
+  const filename = `${req.user!.userId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
 
   // Served back through getVoiceNote below (authenticated stream), not a
@@ -358,6 +393,14 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
 export const getVoiceNote = async (req: Request, res: Response): Promise<Response | void> => {
   const { filename } = req.params;
   if (!VOICE_NOTE_FILENAME_RE.test(filename)) throw new BadRequestError('Invalid filename.');
+
+  // Voice notes carry no DB record — ownership is encoded as the uploader's
+  // userId filename prefix (see uploadVoiceNote). Without this check, any
+  // authenticated user could stream back anyone else's recorded voice
+  // message just by guessing/enumerating a filename.
+  if (req.user?.role !== 'admin' && !filename.startsWith(`${req.user?.userId}-`)) {
+    throw new ForbiddenError('You do not have permission to access this voice note.');
+  }
 
   const filePath = path.join(process.cwd(), 'uploads', 'voice-notes', filename);
   if (!fs.existsSync(filePath)) throw new NotFoundError('Voice note');

@@ -16,6 +16,7 @@
 import { Request, Response, NextFunction } from 'express';
 import School, { TenantBranding } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
+import { requestHostname } from '../utils/request-tenant';
 
 // ---------------------------------------------------------------------------
 // Augment Express Request
@@ -51,15 +52,11 @@ export async function tenantMiddleware(
     // so the visitor-facing organization hostname must survive every proxy
     // hop. X-Tenant-Host is our stable application header; X-Forwarded-Host
     // remains a compatibility fallback for older deployments/direct proxies.
+    // Both are honoured only from our own proxy once TENANT_PROXY_KEY is set
+    // (see utils/request-tenant.ts), so a direct caller cannot pick a tenant.
     // This is intentionally generic: any school subdomain (foo.<base-domain>)
     // or exact custom domain can resolve without school-specific code.
-    const host = (
-      req.get('x-tenant-host') ||
-      req.get('x-forwarded-host') ||
-      req.get('host') ||
-      ''
-    ).split(',')[0].trim();
-    const hostname = host.replace(/:\d+$/, '').toLowerCase();
+    const hostname = requestHostname(req);
 
     // Fast-path: localhost or IP → main site (no tenant lookup)
     if (
@@ -80,7 +77,7 @@ export async function tenantMiddleware(
     }
 
     // Look up tenant by custom domain, then by slug/subdomain.
-    const tenant = await School.findByHost(host);
+    const tenant = await School.findByHost(hostname);
 
     if (!tenant) {
       // Unrecognized subdomain or custom domain — return 404

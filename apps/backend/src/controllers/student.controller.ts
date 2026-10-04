@@ -18,7 +18,7 @@ import School from '../models/school.model';
 import ClassModel from '../models/class.model';
 import Progress from '../models/progress.model';
 import CourseContent from '../models/course-content.model';
-import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
+import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import ensureStudentRecord from '../utils/ensure-student';
 import Course from '../models/course.model';
@@ -1738,9 +1738,24 @@ export const recordProgress = async (req: Request, res: Response): Promise<Respo
   const student = await ensureStudentRecord(req.user!.userId);
   if (!student) throw new NotFoundError('Student record not found.');
 
+  const isEnrolled = (student.enrolledCourses || []).some((id: any) => id.toString() === courseId);
+  if (!isEnrolled) throw new ForbiddenError('You are not enrolled in this course.');
+
+  const content = await CourseContent.findOne({ course: courseId });
+
+  // Validate itemId actually names a content item of the claimed type in
+  // this course — otherwise a student could push arbitrary ids into
+  // completedItemIds and forge the prerequisite check that gates
+  // auto-scheduled exams (see utils/exam-eligibility.ts).
+  if (itemId) {
+    const matches = (content?.chapters || []).some((ch: any) =>
+      (ch.items || []).some((it: any) => it.type === itemType && it._id?.toString() === itemId)
+    );
+    if (!matches) throw new BadRequestError('That item does not belong to this course.');
+  }
+
   let progress = await Progress.findOne({ student: student._id, course: courseId });
   if (!progress) {
-    const content = await CourseContent.findOne({ course: courseId });
     const total = content ? (content.totalLessons||0)+(content.totalQuizzes||0)+(content.totalAssignments||0)+(content.totalExams||0) : 0;
     progress = await Progress.create({ student: student._id, course: courseId,
       completedLessons: itemType==='lesson'?1:0, completedQuizzes: itemType==='quiz'?1:0,
@@ -1754,11 +1769,12 @@ export const recordProgress = async (req: Request, res: Response): Promise<Respo
     if (itemType==='lesson') progress.completedLessons += 1;
     else if (itemType==='quiz') progress.completedQuizzes += 1;
     else progress.completedAssignments += 1;
-    if (itemId && !progress.completedItemIds.includes(itemId)) progress.completedItemIds.push(itemId);
+    if (itemId) await Progress.updateOne({ _id: progress._id }, { $addToSet: { completedItemIds: itemId } });
     const done = progress.completedLessons + progress.completedQuizzes + progress.completedAssignments;
     if (done >= progress.totalItems && progress.totalItems > 0) progress.status = 'completed';
     progress.lastAccessed = new Date();
     await progress.save();
+    if (itemId) progress = await Progress.findOne({ student: student._id, course: courseId });
   }
   return ApiResponse.success(res, { progress }, 'Progress recorded.');
 };

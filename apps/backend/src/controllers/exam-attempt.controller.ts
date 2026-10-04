@@ -120,6 +120,17 @@ export const getReview = async (req: Request, res: Response): Promise<Response> 
   if (exam.autoSchedule) {
     const win = await getAutoScheduleWindow(exam as any, student._id);
     if (!isWindowPast(win)) throw new BadRequestError('This exam has not finished yet.');
+    // Auto-scheduled exams have no single shared end time — each student's
+    // window closes on its own schedule, so "my window is over" alone isn't
+    // a signal the teacher is ready for anyone to see the answer key. A
+    // fixed-schedule exam's single window-close (isPastExamWindow above)
+    // doubles as that signal today and we leave that behavior alone; for
+    // autoSchedule exams we additionally require the teacher's own signal:
+    // either the exam was explicitly marked completed, or results were
+    // explicitly published (exam.controller.ts publishResults).
+    if (exam.status !== 'completed' && !exam.resultsPublished) {
+      throw new BadRequestError('Results for this exam have not been released yet.');
+    }
   } else if (!isPastExamWindow(exam as any)) {
     throw new BadRequestError('This exam has not finished yet.');
   }
@@ -156,7 +167,9 @@ export const getReview = async (req: Request, res: Response): Promise<Response> 
       earnedPoints: earned,
       isCorrect,
       givenAnswer: givenAnswer ?? null,
-      correctAnswer: correctAnswerFor(q),
+      // A missed exam has no attempt to show a real score for — don't hand
+      // out the answer key to a student who never sat it.
+      correctAnswer: attempt ? correctAnswerFor(q) : null,
     };
   });
 
@@ -222,9 +235,11 @@ export const start = async (req: Request, res: Response): Promise<Response> => {
   if (!isEnrolled) throw new ForbiddenError('You are not enrolled in this exam\'s course.');
 
   let open: boolean;
+  let windowEnd: Date | null = null;
   if (exam.autoSchedule) {
     const win = await getAutoScheduleWindow(exam, student._id);
     open = isWindowActive(win);
+    windowEnd = win.scheduledEnd;
     if (!open) {
       throw new BadRequestError(
         !win.metPrerequisites
@@ -237,6 +252,10 @@ export const start = async (req: Request, res: Response): Promise<Response> => {
   } else {
     open = isWithinExamWindow(exam);
     if (!open) throw new BadRequestError('This exam is not currently live.');
+    if (exam.examDate && exam.endTime) {
+      const datePart = new Date(exam.examDate).toISOString().split('T')[0];
+      windowEnd = new Date(`${datePart}T${exam.endTime}`);
+    }
   }
 
   // .lean() matters here — sanitizeQuestionForStudent spreads each question
@@ -253,16 +272,34 @@ export const start = async (req: Request, res: Response): Promise<Response> => {
   }
 
   if (!attempt) {
-    const deadline = new Date(Date.now() + exam.duration * 60 * 1000);
-    attempt = await ExamAttempt.create({
-      exam: exam._id,
-      paper: paper._id,
-      student: student._id,
-      startedAt: new Date(),
-      deadline,
-      maxScore: paper.totalPoints,
-      school: exam.school || null,
-    });
+    // Clamp to the window's end so a student who starts near the close of
+    // their window doesn't get the full exam.duration regardless — a
+    // deadline past when the exam (or their personal auto-schedule
+    // window) is actually over would let them keep answering after it
+    // should have closed.
+    const byDuration = new Date(Date.now() + exam.duration * 60 * 1000);
+    const deadline = windowEnd && windowEnd.getTime() < byDuration.getTime() ? windowEnd : byDuration;
+    try {
+      attempt = await ExamAttempt.create({
+        exam: exam._id,
+        paper: paper._id,
+        student: student._id,
+        startedAt: new Date(),
+        deadline,
+        maxScore: paper.totalPoints,
+        school: exam.school || null,
+      });
+    } catch (err: any) {
+      // Two concurrent start requests both found no attempt and both
+      // tried to create one — the unique (exam, student) index lets only
+      // one through. Re-read instead of erroring the second request.
+      if (err?.code === 11000) {
+        attempt = await ExamAttempt.findOne({ exam: exam._id, student: student._id });
+        if (!attempt) throw err;
+      } else {
+        throw err;
+      }
+    }
 
     // Self-paced exams have no invigilator to mark attendance — the system
     // checks the student in itself the moment they actually launch it.
@@ -396,6 +433,12 @@ export const submit = async (req: Request, res: Response): Promise<Response> => 
     resultDoc.marksObtained = earnedPoints;
     resultDoc.totalMarks = attempt.maxScore;
     resultDoc.enteredBy = req.user!.userId as any;
+    // The student actually submitted an attempt, so any prior 'absent'
+    // status (e.g. from attendance marking) is stale — leaving it would
+    // make the model's pre-save hook zero out the real score we just
+    // computed. 'failed' is just a placeholder: the pre-save hook
+    // recomputes passed/failed from the percentage right after.
+    if (resultDoc.status === 'absent') resultDoc.status = 'failed';
     await resultDoc.save();
   }
 

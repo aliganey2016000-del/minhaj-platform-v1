@@ -19,6 +19,26 @@ import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate } from '../utils/t
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
+import { nextFormattedId } from '../utils/id-sequence';
+
+/**
+ * PRN-<year>-<0000> — atomically reserved (utils/id-sequence.ts) instead of
+ * `count + 1`, which could mint the same ID for two concurrent creates (one
+ * then fails the unique index) or reissue a retired ID once a parent was
+ * deleted and the count dropped back down.
+ */
+async function generateParentId(): Promise<string> {
+  const year = new Date().getFullYear();
+  return nextFormattedId(
+    `parent:PRN-${year}`,
+    (n) => `PRN-${year}-${String(n).padStart(4, '0')}`,
+    (candidate) => Parent.exists({ parentId: candidate }).then(Boolean),
+    async () => {
+      const count = await Parent.countDocuments({ parentId: { $regex: `^PRN-${year}-` } });
+      return count;
+    },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // GET /parents — List all with optional filters
@@ -197,8 +217,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
 
   const profile = await Profile.create({ user: user._id, firstName, lastName, gender });
 
-  const count = await Parent.countDocuments();
-  const parentId = `PRN-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  const parentId = await generateParentId();
 
   const parent = await Parent.create({
     user: user._id,
@@ -546,10 +565,18 @@ export const unlinkChild = async (req: Request, res: Response): Promise<Response
   if (!parent) throw new NotFoundError('Parent');
   assertOwnsOrg(req, parent, 'school');
 
+  // `childId` must actually be one of this parent's own children — without
+  // this check, an arbitrary student id could still have its `parent` field
+  // unset below even though it was never linked to this parent (cross-
+  // parent/cross-tenant data corruption, since Student.findByIdAndUpdate
+  // ran unconditionally regardless of membership).
+  const isOwnChild = parent.children.some((c: any) => c.toString() === childId);
+  if (!isOwnChild) throw new BadRequestError('This student is not linked to this parent');
+
   parent.children = parent.children.filter((c: any) => c.toString() !== childId);
   await parent.save();
 
-  await Student.findByIdAndUpdate(childId, { $unset: { parent: '' } });
+  await Student.findOneAndUpdate({ _id: childId, parent: parent._id }, { $unset: { parent: '' } });
 
   const updated = await Parent.findById(parent._id)
     .populate('user', 'email')
@@ -716,11 +743,10 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
   // the rest of the batch.
   let inserted = 0;
   if (parentsToInsert.length > 0) {
-    const baseCount = await Parent.countDocuments();
     for (let idx = 0; idx < parentsToInsert.length; idx++) {
       const item = parentsToInsert[idx];
       try {
-        const parentId = `PRN-${new Date().getFullYear()}-${String(baseCount + inserted + 1).padStart(4, '0')}`;
+        const parentId = await generateParentId();
 
         const user = await User.create({
           email: item.email, password: item.hashedPassword, role: 'parent',

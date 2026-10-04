@@ -49,8 +49,12 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   if (status && ['active', 'inactive'].includes(status as string)) {
     filter.status = status;
   }
-  if (req.user?.role === 'org_admin') {
-    filter._id = req.user.organizationId || null; // null → matches nothing if somehow unset
+  // Any non-platform-admin role (org_admin, teacher, student, parent, staff
+  // acting as org_admin, finance roles, ...) is bound to exactly one
+  // organization and must never see another school's record — only the
+  // real platform admin may list across every organization.
+  if (req.user?.role !== 'admin') {
+    filter._id = req.user?.organizationId || null; // null → matches nothing if somehow unset
   }
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -110,7 +114,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 // ---------------------------------------------------------------------------
 
 export const getById = async (req: Request, res: Response): Promise<Response> => {
-  if (req.user?.role === 'org_admin' && req.params.id !== req.user.organizationId) {
+  if (req.user?.role !== 'admin' && req.params.id !== req.user?.organizationId) {
     throw new ForbiddenError("You do not have permission to view another organization's details.");
   }
 
@@ -417,10 +421,27 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       delete updates.institutionType;
       delete updates.organizationType;
     }
-    // Activation/suspension is super-admin only, via PATCH /:id/status —
-    // strip it here so an org_admin can't reactivate/suspend themselves
-    // through the general-purpose update endpoint.
+    // Everything below is a platform-governed field that a (possibly
+    // delegated staff-as-org_admin) tenant admin must never set through the
+    // generic organization-profile endpoint:
+    //   - status: activation/suspension — super-admin only, via PATCH /:id/status.
+    //   - subscriptionPlan: billing tier — self-upgrading would be a free
+    //     privilege escalation.
+    //   - slug: the reserved-word-checked routing key other orgs' DNS/public
+    //     site resolution also keys off; subdomain/customDomain (left
+    //     editable below) are the org-facing equivalent the domain-settings
+    //     UI actually uses.
+    //   - orgId: an external reference id the platform assigns, not an
+    //     org-editable profile field.
+    //   - onboardingCompleted: has its own validated endpoint
+    //     (PATCH /:id/complete-onboarding) which re-checks academic
+    //     structure before flipping the flag — never settable as a raw field.
+    //   - createdBy: provenance, immutable by any tenant-side actor.
     delete updates.status;
+    delete updates.subscriptionPlan;
+    delete updates.slug;
+    delete updates.orgId;
+    delete updates.onboardingCompleted;
     delete updates.createdBy;
   }
 
@@ -438,10 +459,27 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
     const loginEmail = ((updates.email as string | undefined) || '').toLowerCase().trim();
 
-    const byOrg = await User.findOne({ organizationId: req.params.id, role: 'org_admin' }).select('+password +failedLoginAttempts +lockedUntil');
-    const byEmail = !byOrg && loginEmail
+    // An org_admin performing this reset on their own organization (the only
+    // case allowed above — isStaff was already refused) must only ever be
+    // able to reset their OWN login, never "whichever org_admin user happens
+    // to be found first" for the org, which could be a co-admin's account.
+    // The platform admin keeps the unrestricted org-wide lookup, since it
+    // legitimately self-heals an org whose org_admin account never got
+    // provisioned.
+    const selfOnly = req.user?.role === 'org_admin';
+
+    const byOrg = await User.findOne({
+      organizationId: req.params.id,
+      role: 'org_admin',
+      ...(selfOnly ? { _id: req.user!.userId } : {}),
+    }).select('+password +failedLoginAttempts +lockedUntil');
+    const byEmail = !byOrg && loginEmail && !selfOnly
       ? await User.findOne({ email: loginEmail }).select('+password +failedLoginAttempts +lockedUntil')
       : null;
+
+    if (selfOnly && !byOrg) {
+      throw new ForbiddenError('You can only reset your own login, and your account could not be found for this organization.');
+    }
 
     // A match found only by email (no org_admin already bound to this org)
     // must already BE an org_admin — otherwise it's someone else's account

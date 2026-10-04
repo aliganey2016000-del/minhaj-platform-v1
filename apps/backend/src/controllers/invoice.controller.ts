@@ -6,6 +6,7 @@ import Student from '../models/student.model';
 import ClassModel from '../models/class.model';
 import Payment from '../models/payment.model';
 import User from '../models/user.model';
+import JournalEntry from '../models/journal-entry.model';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter, assertOwnsOrg, assertCanAccessStudent } from '../utils/tenant-scope';
@@ -424,7 +425,7 @@ export const collectBulk = async (req: Request, res: Response): Promise<Response
   }
 
   const scopedFilter = applyOrgFilter(req, filter, 'school');
-  const invoices = await Invoice.find(scopedFilter).select('_id student school amount amountPaid paymentType title');
+  const invoices = await Invoice.find(scopedFilter).select('_id student school amount discount amountPaid paymentType title');
 
   if (invoices.length === 0) {
     return ApiResponse.success(res, { collected: 0, failed: 0, totalAmount: 0 }, 'No matching invoices found');
@@ -436,7 +437,7 @@ export const collectBulk = async (req: Request, res: Response): Promise<Response
   let totalAmount = 0;
 
   for (const inv of invoices) {
-    const remaining = inv.amount - inv.amountPaid;
+    const remaining = inv.amount - (inv.discount || 0) - inv.amountPaid;
     const payAmount = amount ? Math.min(Number(amount), remaining) : remaining;
     if (payAmount <= 0) continue;
     try {
@@ -561,9 +562,26 @@ export const bulkDelete = async (req: Request, res: Response): Promise<Response>
 
   const filter = applyOrgFilter(req, { _id: { $in: ids } }, 'school');
   const invoices = await Invoice.find(filter).select('_id student amountPaid');
-  const deletable = invoices.filter((inv) => (inv.amountPaid || 0) === 0);
+
+  // Deleting an invoice that already has money collected against it
+  // (amountPaid > 0) or that's already been posted to the accounting
+  // ledger (a JournalEntry pointing back at it) would leave that ledger
+  // entry — or the payment itself — referencing an invoice that no longer
+  // exists, silently drifting the books. Both are excluded from deletion
+  // the same way; see the full reversing-entry flow as a remaining risk
+  // this doesn't attempt to solve (voidInvoice is the supported path once
+  // money has moved).
+  const postedInvoiceIds = new Set(
+    (await JournalEntry.find({ sourceType: 'invoice', sourceId: { $in: invoices.map((inv) => inv._id) } })
+      .distinct('sourceId')).map((id) => String(id))
+  );
+  const deletable = invoices.filter((inv) => (inv.amountPaid || 0) === 0 && !postedInvoiceIds.has(String(inv._id)));
   const deletableIds = deletable.map((inv) => inv._id);
   const skipped = invoices.length - deletableIds.length;
+
+  if (deletableIds.length === 0 && invoices.length > 0) {
+    throw new ConflictError('None of the selected invoices can be deleted — they already have payments collected or ledger entries posted. Void them instead.');
+  }
 
   if (deletableIds.length > 0) {
     await Invoice.deleteMany({ _id: { $in: deletableIds } });

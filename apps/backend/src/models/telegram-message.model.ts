@@ -30,5 +30,7 @@ const schema = new Schema<ITelegramMessage>(
 );
 
 schema.index({ createdAt: -1 });
+// Retention: telegram messages are kept for 12 months, then MongoDB removes them.
+schema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60, name: 'createdAt_ttl_12_months' });
 
 export default mongoose.model<ITelegramMessage>('TelegramMessage', schema);

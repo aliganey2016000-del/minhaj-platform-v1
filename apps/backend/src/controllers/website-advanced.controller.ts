@@ -10,6 +10,7 @@ import WebsiteAnalyticsDaily from '../models/website-analytics.model';
 import WebsiteVersion from '../models/website-version.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { requestHostname } from '../utils/request-tenant';
 import {
   cloudflareAutoProvisionEnabled,
   cloudflareDnsConfigured,
@@ -410,9 +411,8 @@ export async function provisionManagedDomain(req: Request, res: Response): Promi
   );
 }
 
-function requestHost(req: Request): string {
-  return (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim().replace(/:\d+$/, '').toLowerCase();
-}
+// Forwarded host headers are only honoured from our own proxy (TENANT_PROXY_KEY).
+const requestHost = requestHostname;
 
 export async function getSitemap(req: Request, res: Response): Promise<void> {
   const school = await currentTenantSchool(req);

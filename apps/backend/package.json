@@ -11,6 +11,10 @@
     "repair:idle-seconds": "ts-node scripts/repair-inflated-idle-seconds.ts",
     "repair:student-registration-index": "ts-node src/scripts/repair-student-registration-index.ts",
     "repair:student-dates": "ts-node src/scripts/repair-corrupt-student-dates.ts",
+    "backup": "ts-node scripts/backup.ts",
+    "backup:list": "ts-node scripts/backup.ts --list",
+    "backup:cleanup": "ts-node scripts/backup.ts --cleanup",
+    "backup:restore": "ts-node scripts/backup.ts --restore",
     "test:student-corrupt-dates": "ts-node src/__tests__/student-corrupt-date-repair.e2e.ts",
     "test:dashboard-aggregations": "ts-node src/__tests__/dashboard-tenant-aggregations.e2e.ts",
     "test:cloudflare-client-ip": "ts-node src/__tests__/cloudflare-client-ip.e2e.ts",
@@ -55,7 +59,8 @@
     "test:parent-portal": "ts-node src/__tests__/parent-portal.e2e.ts",
     "test:financial-report": "ts-node src/__tests__/financial-report.e2e.ts",
     "test:finance-reconciliation": "ts-node src/__tests__/finance-reconciliation.e2e.ts",
-    "test:installment-plan": "ts-node src/__tests__/installment-plan.e2e.ts"
+    "test:installment-plan": "ts-node src/__tests__/installment-plan.e2e.ts",
+    "test:reliability-phase5": "ts-node src/__tests__/reliability-phase5.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",
@@ -82,8 +87,7 @@
     "pdfkit": "^0.19.1",
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7",
-    "xlsx": "^0.18.5",
-    "xss-clean": "^0.1.1"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",

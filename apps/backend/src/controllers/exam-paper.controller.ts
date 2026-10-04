@@ -7,9 +7,10 @@
 import { Request, Response } from 'express';
 import Exam from '../models/exam.model';
 import ExamPaper from '../models/exam-paper.model';
+import ExamAttempt from '../models/exam-attempt.model';
 import User from '../models/user.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-error';
+import { BadRequestError, NotFoundError, ForbiddenError, ConflictError } from '../utils/api-error';
 import { assertOwnsOrg, assertOwnsExamIfTeacher } from '../utils/tenant-scope';
 import { validateQuestions as validateQuestionSet } from '../utils/question-engine';
 import { notifyUser, notifyUsers } from '../utils/notify';
@@ -56,6 +57,18 @@ export const upsert = async (req: Request, res: Response): Promise<Response> => 
 
   if (paper && !['draft', 'rejected'].includes(paper.status) && req.user?.role !== 'admin' && req.user?.role !== 'org_admin') {
     throw new ForbiddenError('This paper is under review or already approved — only an admin can edit it now.');
+  }
+
+  // Once a student has started (or finished) an attempt against this exam,
+  // its questions are locked — even for an admin — because editing them
+  // now would silently invalidate attempts already graded (or in
+  // progress) against the old question set. A paper with zero attempts
+  // yet is still safe to edit, approved or not.
+  if (paper) {
+    const hasAttempts = await ExamAttempt.exists({ exam: exam._id });
+    if (hasAttempts) {
+      throw new ConflictError('This exam already has student attempts — its paper can no longer be edited.');
+    }
   }
 
   if (!paper) {

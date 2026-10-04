@@ -44,7 +44,7 @@ export async function persistStudentPhoto(profileId: any, schoolId: any, file: E
   const directory = path.join(process.cwd(), 'uploads', 'student-photos', String(schoolId || 'unassigned'));
   fs.mkdirSync(directory, { recursive: true });
   const filename = `${profileId}-${crypto.randomUUID()}${IMAGE_TYPES[file.mimetype]}`;
-  fs.writeFileSync(path.join(directory, filename), file.buffer);
+  await fs.promises.writeFile(path.join(directory, filename), file.buffer);
   const profile = await mongoose.model('Profile').findById(profileId);
   if (!profile) throw new NotFoundError('Student profile');
   const oldAvatar = profile.avatar;
@@ -122,7 +122,7 @@ export const upload = async (req: Request, res: Response): Promise<Response> => 
     storageProvider = uploaded.provider;
     storagePublicId = uploaded.publicId;
   } else {
-    fs.writeFileSync(path.join(directory, filename), req.file.buffer);
+    await fs.promises.writeFile(path.join(directory, filename), req.file.buffer);
     fileUrl = `/uploads/student-documents/${student.school}/${student._id}/${filename}`;
   }
   const document = await StudentDocument.create({
@@ -166,7 +166,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       const uploaded = await uploadToCloudinary(req.file.buffer, `student-documents/${String(student.school)}/${String(student._id)}`);
       nextUrl = uploaded.url; nextProvider = uploaded.provider; nextPublicId = uploaded.publicId;
     } else {
-      fs.writeFileSync(path.join(directory, filename), req.file.buffer);
+      await fs.promises.writeFile(path.join(directory, filename), req.file.buffer);
       nextUrl = `/uploads/student-documents/${student.school}/${student._id}/${filename}`;
     }
     if (document.storageProvider === 'cloudinary' && document.storagePublicId) await deleteFromCloudinary(document.storagePublicId);

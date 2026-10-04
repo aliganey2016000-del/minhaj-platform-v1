@@ -10,7 +10,7 @@ import Student from '../models/student.model';
 import User from '../models/user.model';
 import CashSession from '../models/cash-session.model';
 import DiscountGrant from '../models/discount-grant.model';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
 import { postInvoicesToLedger, postPaymentToLedger } from './accounting.service';
 
 type Id = mongoose.Types.ObjectId | string;
@@ -241,8 +241,21 @@ export async function collectPaymentService(params: CollectPaymentParams): Promi
   }
 
   if (idempotencyKey) {
-    const existing = await Payment.findOne({ idempotencyKey });
+    // The idempotencyKey index is global (not compound with school), so a
+    // bare findOne could match a payment for an entirely different
+    // school/student/amount — and silently hand this caller that other
+    // payment as if it were "their" idempotent result. Scope the lookup by
+    // school and verify student + amount actually match before treating it
+    // as the same request replayed; otherwise this is a genuine key
+    // collision (reused key, different request), not a safe retry.
+    const existing = await Payment.findOne(schoolId ? { idempotencyKey, school: schoolId } : { idempotencyKey });
     if (existing) {
+      const matches = existing.student.toString() === studentId.toString()
+        && Number(existing.amount) === cash
+        && Number(existing.discount || 0) === waiver;
+      if (!matches) {
+        throw new ConflictError('This idempotency key was already used for a different payment.');
+      }
       const existingInvoice = existing.invoice ? await Invoice.findById(existing.invoice) : null;
       if (existingInvoice) return { payment: existing, invoice: existingInvoice };
       throw new BadRequestError('This idempotency key is already associated with an invalid payment record');

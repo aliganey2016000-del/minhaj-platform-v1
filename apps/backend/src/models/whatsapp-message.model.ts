@@ -55,5 +55,7 @@ schema.index({ organization: 1, createdAt: -1 });
 schema.index({ organization: 1, conversation: 1, createdAt: -1 });
 schema.index({ school: 1, createdAt: -1 });
 schema.index({ providerMessageId: 1 }, { sparse: true });
+// Retention: whatsapp messages are kept for 12 months, then MongoDB removes them.
+schema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60, name: 'createdAt_ttl_12_months' });
 
 export default mongoose.model<IWhatsAppMessage>('WhatsAppMessage', schema);
