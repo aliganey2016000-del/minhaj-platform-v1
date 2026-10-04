@@ -11,7 +11,6 @@ import { roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import {
   getMyGamification,
-  addXP,
   updateStreak,
   completeLesson,
   completeQuiz,
@@ -29,11 +28,18 @@ router.use(roleMiddleware(['student']));
 router.get('/my', asyncHandler(getMyGamification));
 router.get('/leaderboard', asyncHandler(getLeaderboard));
 
-// POST /gamification/xp             — manual XP addition (for admin-triggered events)
 // POST /gamification/streak/update  — daily streak check
 // POST /gamification/complete-lesson — lesson completion hook
 // POST /gamification/complete-quiz  — quiz completion hook
-router.post('/xp', asyncHandler(addXP));
+//
+// There is intentionally no POST /gamification/xp here: it used to let any
+// authenticated student self-report an arbitrary `amount`/`source` and have
+// it added to their own XP total unconditionally (no cap, no verification
+// that the claimed action actually happened, callable in a loop for
+// unlimited self-farmed XP/leaderboard rank) — nothing in the frontend ever
+// called it. If a genuine admin/teacher-triggered manual-award flow is
+// needed later, it must target a specific student by id (not "whoever is
+// calling"), gate behind an admin/teacher role, and cap the amount.
 router.post('/streak/update', asyncHandler(updateStreak));
 router.post('/complete-lesson', asyncHandler(completeLesson));
 router.post('/complete-quiz', asyncHandler(completeQuiz));

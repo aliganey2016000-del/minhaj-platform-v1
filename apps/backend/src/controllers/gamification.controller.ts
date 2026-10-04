@@ -8,10 +8,31 @@
 import { Request, Response } from 'express';
 import Gamification, { ALL_BADGES, xpForLevel, totalXpForLevel } from '../models/gamification.model';
 import Student from '../models/student.model';
+import LessonFirstCompleteClaim from '../models/lesson-first-complete-claim.model';
 import ApiResponse from '../utils/api-response';
 import { ForbiddenError, NotFoundError } from '../utils/api-error';
 import ensureStudentRecord from '../utils/ensure-student';
 import { notifyUser } from '../utils/notify';
+
+/**
+ * Atomically claims "this student has already earned XP for this lesson" —
+ * see lesson-first-complete-claim.model.ts for why completeLesson needs this
+ * instead of awarding unconditionally on every call. Returns true only the
+ * first time any caller claims a given (student, course, lesson) triple.
+ */
+async function claimLessonFirstComplete(studentId: string, courseId: string, lessonId: string): Promise<boolean> {
+  try {
+    const result = await LessonFirstCompleteClaim.findOneAndUpdate(
+      { student: studentId, courseId, lessonId },
+      { $setOnInsert: { student: studentId, courseId, lessonId, createdAt: new Date() } },
+      { upsert: true, new: false },
+    );
+    return result === null;
+  } catch (error: any) {
+    if (error?.code === 11000) return false;
+    throw error;
+  }
+}
 
 /** Fires level-up / new-badge notifications — best-effort, never blocks the response. */
 function notifyProgress(userId: string, levelBefore: number, gam: any, newBadgeKeys: string[]) {
@@ -281,9 +302,29 @@ export const updateStreak = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const completeLesson = async (req: Request, res: Response): Promise<Response> => {
-  const { timeSpentSeconds } = req.body;
+  const { timeSpentSeconds, courseId, lessonId } = req.body;
   const student = await ensureStudentRecord(req.user!.userId);
   const gam = await getOrCreate(student._id.toString());
+
+  // When the caller identifies the specific lesson, only award XP the first
+  // time this student completes it — otherwise revisiting a lesson (or a
+  // replayed/retried request) would farm unlimited XP and lessonsCompleted.
+  // Older/other callers that don't send courseId+lessonId keep the previous
+  // always-award behavior rather than being guessed at.
+  if (courseId && lessonId) {
+    const isFirstComplete = await claimLessonFirstComplete(student._id.toString(), String(courseId), String(lessonId));
+    if (!isFirstComplete) {
+      return ApiResponse.success(res, {
+        xp: gam.xp,
+        level: gam.level,
+        xpToNextLevel: gam.xpToNextLevel,
+        totalLessonsCompleted: gam.totalLessonsCompleted,
+        streak: gam.streak,
+        earnedBadges: gam.earnedBadges,
+        alreadyAwarded: true,
+      });
+    }
+  }
 
   const levelBefore = gam.level;
   const baseXP = 10;

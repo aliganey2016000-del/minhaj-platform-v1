@@ -11,12 +11,34 @@ import Course from '../models/course.model';
 import CourseContent from '../models/course-content.model';
 import Progress from '../models/progress.model';
 import QuizAttempt from '../models/quiz-attempt.model';
+import QuizFirstAttemptClaim from '../models/quiz-first-attempt-claim.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import Student from '../models/student.model';
 import { awardQuizXP, QuizXPResult } from './gamification.controller';
 import { logActivityFromRequest } from '../utils/learning-activity-logger';
 import { gradeQuestionSet } from '../utils/question-engine';
+
+/**
+ * Atomically claims "first attempt" for (student, quizId) — see
+ * quiz-first-attempt-claim.model.ts for why this replaces a plain
+ * `QuizAttempt.exists()` check-then-act, which raced under concurrent
+ * submissions. Returns true for exactly one caller, ever, per quiz.
+ */
+async function claimFirstQuizAttempt(studentId: string, quizId: string): Promise<boolean> {
+  try {
+    const result = await QuizFirstAttemptClaim.findOneAndUpdate(
+      { student: studentId, quizId },
+      { $setOnInsert: { student: studentId, quizId, createdAt: new Date() } },
+      { upsert: true, new: false },
+    );
+    return result === null;
+  } catch (error: any) {
+    // Lost the race to the unique index (duplicate key) — definitely not first.
+    if (error?.code === 11000) return false;
+    throw error;
+  }
+}
 
 function normalizeAnswers(submittedAnswers: any[]): Record<string, unknown> {
   const answerMap: Record<string, unknown> = {};
@@ -127,7 +149,7 @@ export const submitAttempt = async (req: Request, res: Response): Promise<Respon
   // was failing with an uncaught 500. Writes below run as plain sequential
   // operations instead — not atomic, but functional.
   let gamification: QuizXPResult | null = null;
-  let isFirstAttempt = !(await QuizAttempt.exists({ student: student._id, quizId }));
+  const isFirstAttempt = await claimFirstQuizAttempt(student._id.toString(), quizId);
 
   await QuizAttempt.create({
     student: student._id,
