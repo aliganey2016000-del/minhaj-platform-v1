@@ -115,7 +115,7 @@ async function main() {
     res = await request(app).get(`/api/v1/announcements?school=${schoolB._id}`).set(auth(orgAToken));
     titles = (res.body?.data || []).map((a: any) => a.title);
     assert(titles.length === 1 && titles[0] === 'A only', 'a ?school= filter cannot reach another school');
-    res = await request(app).get('/api/v1/announcements').set(auth(token(teacherUserA)));
+    res = await request(app).get('/api/v1/announcements').set(auth(token(teacherUserA, [], schoolA._id.toString())));
     titles = (res.body?.data || []).map((a: any) => a.title);
     assert(res.status === 200 && titles.length === 1 && titles[0] === 'A only', `a teacher sees their own school's items (got ${titles.join(',')})`);
     res = await request(app).patch(`/api/v1/announcements/${annB}`).set(auth(orgAToken)).send({ title: 'Hijacked' });
