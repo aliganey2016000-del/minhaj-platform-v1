@@ -175,8 +175,8 @@ jobs:
       - name: Corrupt student date repair tests
         run: npm run test:student-corrupt-dates
 
-  backend-security-tenant:
-    name: Backend security and tenant isolation
+  backend-security-core:
+    name: Backend security core
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
@@ -221,6 +221,31 @@ jobs:
       - name: Parent portal privacy and authorization tests
         run: npm run test:parent-portal
 
+      - name: Org-reassignment JWT revocation regression
+        run: npm run test:auth-org-reassignment
+
+  backend-tenant-integrity:
+    name: Backend tenant and auth integrity
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Tenant data integrity tests
         run: npm run test:tenant-data-integrity
 
@@ -247,9 +272,6 @@ jobs:
 
       - name: Email template HTML-injection regression (verification email)
         run: npm run test:email-html-injection
-
-      - name: Org-reassignment JWT revocation regression
-        run: npm run test:auth-org-reassignment
 
   backend-exam-finance:
     name: Backend exam and finance
@@ -388,7 +410,8 @@ jobs:
       - changes
       - backend-quality
       - backend-schedule-attendance
-      - backend-security-tenant
+      - backend-security-core
+      - backend-tenant-integrity
       - backend-exam-finance
       - backend-platform
     if: always()
@@ -400,7 +423,8 @@ jobs:
           SHOULD_RUN: ${{ needs.changes.outputs.backend }}
           QUALITY: ${{ needs.backend-quality.result }}
           SCHEDULE_ATTENDANCE: ${{ needs.backend-schedule-attendance.result }}
-          SECURITY_TENANT: ${{ needs.backend-security-tenant.result }}
+          SECURITY_CORE: ${{ needs.backend-security-core.result }}
+          TENANT_INTEGRITY: ${{ needs.backend-tenant-integrity.result }}
           EXAM_FINANCE: ${{ needs.backend-exam-finance.result }}
           PLATFORM: ${{ needs.backend-platform.result }}
         run: |
@@ -416,7 +440,7 @@ jobs:
             exit 0
           fi
 
-          for result in "$QUALITY" "$SCHEDULE_ATTENDANCE" "$SECURITY_TENANT" "$EXAM_FINANCE" "$PLATFORM"; do
+          for result in "$QUALITY" "$SCHEDULE_ATTENDANCE" "$SECURITY_CORE" "$TENANT_INTEGRITY" "$EXAM_FINANCE" "$PLATFORM"; do
             if [[ "$result" != "success" ]]; then
               echo "One or more backend CI shards failed, were cancelled, or were skipped unexpectedly."
               exit 1
