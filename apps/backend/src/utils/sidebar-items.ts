@@ -93,6 +93,7 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/exams/review', label: 'Review & Approval', section: 'Academic' },
   { key: 'admin/results', label: 'Results', section: 'Academic' },
   { key: 'admin/exams/rooms', label: 'Room Allocation (schedule tool)', section: 'Academic' },
+  { key: 'admin/exams/invigilators', label: 'Invigilators', section: 'Academic' },
   { key: 'admin/exams/attendance', label: 'Exam Attendance (schedule tool)', section: 'Academic' },
   { key: 'admin/exams/papers', label: 'Paper Approval (review tool)', section: 'Academic' },
   { key: 'admin/exams/paper-review', label: 'Exam Paper Review', section: 'Academic' },
