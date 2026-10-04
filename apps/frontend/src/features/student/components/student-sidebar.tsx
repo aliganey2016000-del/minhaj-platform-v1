@@ -30,7 +30,11 @@ export function StudentSidebar() {
     })();
   }, []);
 
-  const isVisible = (path: string) => visibility?.[keyForPath(path)] !== false;
+  const isVisible = (path: string) => {
+    const key = keyForPath(path);
+    if (key.startsWith('student/exams') && visibility?.['group:exams'] === false) return false;
+    return visibility?.[key] !== false;
+  };
   const navSections: NavSection[] = [
     { title: 'LEARNING', icon: '📚', items: [
       { path: '/student/courses', label: 'Courses', icon: '📚' },
