@@ -9,23 +9,30 @@
  * dashboard: an in-memory connection count per user (a student can have
  * several tabs/devices open) plus `User.lastSeenAt`, so "online now" is
  * derived rather than a separately-maintained boolean that could drift.
- * Admin/teacher clients that join `presence:watchers` get live push
- * updates; anyone else just gets the connection tracked silently.
+ * Presence is scoped per organization (`presence:<orgId>`) so an org_admin
+ * or teacher watching the dashboard only ever sees their own school's
+ * students online/offline; a platform-wide `admin` instead joins
+ * `presence:global`, which gets every update regardless of org.
  */
 
 import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import User from '../models/user.model';
-import { getAllowedOrigins } from '../utils/cors-origins';
+import { isAllowedOrigin } from '../utils/cors-origins';
 import { canUserViewStudent } from '../utils/student-visibility';
+import { getAuthState, tokenMismatch } from '../utils/auth-state';
 
 let io: SocketIOServer | null = null;
 
 // userId -> number of currently-open sockets (tabs/devices) for that user.
 const connectionCounts = new Map<string, number>();
 
-const PRESENCE_ROOM = 'presence:watchers';
+const PRESENCE_GLOBAL_ROOM = 'presence:global';
+
+function presenceRoom(organizationId: string): string {
+  return `presence:${organizationId}`;
+}
 
 function userRoom(userId: string): string {
   return `user:${userId}`;
@@ -41,24 +48,39 @@ function activityRoom(studentId: string): string {
 export function initSocket(httpServer: HttpServer): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: getAllowedOrigins(),
+      // Mirrors the HTTP layer's dynamic origin check (utils/cors-origins.ts)
+      // instead of the static CLIENT_URL list — otherwise a school on a
+      // custom domain could never open a socket connection at all.
+      origin: (origin, callback) => {
+        isAllowedOrigin(origin)
+          .then((allowed) => callback(null, allowed))
+          .catch(() => callback(null, false));
+      },
       credentials: true,
     },
   });
 
   io.use((socket: Socket, next) => {
-    try {
+    (async () => {
       const token = socket.handshake.auth?.token as string | undefined;
       if (!token) throw new Error('Missing token');
       const decoded = verifyAccessToken(token);
+
+      // The handshake only re-checked the JWT signature/expiry; a
+      // deactivated account, a role change or a revoked staff permission
+      // used to keep a live socket working until the (short-lived) access
+      // token expired. Re-check the live account state the same way
+      // authMiddleware does for HTTP requests.
+      const state = await getAuthState(decoded.userId);
+      if (tokenMismatch(state, decoded)) throw new Error('Unauthorized');
+
       (socket.data as any).userId = decoded.userId;
       (socket.data as any).role = decoded.role;
       // Needed to keep an org_admin's live feed inside their own organization.
       (socket.data as any).organizationId = decoded.organizationId;
-      next();
-    } catch {
-      next(new Error('Unauthorized'));
-    }
+    })()
+      .then(() => next())
+      .catch(() => next(new Error('Unauthorized')));
   });
 
   io.on('connection', (socket: Socket) => {
@@ -72,13 +94,19 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
     const now = new Date();
     void User.updateOne({ _id: userId }, { lastSeenAt: now }).catch(() => {});
     if (wasOffline) {
-      io?.to(PRESENCE_ROOM).emit('presence:update', { userId, online: true, lastSeenAt: now.toISOString() });
+      const update = { userId, online: true, lastSeenAt: now.toISOString() };
+      if (organizationId) io?.to(presenceRoom(organizationId)).emit('presence:update', update);
+      io?.to(PRESENCE_GLOBAL_ROOM).emit('presence:update', update);
     }
 
     // Admin/teacher clients watching the Activity dashboard subscribe here.
+    // A platform-wide admin watches every organization; an org_admin or
+    // teacher only ever joins their own organization's room.
     socket.on('presence:watch', () => {
-      if (role === 'admin' || role === 'teacher' || role === 'org_admin') {
-        socket.join(PRESENCE_ROOM);
+      if (role === 'admin') {
+        socket.join(PRESENCE_GLOBAL_ROOM);
+      } else if ((role === 'teacher' || role === 'org_admin') && organizationId) {
+        socket.join(presenceRoom(organizationId));
       }
     });
 
@@ -111,7 +139,9 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         connectionCounts.delete(userId);
         const seenAt = new Date();
         void User.updateOne({ _id: userId }, { lastSeenAt: seenAt }).catch(() => {});
-        io?.to(PRESENCE_ROOM).emit('presence:update', { userId, online: false, lastSeenAt: seenAt.toISOString() });
+        const update = { userId, online: false, lastSeenAt: seenAt.toISOString() };
+        if (organizationId) io?.to(presenceRoom(organizationId)).emit('presence:update', update);
+        io?.to(PRESENCE_GLOBAL_ROOM).emit('presence:update', update);
       } else {
         connectionCounts.set(userId, remaining);
       }

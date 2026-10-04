@@ -8,6 +8,7 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import Student from '../models/student.model';
@@ -27,10 +28,19 @@ import {
 import ApiResponse from '../utils/api-response';
 import { logLearningActivity } from '../utils/learning-activity-logger';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email.service';
+import { isLoginLocked, recordFailedLogin, clearLoginAttempts } from '../utils/login-lockout';
 
 function clientIp(req: Request): string {
   return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
 }
+
+// A fixed, precomputed hash so an unknown-email login still pays roughly
+// the same bcrypt cost as a real one's comparePassword call below —
+// otherwise a fast rejection for "no such user" vs. a slower one for
+// "wrong password" is a timing side-channel that reveals which emails are
+// registered. The candidate password is never a match against this hash
+// (we only care about the compare taking a comparable amount of time).
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('login-lockout-timing-decoy', 12);
 
 /**
  * The sign-in id the client stamps on every request of one browser session.
@@ -311,20 +321,30 @@ export const register = async (req: Request, res: Response): Promise<Response> =
 
 export const login = async (req: Request, res: Response): Promise<Response> => {
   const { email, password, rememberMe } = req.body;
+  const normalizedEmail = String(email).toLowerCase();
+  const ip = clientIp(req);
 
-  // 1. Find user (explicitly select password + locked fields)
-  const user = await User.findOne({ email: email.toLowerCase() })
-    .select('+password +refreshTokens +tokenVersion +failedLoginAttempts +lockedUntil');
-
-  if (!user) {
-    throw new UnauthorizedError('Invalid email or password');
-  }
-
-  // 2. Check if account is locked
-  if (user.isLocked()) {
+  // 1. Check if this (email, IP) pair is locked. This is deliberately NOT
+  // keyed by email alone — see utils/login-lockout.ts — so an attacker who
+  // knows (or guesses) a registered email cannot lock that account's sign-in
+  // for everyone just by sending 5 bad requests from anywhere.
+  if (isLoginLocked(normalizedEmail, ip)) {
     throw new UnauthorizedError(
       'Account is temporarily locked due to too many failed attempts. Please try again later.'
     );
+  }
+
+  // 2. Find user (explicitly select password + locked fields)
+  const user = await User.findOne({ email: normalizedEmail })
+    .select('+password +refreshTokens +tokenVersion +failedLoginAttempts +lockedUntil');
+
+  if (!user) {
+    // Run a dummy bcrypt compare so this branch costs about as much time as
+    // the real-user branch below (which always calls comparePassword) —
+    // otherwise response time alone reveals which emails are registered.
+    await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+    recordFailedLogin(normalizedEmail, ip);
+    throw new UnauthorizedError('Invalid email or password');
   }
 
   // 3. Check if account is active
@@ -337,13 +357,17 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
   // 4. Verify password
   const isPasswordValid = await user.comparePassword(password);
   if (!isPasswordValid) {
-    // Increment failed attempts
+    // Track failed attempts on the account itself for audit/UI (e.g. an
+    // admin's user security view) — this field is intentionally NOT what
+    // gates the lockout below; see utils/login-lockout.ts.
     user.failedLoginAttempts += 1;
-
-    // Lock account after 5 consecutive failed attempts
     if (user.failedLoginAttempts >= 5) {
-      user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 minute lockout
+      user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
     }
+
+    // The actual lockout enforced on the next attempt is bound to this
+    // (email, IP) pair, not the account alone.
+    recordFailedLogin(normalizedEmail, ip);
 
     await user.save({ validateBeforeSave: false });
 
@@ -356,6 +380,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
   user.failedLoginAttempts = 0;
   user.lockedUntil = undefined;
   user.lastLogin = new Date();
+  clearLoginAttempts(normalizedEmail, ip);
 
   const effectiveOrg = await resolveEffectiveOrganization(user);
 
@@ -550,23 +575,43 @@ export const refreshToken = async (req: Request, res: Response): Promise<Respons
 
   const hashedNewToken = User.hashToken(newTokenPair.refreshToken);
 
-  // Atomic $pull + $push instead of load-mutate-save — concurrent refresh
-  // requests (several API calls hitting a 401 at once and each retrying)
-  // used to race on the same in-memory document version and throw a
-  // Mongoose VersionError, which the frontend treated as "session expired"
-  // and force-redirected to /auth/login mid-edit. An atomic update has no
-  // version to race on.
-  await User.updateOne(
-    { _id: user._id },
-    {
-      $pull: { refreshTokens: hashedOldToken },
-    }
+  // Atomically check-and-remove the old token: the filter requires
+  // refreshTokens to still contain hashedOldToken, so when two concurrent
+  // refresh requests race on the same old token (the earlier membership
+  // check above is a fast-path, not a lock — both could pass it before
+  // either writes), only one findOneAndUpdate can match and pull it.
+  // MongoDB rejects $pull and $push on the same array path within one
+  // update, so the new token is pushed in a second, separate update —
+  // that one is safe to run unconditionally once the pull above has
+  // proven this request owns the token.
+  const rotated = await User.findOneAndUpdate(
+    { _id: user._id, refreshTokens: hashedOldToken },
+    { $pull: { refreshTokens: hashedOldToken } }
   );
+
+  if (!rotated) {
+    // The other concurrent request (or a genuine attacker replaying a
+    // stolen token) consumed it first — treat exactly like the reuse
+    // branch above: invalidate every session.
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { refreshTokens: [] }, $inc: { tokenVersion: 1 } }
+    );
+
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/api',
+    });
+
+    throw new UnauthorizedError('Token reuse detected — all sessions invalidated');
+  }
+
+  // Keep only the latest 5 refresh tokens per user.
   await User.updateOne(
     { _id: user._id },
-    {
-      $push: { refreshTokens: hashedNewToken },
-    }
+    { $push: { refreshTokens: { $each: [hashedNewToken], $slice: -5 } } }
   );
 
   // 7. Set new refresh token cookie
@@ -654,12 +699,18 @@ export const forgotPassword = async (req: Request, res: Response): Promise<Respo
 
   await user.save({ validateBeforeSave: false });
 
-  try {
-    const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
-    await sendPasswordResetEmail(user.email, (profile?.firstName as string) || '', resetToken);
-  } catch (error) {
-    console.error('Failed to send password reset email:', error);
-  }
+  // Fire-and-forget: awaiting the SMTP round trip here would make this
+  // branch (a real account) measurably slower than the "unknown email"
+  // branch above, which is itself exactly the timing side-channel this
+  // generic response is meant to avoid.
+  void (async () => {
+    try {
+      const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
+      await sendPasswordResetEmail(user.email, (profile?.firstName as string) || '', resetToken);
+    } catch (error) {
+      console.error('Failed to send password reset email:', error);
+    }
+  })();
 
   return ApiResponse.success(
     res,
@@ -753,12 +804,15 @@ export const resendVerification = async (req: Request, res: Response): Promise<R
   user.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
   await user.save({ validateBeforeSave: false });
 
-  try {
-    const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
-    await sendVerificationEmail(user.email, (profile?.firstName as string) || '', verificationToken);
-  } catch (error) {
-    console.error('Failed to resend verification email:', error);
-  }
+  // Fire-and-forget for the same timing reason as forgotPassword above.
+  void (async () => {
+    try {
+      const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
+      await sendVerificationEmail(user.email, (profile?.firstName as string) || '', verificationToken);
+    } catch (error) {
+      console.error('Failed to resend verification email:', error);
+    }
+  })();
 
   return ApiResponse.success(
     res,
