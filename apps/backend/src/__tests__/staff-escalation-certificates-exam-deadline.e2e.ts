@@ -5,7 +5,7 @@
  *     user to role "admin": roleMiddleware let staff skip every role list
  *     once any module permission passed, and user.update only restricted
  *     org_admin callers. Staff now act as org_admin of their own school and
- *     can never change roles, schools, admin accounts or their own grants.
+ *     can never change roles, schools, admin accounts or Staff access grants.
  * H1  GET /certificates/:id had no role guard and returned the whole list;
  *     no certificate endpoint was scoped to the caller's school.
  * M1  Submitting an exam after the deadline graded whatever answers the
@@ -117,7 +117,7 @@ async function main() {
     assert(res.status === 403, `staff cannot grant a permission they do not hold (got ${res.status})`);
     res = await request(app).patch(`/api/v1/users/${staffA2._id}/permissions`).set(auth(staffToken))
       .send({ permissions: [{ module: 'organization', actions: ['read'] }] });
-    assert(res.status === 200, `staff can pass on a permission they hold (got ${res.status})`);
+    assert(res.status === 403, `staff cannot administer another Staff member's grants even when they hold that permission (got ${res.status})`);
 
     res = await request(app).post('/api/v1/schools').set(auth(staffToken)).send({ name: 'Rogue' });
     assert(res.status === 403, `staff cannot reach platform-admin-only routes (got ${res.status})`);
