@@ -121,8 +121,22 @@ export const requirePermission = (module: StaffModule, action: StaffAction) => {
       if (!isStaff) return next();
       req.user.isStaff = true;
       const page = (req as any).staffPage as string | undefined;
-      const granted = req.user.permissions.includes(`${module}.${action}`) || (page && req.user.permissions.includes(`page:${page}.${action}`));
-      if (!granted) throw new ForbiddenError(`Staff permission required: ${module}.${action}`);
+      // Compatibility aliases keep pre-existing generic grants working while
+      // new access screens can grant precise actions such as approve/publish.
+      const aliases: Partial<Record<StaffAction, StaffAction[]>> = {
+        receive_payment: ['create'],
+        enter_results: ['create'],
+        approve: ['edit'],
+        publish: ['edit'],
+        submit: ['edit'],
+        print: ['export'],
+      };
+      const candidates = [action, ...(aliases[action] || [])];
+      const granted = candidates.some((candidate) =>
+        req.user!.permissions.includes(`${module}.${candidate}`) ||
+        Boolean(page && req.user!.permissions.includes(`page:${page}.${candidate}`))
+      );
+      if (!granted) throw new ForbiddenError(`Staff permission required: ${page ? `page:${page}` : module}.${action}`);
       if (!req.user.organizationId) throw new ForbiddenError('Your account is not assigned to an organization.');
       // Staff are delegated org admins of exactly one school. Acting as
       // org_admin from here on makes every controller apply its org_admin
@@ -136,108 +150,93 @@ export const requirePermission = (module: StaffModule, action: StaffAction) => {
   };
 };
 
-/** Maps conventional REST endpoints to the action checkbox used by Staff. */
+/** Maps conventional REST endpoints to the page/action checkbox used by Staff. */
+function staffPageForRequest(req: Request): string | undefined {
+  const path = `${req.baseUrl}${req.path}`.toLowerCase();
+  const method = req.method.toUpperCase();
+
+  if (path.includes('/students/report')) return 'admin/students/report';
+  if (path.includes('/students')) return 'admin/students';
+  if (path.includes('/activity')) return 'admin/activity';
+
+  if (path.includes('/courses/') && path.includes('/builder')) return 'admin/courses/builder';
+  if (path.includes('/courses/') && path.includes('/gradebook')) return 'admin/courses/gradebook';
+  if (path.includes('/courses/') && path.includes('/gate-report')) return 'admin/courses/gate-report';
+  if (path.includes('/courses/') && path.includes('/lessons/')) return 'admin/courses/lesson-edit';
+  if (path.includes('/courses/') && path.includes('/quizzes/')) return 'admin/courses/quiz-edit';
+  if (path.includes('/courses/') && path.includes('/exams/')) return 'admin/courses/exam-paper-edit';
+  if (path.includes('/courses/') && path.includes('/preview')) return 'admin/courses/preview';
+
+  if (path.includes('/fee-structures')) return 'admin/payments/fee-structures';
+  if (path.includes('/invoices')) return 'admin/payments/invoices';
+  if (path.includes('/discount-grants') || path.includes('/fee-adjustments')) return 'admin/payments/discounts';
+  if (path.includes('/payments/balances/')) return 'admin/payments/balances/detail';
+  if (path.includes('/payments/balances')) return 'admin/payments/balances';
+  if (path.includes('/payments/reports') || path.includes('/finance/reconciliations')) return 'admin/payments/reports';
+  if (path.includes('/payments/history')) return 'admin/payments/history';
+  if (path.includes('/payments/bulk')) return 'admin/payments/bulk';
+  if (path.includes('/payments/record')) return 'admin/payments/record';
+  if (path.includes('/payments') || path.includes('/refunds') || path.includes('/cash-sessions') || path.includes('/finance')) {
+    return method === 'POST' ? 'admin/payments/record' : 'admin/payments';
+  }
+
+  if (path.includes('/exam-rooms')) return 'admin/exams/rooms';
+  if (path.includes('/invigilator')) return 'admin/exams/invigilators';
+  if (path.includes('/exam-incidents')) return 'admin/exams/compliance';
+  if (path.includes('/exams/') && path.includes('/attendance')) return 'admin/exams/attendance';
+  if (path.includes('/exams/') && path.includes('/paper/review')) return 'admin/exams/paper-review';
+  if (path.includes('/results')) return method === 'GET' || method === 'HEAD' ? 'admin/results' : 'admin/results/enter';
+  if (path.includes('/certificates')) return 'admin/certificates';
+  if (path.includes('/exams')) return method === 'GET' || method === 'HEAD' ? 'admin/exams' : 'admin/exams/schedule';
+
+  if (path.includes('/courses')) return 'admin/courses';
+  if (path.includes('/parents')) return 'admin/parents';
+  if (path.includes('/teachers')) return 'admin/teachers';
+  if (path.includes('/staff')) return 'admin/staff';
+  if (path.includes('/schools')) return 'admin/schools';
+  if (path.includes('/users/') && (path.includes('/permissions') || path.includes('/sidebar-access'))) return 'admin/hr/access';
+  if (path.includes('/users')) return 'admin/users';
+  if (path.includes('/classes')) return 'admin/classes';
+  if (path.includes('/class-schedules')) return 'admin/schedules';
+  if (path.includes('/attendance')) return 'admin/attendance';
+  if (path.includes('/assignments')) return 'admin/assignments';
+  if (path.includes('/forum')) return 'admin/forum';
+  if (path.includes('/whatsapp')) return 'admin/whatsapp';
+  if (path.includes('/telegram')) return 'admin/telegram';
+  if (path.includes('/announcements')) return 'admin/announcements';
+  if (path.includes('/news')) return 'admin/news';
+  if (path.includes('/events')) return 'admin/events';
+  if (path.includes('/gallery')) return 'admin/gallery';
+  if (path.includes('/sidebar-settings')) return 'admin/settings/sidebar';
+  if (path.includes('/system')) return 'admin/settings';
+  if (path.includes('/trash')) return 'admin/trash';
+  return undefined;
+}
+
+function staffActionForRequest(req: Request, module: StaffModule, page?: string): StaffAction {
+  const path = `${req.baseUrl}${req.path}`.toLowerCase();
+  const method = req.method.toUpperCase();
+
+  if (path.includes('publish')) return 'publish';
+  if (path.includes('approve')) return 'approve';
+  if (path.includes('submit')) return 'submit';
+  if (path.includes('print')) return 'print';
+  if (path.includes('export') || path.includes('template')) return 'export';
+  if (path.includes('import')) return 'import';
+  if (method === 'GET' || method === 'HEAD') return 'read';
+  if (method === 'DELETE') return 'delete';
+  if (module === 'finance' && method === 'POST' && (page === 'admin/payments/record' || page === 'admin/payments/bulk')) return 'receive_payment';
+  if (module === 'exams' && method === 'POST' && page === 'admin/results/enter') return 'enter_results';
+  if (method === 'POST') return 'create';
+  return 'edit';
+}
+
 export const requireModulePermission = (module: StaffModule) => {
   return (req: Request, _res: Response, next: NextFunction): void => {
     (req as any).staffModule = module;
-    const path = `${req.baseUrl}${req.path}`.toLowerCase();
-    const page = path.includes('/students/report')
-      ? 'admin/students/report'
-      : path.includes('/students')
-        ? 'admin/students'
-      : path.includes('/activity')
-        ? 'admin/activity'
-        : path.includes('/courses/') && path.includes('/builder')
-          ? 'admin/courses/builder'
-          : path.includes('/courses/') && path.includes('/gradebook')
-            ? 'admin/courses/gradebook'
-            : path.includes('/courses/') && path.includes('/gate-report')
-              ? 'admin/courses/gate-report'
-              : path.includes('/courses/') && path.includes('/lessons/')
-                ? 'admin/courses/lesson-edit'
-                : path.includes('/courses/') && path.includes('/quizzes/')
-                  ? 'admin/courses/quiz-edit'
-                  : path.includes('/courses/') && path.includes('/exams/')
-                    ? 'admin/courses/exam-paper-edit'
-                    : path.includes('/courses/') && path.includes('/preview')
-                      ? 'admin/courses/preview'
-                      : path.includes('/fee-structures')
-        ? 'admin/payments/fee-structures'
-        : path.includes('/invoices')
-          ? 'admin/payments/invoices'
-          : path.includes('/discount-grants')
-            ? 'admin/payments/discounts'
-            : path.includes('/payments') || path.includes('/refunds') || path.includes('/cash-sessions') || path.includes('/finance')
-              ? 'admin/payments'
-              : path.includes('/exams/') && path.includes('/paper/review')
-                ? 'admin/exams/paper-review'
-                : path.includes('/exam-rooms')
-                ? 'admin/exams/rooms'
-                : path.includes('/exam-incidents')
-                  ? 'admin/exams/compliance'
-                  : path.includes('/exams')
-                    ? 'admin/exams'
-                    : path.includes('/results')
-                      ? 'admin/results'
-                      : path.includes('/certificates')
-                        ? 'admin/certificates'
-                        : path.includes('/courses')
-                          ? 'admin/courses'
-                          : path.includes('/parents')
-                            ? 'admin/parents'
-                            : path.includes('/teachers')
-                              ? 'admin/teachers'
-                              : path.includes('/staff')
-                                ? 'admin/staff'
-                                : path.includes('/schools')
-                                  ? 'admin/schools'
-                                  : path.includes('/users/permissions')
-                                    ? 'admin/roles'
-                                    : path.includes('/users')
-                                      ? 'admin/users'
-                                    : path.includes('/classes')
-                                      ? 'admin/classes'
-                                      : path.includes('/payments/balances/')
-                                        ? 'admin/payments/balances/detail'
-                                        : path.includes('/class-schedules')
-                                        ? 'admin/schedules'
-                                        : path.includes('/attendance')
-                                          ? 'admin/attendance'
-                                          : path.includes('/assignments')
-                                            ? 'admin/assignments'
-                                            : path.includes('/forum')
-                                              ? 'admin/forum'
-                                              : path.includes('/whatsapp')
-                                                ? 'admin/whatsapp'
-                                                : path.includes('/telegram')
-                                                  ? 'admin/telegram'
-                                                  : path.includes('/announcements')
-                                                    ? 'admin/announcements'
-                                                    : path.includes('/news')
-                                                      ? 'admin/news'
-                                                      : path.includes('/events')
-                                                        ? 'admin/events'
-                                                        : path.includes('/gallery')
-                                                          ? 'admin/gallery'
-                                                          : path.includes('/sidebar-settings')
-                                                            ? 'admin/settings/sidebar'
-                                                            : path.includes('/system')
-                                                              ? 'admin/settings'
-                                                              : path.includes('/trash')
-                                                                ? 'admin/trash'
-                                                                : undefined;
+    const page = staffPageForRequest(req);
     (req as any).staffPage = page;
-    const action: StaffAction = req.path.toLowerCase().includes('import')
-      ? 'import'
-      : path.includes('export') || path.includes('template')
-        ? 'export'
-        : req.method === 'GET' || req.method === 'HEAD'
-          ? 'read'
-          : req.method === 'POST'
-            ? 'create'
-            : req.method === 'DELETE'
-              ? 'delete'
-              : 'edit';
+    const action = staffActionForRequest(req, module, page);
     requirePermission(module, action)(req, _res, next);
   };
 };
