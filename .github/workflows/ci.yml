@@ -160,6 +160,9 @@ jobs:
       - name: Backup/restore regression (scripts/backup.ts packaging, encryption, and dump-dir resolution)
         run: npx ts-node src/__tests__/backup-restore.e2e.ts
 
+      - name: Exam room capacity shrink regression (room edit/import vs seated students)
+        run: npm run test:exam-room-capacity-shrink
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest

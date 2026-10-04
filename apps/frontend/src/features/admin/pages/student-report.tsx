@@ -339,7 +339,7 @@ export function StudentReport() {
           </div>
           <div className="flex flex-wrap gap-2 items-center flex-shrink-0">
             {isSuperAdmin && (
-              <select value={filterSchool} onChange={e => setFilterSchool(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm text-[var(--color-text-primary)]">
+              <select aria-label="Filter by organization" value={filterSchool} onChange={e => setFilterSchool(e.target.value)} className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm text-[var(--color-text-primary)]">
                 <option value="">All Organizations</option>
                 {schools.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
               </select>

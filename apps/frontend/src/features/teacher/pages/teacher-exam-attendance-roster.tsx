@@ -100,7 +100,7 @@ export function TeacherExamAttendanceRoster() {
         <div className="sticky top-2 z-10 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]/95 p-3 shadow-lg backdrop-blur-md">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-2"><button onClick={() => setAll('present')} className="min-h-10 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white">All Present</button><button onClick={() => setAll('absent')} className="min-h-10 rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white">All Absent</button></div>
-            <div className="relative min-w-0 sm:w-72"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search student or ID..." className="min-h-10 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent py-2 pl-9 pr-3 text-sm"/></div>
+            <div className="relative min-w-0 sm:w-72"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search student or ID..." aria-label="Search student or ID" className="min-h-10 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent py-2 pl-9 pr-3 text-sm"/></div>
           </div>
         </div>
 
@@ -117,7 +117,7 @@ export function TeacherExamAttendanceRoster() {
                 <button onClick={() => setStatuses((p) => ({ ...p, [id]: 'present' }))} className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 text-sm font-bold ${current === 'present' ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-[var(--color-border-default)]'}`}><Check className="h-4 w-4"/>Present</button>
                 <button onClick={() => setStatuses((p) => ({ ...p, [id]: 'absent' }))} className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 text-sm font-bold ${current === 'absent' ? 'border-red-600 bg-red-600 text-white' : 'border-[var(--color-border-default)]'}`}><X className="h-4 w-4"/>Absent</button>
               </div>
-              {current==='absent'&&<input value={notes[id] || ''} onChange={(e) => setNotes((p) => ({ ...p, [id]: e.target.value }))} placeholder="Excuse / reason (optional)" className="mt-2 min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" />}
+              {current==='absent'&&<input value={notes[id] || ''} onChange={(e) => setNotes((p) => ({ ...p, [id]: e.target.value }))} placeholder="Excuse / reason (optional)" aria-label={`Excuse or reason for ${nameOf(row.student)}`} className="mt-2 min-h-11 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" />}
             </article>;
           })}
         </div>
