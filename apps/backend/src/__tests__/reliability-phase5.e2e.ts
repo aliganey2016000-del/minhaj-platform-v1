@@ -110,6 +110,13 @@ async function main() {
 
     section('1: repairStudentRegistrationIndex does not throw on duplicates (non-strict)');
     const studentregistrations = mongoose.connection.collection('studentregistrations');
+    // The repair function's own job is migrating away from the old sparse
+    // index to this partial unique one — but mongoose's autoIndex already
+    // created it on connection, before this section ever runs. To simulate
+    // the pre-repair state the function is meant to handle (duplicates left
+    // over from before the unique index existed), drop it first so the
+    // fixture insert below can actually create the duplicate.
+    await studentregistrations.dropIndex('school_registrationNumber_unique').catch(() => {});
     // `student` is its own required+unique field, separate from the
     // registrationNumber duplicate this section is testing — each row needs
     // a distinct one so real MongoDB's unique index on `student` doesn't
