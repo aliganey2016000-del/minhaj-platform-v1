@@ -1274,7 +1274,7 @@ export const downloadTemplate = async (_req: Request, res: Response): Promise<vo
   ]];
   const buffer = buildXlsxBuffer(headers, rows, 'Student Template');
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=students-template.xlsx');
   res.end(buffer);
 };

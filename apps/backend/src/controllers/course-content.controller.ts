@@ -346,7 +346,7 @@ export const downloadImportTemplate = async (_req: Request, res: Response): Prom
   ];
   const buffer = buildXlsxBuffer(headers, rows, 'Course Content Template');
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=course-content-template.xlsx');
   res.end(buffer);
 };
@@ -571,7 +571,7 @@ export const downloadBlocksImportTemplate = async (req: Request, res: Response):
   appendAiPromptSheets(workbook);
   const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument/spreadsheetml.sheet');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=content-blocks-bulk-template.xlsx');
   res.end(buffer);
 };
