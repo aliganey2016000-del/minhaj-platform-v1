@@ -36,5 +36,7 @@ const examAttendanceLogSchema = new Schema<IExamAttendanceLog>(
 );
 
 examAttendanceLogSchema.index({ exam: 1, student: 1, createdAt: -1 });
+// Retention: exam attendance logs are kept for 24 months, then MongoDB removes them.
+examAttendanceLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 2 * 365 * 24 * 60 * 60, name: 'createdAt_ttl_24_months' });
 
 export default mongoose.model<IExamAttendanceLog>('ExamAttendanceLog', examAttendanceLogSchema);

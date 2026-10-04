@@ -65,5 +65,7 @@ schema.index({ student: 1, startedAt: -1 });
 schema.index({ student: 1, status: 1 });
 schema.index({ student: 1, loginSessionId: 1, startedAt: -1 });
 schema.index({ school: 1, startedAt: -1 });
+// Retention: learning sessions are kept for 12 months, then MongoDB removes them.
+schema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60, name: 'createdAt_ttl_12_months' });
 
 export default mongoose.model<ILearningSession>('LearningSession', schema);

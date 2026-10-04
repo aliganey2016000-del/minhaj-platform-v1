@@ -191,39 +191,113 @@ export const getStudentBalances = async (req: Request, res: Response): Promise<R
 
   if (classId) (filter as any).class = classId;
   if (outstandingOnly === 'true') (filter as any).totalFeesDue = { $gt: 0 };
-  if (search) {
-    const regex = { $regex: escapeRegex(search as string), $options: 'i' };
-    (filter as any).$or = [
-      { studentId: regex },
-    ];
-  }
 
-  const students = await Student.find(filter)
-    .populate('profile', 'firstName lastName')
-    .populate('school', 'name')
-    .populate('class', 'title section')
-    .select('studentId profile school class totalFees totalFeesPaid totalFeesDue discount status')
-    .sort(sort === 'paid' ? { totalFeesPaid: -1 } : { totalFeesDue: -1 })
-    .lean();
-
-  // Post-filter by name if search (since name is in populated profile)
-  let result = students;
-  if (search) {
-    const s = (search as string).toLowerCase();
-    result = students.filter((st: any) => {
-      const name = `${st.profile?.firstName || ''} ${st.profile?.lastName || ''}`.toLowerCase();
-      return name.includes(s) || (st.studentId || '').toLowerCase().includes(s);
-    });
-  }
-
-  // Aggregate
-  const aggregateFees = result.reduce((sum, s: any) => sum + (s.totalFees || 0), 0);
-  const aggregatePaid = result.reduce((sum, s: any) => sum + (s.totalFeesPaid || 0), 0);
-  const aggregateDue = result.reduce((sum, s: any) => sum + (s.totalFeesDue || 0), 0);
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 20));
-  const start = (pageNum - 1) * limitNum;
-  const pageRows = result.slice(start, start + limitNum);
+  const sortStage: Record<string, 1 | -1> = sort === 'paid' ? { totalFeesPaid: -1 } : { totalFeesDue: -1 };
+
+  // Aggregate summary (over every matching student, not just the current
+  // page) computed in the DB rather than loading the whole roster into
+  // Node to sum and then paginate in memory.
+  const summaryMatch = castObjectIdFilter(filter, ['school', 'class']);
+
+  let pageRows: any[];
+  let total: number;
+  let summaryTotals: { aggregateFees: number; aggregatePaid: number; aggregateDue: number };
+
+  if (search) {
+    // Name lives on the populated Profile doc, so a DB-level name search
+    // needs a $lookup — matches the search-then-paginate pattern used in
+    // student.controller.ts's getAll.
+    const regex = new RegExp(escapeRegex(search as string), 'i');
+    const orClauses: Record<string, unknown>[] = [
+      { studentId: regex },
+      { fullName: regex },
+    ];
+
+    const [facetResult] = await Student.aggregate([
+      { $match: summaryMatch },
+      { $lookup: { from: 'profiles', localField: 'profile', foreignField: '_id', as: 'profileDoc' } },
+      { $unwind: { path: '$profileDoc', preserveNullAndEmptyArrays: true } },
+      { $addFields: { fullName: { $concat: [{ $ifNull: ['$profileDoc.firstName', ''] }, ' ', { $ifNull: ['$profileDoc.lastName', ''] }] } } },
+      { $match: { $or: orClauses } },
+      {
+        $facet: {
+          data: [
+            { $sort: sortStage },
+            { $skip: (pageNum - 1) * limitNum },
+            { $limit: limitNum },
+            { $project: { _id: 1 } },
+          ],
+          totalCount: [{ $count: 'count' }],
+          totals: [
+            {
+              $group: {
+                _id: null,
+                aggregateFees: { $sum: { $ifNull: ['$totalFees', 0] } },
+                aggregatePaid: { $sum: { $ifNull: ['$totalFeesPaid', 0] } },
+                aggregateDue: { $sum: { $ifNull: ['$totalFeesDue', 0] } },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const orderedIds: string[] = (facetResult?.data || []).map((row: any) => String(row._id));
+    total = facetResult?.totalCount?.[0]?.count || 0;
+    const totals = facetResult?.totals?.[0];
+    summaryTotals = {
+      aggregateFees: totals?.aggregateFees || 0,
+      aggregatePaid: totals?.aggregatePaid || 0,
+      aggregateDue: totals?.aggregateDue || 0,
+    };
+
+    const pageDocs = orderedIds.length
+      ? await Student.find({ _id: { $in: orderedIds } })
+          .populate('profile', 'firstName lastName')
+          .populate('school', 'name')
+          .populate('class', 'title section')
+          .select('studentId profile school class totalFees totalFeesPaid totalFeesDue discount status')
+          .lean()
+      : [];
+    const docById = new Map(pageDocs.map((doc: any) => [String(doc._id), doc]));
+    pageRows = orderedIds.map((id) => docById.get(id)).filter(Boolean);
+  } else {
+    const [students, count, totalsAgg] = await Promise.all([
+      Student.find(filter)
+        .populate('profile', 'firstName lastName')
+        .populate('school', 'name')
+        .populate('class', 'title section')
+        .select('studentId profile school class totalFees totalFeesPaid totalFeesDue discount status')
+        .sort(sortStage)
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      Student.countDocuments(filter),
+      Student.aggregate([
+        { $match: summaryMatch },
+        {
+          $group: {
+            _id: null,
+            aggregateFees: { $sum: { $ifNull: ['$totalFees', 0] } },
+            aggregatePaid: { $sum: { $ifNull: ['$totalFeesPaid', 0] } },
+            aggregateDue: { $sum: { $ifNull: ['$totalFeesDue', 0] } },
+          },
+        },
+      ]),
+    ]);
+    pageRows = students;
+    total = count;
+    const totals = totalsAgg?.[0];
+    summaryTotals = {
+      aggregateFees: totals?.aggregateFees || 0,
+      aggregatePaid: totals?.aggregatePaid || 0,
+      aggregateDue: totals?.aggregateDue || 0,
+    };
+  }
+
+  const { aggregateFees, aggregatePaid, aggregateDue } = summaryTotals;
 
   return ApiResponse.success(res, {
     students: pageRows.map((s: any) => ({
@@ -239,13 +313,13 @@ export const getStudentBalances = async (req: Request, res: Response): Promise<R
       status: s.status,
     })),
     summary: {
-      totalStudents: result.length,
+      totalStudents: total,
       aggregateFees,
       aggregatePaid,
       aggregateDue,
       collectionRate: aggregateFees > 0 ? Math.round((aggregatePaid / aggregateFees) * 100) : 0,
     },
-    meta: { page: pageNum, limit: limitNum, total: result.length, totalPages: Math.ceil(result.length / limitNum) },
+    meta: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
   });
 };
 

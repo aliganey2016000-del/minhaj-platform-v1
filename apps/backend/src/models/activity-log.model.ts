@@ -24,5 +24,7 @@ const schema = new Schema<IActivityLog>(
 
 schema.index({ createdAt: -1 });
 schema.index({ action: 1 });
+// Retention: activity logs are kept for 12 months, then MongoDB removes them.
+schema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60, name: 'createdAt_ttl_12_months' });
 
 export default mongoose.model<IActivityLog>('ActivityLog', schema);
