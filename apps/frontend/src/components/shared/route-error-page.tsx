@@ -4,8 +4,8 @@
  * Router-level errorElement. The most common production failure here is a
  * deployment replacing Vite's content-hashed lazy chunks while an older tab
  * still references the previous build. Recover that case once by clearing the
- * two runtime caches that can hold the previous app shell/code, asking the
- * service-worker registration to check for an update, then reloading.
+ * runtime app caches, unregistering the stale controlling service worker, and
+ * reloading from the network.
  *
  * Non-chunk render errors still land on the normal retry screen.
  */
@@ -27,10 +27,15 @@ async function clearStaleRuntimeCaches(): Promise<void> {
   await Promise.all(APP_RUNTIME_CACHES.map((name) => window.caches.delete(name)));
 }
 
-async function checkForServiceWorkerUpdate(): Promise<void> {
+async function resetServiceWorkerForFreshNavigation(): Promise<void> {
   if (!('serviceWorker' in navigator)) return;
-  const registration = await navigator.serviceWorker.getRegistration();
-  await registration?.update();
+  const registrations = await navigator.serviceWorker.getRegistrations();
+
+  // A chunk failure means the current app shell and deployed assets disagree.
+  // Unregistering here is safe because this path runs only after a chunk-load
+  // failure. The next page load comes from the network and registers the
+  // current worker again.
+  await Promise.all(registrations.map((registration) => registration.unregister()));
 }
 
 /**
@@ -51,7 +56,7 @@ export function reloadForNewBuild(force = false): boolean {
 
   void Promise.allSettled([
     clearStaleRuntimeCaches(),
-    checkForServiceWorkerUpdate(),
+    resetServiceWorkerForFreshNavigation(),
   ]).then(() => window.location.reload());
 
   return true;
