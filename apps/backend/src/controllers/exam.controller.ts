@@ -1590,6 +1590,31 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   return ApiResponse.success(res, exam, 'Exam updated successfully');
 };
 
+// Deleting an Exam used to leave every document that points back at it
+// (exam._id is required on each of these) stranded as an orphan — a paper
+// nobody can reach, attempts/results for an exam that no longer exists,
+// attendance/seating/appeals/incidents/eligibility rows with a dangling
+// exam reference. Exam isn't part of the Trash/soft-delete system (see
+// utils/trash.ts's MODEL_REGISTRY — it only covers Student/Parent/Teacher/
+// Class/Course/School/User/Profile), so this is a real hard delete; clean
+// up everything that references the exam(s) being removed in the same
+// call instead of leaving them behind.
+async function deleteExamDependents(examIds: unknown[]): Promise<void> {
+  if (examIds.length === 0) return;
+  const filter = { exam: { $in: examIds } };
+  await Promise.all([
+    ExamPaper.deleteMany(filter),
+    ExamAttempt.deleteMany(filter),
+    Result.deleteMany(filter),
+    ExamAttendance.deleteMany(filter),
+    ExamAttendanceLog.deleteMany(filter),
+    SeatAllocation.deleteMany(filter),
+    ExamAppeal.deleteMany(filter),
+    ExamIncident.deleteMany(filter),
+    ExamEligibility.deleteMany(filter),
+  ]);
+}
+
 // DELETE /exams/:id
 export const remove = async (req: Request, res: Response): Promise<Response> => {
   const existing = await Exam.findById(req.params.id).populate('course', 'school teacher');
@@ -1597,6 +1622,7 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   assertOwnsOrg(req, existing, 'school');
   await assertOwnsExamIfTeacher(req, existing);
 
+  await deleteExamDependents([existing._id]);
   await Exam.findByIdAndDelete(req.params.id);
   return ApiResponse.noContent(res, 'Exam deleted');
 };
@@ -1877,6 +1903,8 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
     filter.course = { $in: teacherCourseIds };
   }
 
+  const idsToDelete = await Exam.find(filter).distinct('_id');
+  await deleteExamDependents(idsToDelete);
   const result = await Exam.deleteMany(filter);
   return ApiResponse.success(res, { deleted: result.deletedCount }, `Deleted ${result.deletedCount} exam(s)`);
 };
