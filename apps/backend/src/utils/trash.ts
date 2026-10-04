@@ -40,6 +40,7 @@ export async function logTrashActivity(
     if (!req.user?.userId) return;
     await ActivityLog.create({
       user: req.user.userId,
+      organizationId: req.user.organizationId || null,
       action: action === 'restore' ? 'update' : 'delete',
       resource,
       resourceId,
