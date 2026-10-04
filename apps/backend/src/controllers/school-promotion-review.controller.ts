@@ -3,10 +3,13 @@ import mongoose from 'mongoose';
 import ClassModel from '../models/class.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError } from '../utils/api-error';
+import { BadRequestError, ConflictError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 import { completeStudentEnrollmentHistory, reassignStudentClassCourses } from '../services/enrollment.service';
-import { findPersistentTargetClass, describeMissingTarget, classifyClasses, runWithConcurrency, MissingTarget } from '../services/class-promotion.service';
+import {
+  findPersistentTargetClass, describeMissingTarget, classifyClasses, runWithConcurrency, MissingTarget,
+  acquirePromotionLock, releasePromotionLock,
+} from '../services/class-promotion.service';
 
 const PROMOTION_CONCURRENCY = 10;
 
@@ -113,6 +116,21 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
     throw new BadRequestError('Academic year must use YYYY-YYYY, for example 2027-2028.');
   }
 
+  // Serializes concurrent runs for this school — see
+  // promotion-lock.model.ts and school-year-promotion.controller.ts's
+  // promoteAll for why the "alreadyHandled" check below (a plain read) is
+  // not enough on its own against two genuinely concurrent requests.
+  if (!(await acquirePromotionLock(schoolId))) {
+    throw new ConflictError('A promotion run is already in progress for this school. Wait for it to finish before starting another.');
+  }
+  try {
+    return await runPromoteReviewed(req, res, schoolId, targetAcademicYear);
+  } finally {
+    await releasePromotionLock(schoolId);
+  }
+};
+
+async function runPromoteReviewed(req: Request, res: Response, schoolId: string, targetAcademicYear: string): Promise<Response> {
   const classes = await activeGradedClasses(schoolId);
   const { isFinalClass } = classifyClasses(classes);
 
@@ -242,4 +260,4 @@ export const promoteReviewed = async (req: Request, res: Response): Promise<Resp
     sourceAcademicYear: previousAcademicYear(targetAcademicYear) || '', targetAcademicYear,
     studentsPromoted, studentsRepeated, studentsGraduated, missingTargets, skippedStudents, alreadyHandled,
   }, message);
-};
+}
