@@ -61,7 +61,7 @@ function staffPageForLocation(pathname: string, search: string): string | null {
     if (search.includes('tab=structure')) return 'admin/hr?tab=structure';
     return 'admin/hr';
   }
-  if (pathname.startsWith('/admin/hr/access')) return 'admin/hr/access';
+  if (pathname.startsWith('/admin/hr/access')) return '__unmapped__';
   if (pathname.startsWith('/admin/staff')) return 'admin/staff';
   if (pathname.startsWith('/admin/parents')) return 'admin/parents';
   if (pathname.startsWith('/admin/teachers')) return 'admin/teachers';
@@ -79,9 +79,9 @@ function staffPageForLocation(pathname: string, search: string): string | null {
   if (pathname.startsWith('/admin/news')) return 'admin/news';
   if (pathname.startsWith('/admin/events')) return 'admin/events';
   if (pathname.startsWith('/admin/gallery')) return 'admin/gallery';
-  if (pathname.startsWith('/admin/roles')) return 'admin/roles';
+  if (pathname.startsWith('/admin/roles')) return '__unmapped__';
   if (pathname.startsWith('/admin/settings/org-sidebar') || pathname.startsWith('/admin/settings/branding')) return '__unmapped__';
-  if (pathname.startsWith('/admin/settings/sidebar')) return 'admin/settings/sidebar';
+  if (pathname.startsWith('/admin/settings/sidebar')) return '__unmapped__';
   if (pathname.startsWith('/admin/settings')) return 'admin/settings';
   if (pathname.startsWith('/admin/analytics')) return search.includes('tab=overview') ? 'admin/analytics?tab=overview' : 'admin/analytics';
   if (pathname.startsWith('/admin/logs')) return 'admin/logs';
