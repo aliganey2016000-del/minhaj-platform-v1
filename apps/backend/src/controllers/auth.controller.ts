@@ -654,12 +654,18 @@ export const forgotPassword = async (req: Request, res: Response): Promise<Respo
 
   await user.save({ validateBeforeSave: false });
 
-  try {
-    const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
-    await sendPasswordResetEmail(user.email, (profile?.firstName as string) || '', resetToken);
-  } catch (error) {
-    console.error('Failed to send password reset email:', error);
-  }
+  // Fire-and-forget: awaiting the SMTP round trip here would make this
+  // branch (a real account) measurably slower than the "unknown email"
+  // branch above, which is itself exactly the timing side-channel this
+  // generic response is meant to avoid.
+  void (async () => {
+    try {
+      const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
+      await sendPasswordResetEmail(user.email, (profile?.firstName as string) || '', resetToken);
+    } catch (error) {
+      console.error('Failed to send password reset email:', error);
+    }
+  })();
 
   return ApiResponse.success(
     res,
@@ -753,12 +759,15 @@ export const resendVerification = async (req: Request, res: Response): Promise<R
   user.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
   await user.save({ validateBeforeSave: false });
 
-  try {
-    const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
-    await sendVerificationEmail(user.email, (profile?.firstName as string) || '', verificationToken);
-  } catch (error) {
-    console.error('Failed to resend verification email:', error);
-  }
+  // Fire-and-forget for the same timing reason as forgotPassword above.
+  void (async () => {
+    try {
+      const profile = await Profile.findOne({ user: user._id }).select('firstName').lean();
+      await sendVerificationEmail(user.email, (profile?.firstName as string) || '', verificationToken);
+    } catch (error) {
+      console.error('Failed to resend verification email:', error);
+    }
+  })();
 
   return ApiResponse.success(
     res,

@@ -183,6 +183,14 @@ const authIpLimiter = rateLimit({
 app.use('/api/', limiter);
 app.use('/api/v1/auth/login', authAccountLimiter, authIpLimiter);
 app.use('/api/v1/auth/register', authAccountLimiter, authIpLimiter);
+// forgot-password and resend-verification both look up a user by email and
+// await an SMTP send before responding with the same generic "if an account
+// exists..." body either way — without a per-target limit, an attacker can
+// still time the enumeration by hammering one address until the account
+// limiter trips (an unknown email returns immediately; a real one waits on
+// mail delivery), and without an IP limit can sweep many addresses quickly.
+app.use('/api/v1/auth/forgot-password', authAccountLimiter, authIpLimiter);
+app.use('/api/v1/auth/resend-verification', authAccountLimiter, authIpLimiter);
 
 // ---------------------------------------------------------------------------
 // Data Sanitization
