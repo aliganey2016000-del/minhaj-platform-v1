@@ -49,7 +49,10 @@ interface DashboardData {
   teacher: {
     teacherId: string;
     qualification?: string;
-    specialization?: string;
+    // Backend (teacher.model.ts) stores this as string[] — rendering the
+    // array directly (as this code previously assumed a plain string) would
+    // concatenate entries with no separator (e.g. "TajweedFiqh").
+    specialization?: string[];
   };
 }
 
@@ -234,8 +237,8 @@ export function TeacherDashboard() {
                 {isSo ? 'Dashboard-ka Macallinka' : lang === 'ar' ? 'لوحة المعلم' : 'Teacher Dashboard'}
               </h1>
               <p className="mt-1 max-w-2xl text-sm text-emerald-50">
-                {dashboard.teacher?.specialization
-                  ? dashboard.teacher.specialization
+                {dashboard.teacher?.specialization?.length
+                  ? dashboard.teacher.specialization.join(', ')
                   : isSo ? 'Waxyaabaha muhiimka kuu ah hal meel.' : 'The work that needs your attention, in one place.'}
               </p>
               {dashboard.teacher?.teacherId && (

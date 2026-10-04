@@ -21,7 +21,7 @@
  */
 
 import { useRef, useState, useMemo, useEffect } from 'react';
-import { sanitizeHtml } from '../../lib/sanitize-html';
+import { sanitizeHtmlForSandboxedFrame } from '../../lib/sanitize-html';
 import { detectTextDirection } from '../../lib/text-direction';
 import { useTheme } from '../../store/theme-context';
 
@@ -142,7 +142,7 @@ function buildShellForFragment(bodyHtml: string, isDark: boolean): string {
  * there's no closing tag to anchor on) so these also auto-size correctly.
  */
 function passThroughDocument(raw: string): string {
-  const sanitized = sanitizeHtml(raw);
+  const sanitized = sanitizeHtmlForSandboxedFrame(raw);
   return /<\/body>/i.test(sanitized)
     ? sanitized.replace(/<\/body>/i, `${RESIZE_REPORTER_SCRIPT}</body>`)
     : `${sanitized}${RESIZE_REPORTER_SCRIPT}`;
@@ -181,7 +181,7 @@ function SandboxIframe({
       return passThroughDocument(html);
     }
     // Fragment — wrap in a minimal shell
-    const sanitized = sanitizeHtml(html);
+    const sanitized = sanitizeHtmlForSandboxedFrame(html);
     return buildShellForFragment(sanitized, isDark);
   }, [html, isDark]);
 
