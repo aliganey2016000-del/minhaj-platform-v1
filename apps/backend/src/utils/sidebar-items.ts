@@ -5,7 +5,7 @@ export interface SidebarItemDef {
   section: string;
 }
 
-export type SidebarPortal = 'student' | 'admin';
+export type SidebarPortal = 'student' | 'teacher' | 'admin';
 
 export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'student/courses', label: 'My Courses', section: 'Learning & Performance' },
@@ -26,6 +26,33 @@ export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'student/notifications', label: 'Notifications', section: 'Account' },
   { key: 'student/profile', label: 'Profile', section: 'Account' },
   { key: 'student/settings', label: 'Settings', section: 'Account' },
+];
+
+export const TEACHER_SIDEBAR_ITEMS: SidebarItemDef[] = [
+  { key: 'teacher', label: 'Dashboard', section: 'Teaching' },
+  { key: 'teacher/courses', label: 'My Courses', section: 'Teaching' },
+  { key: 'teacher/schedule', label: 'Teaching Schedule', section: 'Teaching' },
+  { key: 'teacher/attendance', label: 'Student Attendance', section: 'Teaching' },
+  { key: 'teacher/my-attendance', label: 'My Attendance', section: 'Teaching' },
+  { key: 'teacher/assignments', label: 'Assignments', section: 'Teaching' },
+  { key: 'teacher/exams', label: 'Exam Workspace', section: 'Exams' },
+  { key: 'teacher/exam-attendance', label: 'Exam Attendance', section: 'Exams' },
+  { key: 'teacher/exam-papers', label: 'Exam Papers', section: 'Exams' },
+  { key: 'teacher/exam-incidents', label: 'Exam Incidents', section: 'Exams' },
+  { key: 'group:quizzes', label: 'Quiz Builder (entire menu)', section: 'Teaching' },
+  { key: 'teacher/quizzes', label: 'All Quizzes', section: 'Teaching' },
+  { key: 'teacher/quizzes/create', label: 'Create Quiz', section: 'Teaching' },
+  { key: 'group:gradebook', label: 'Gradebook (entire menu)', section: 'Teaching' },
+  { key: 'teacher/gradebook', label: 'Submissions', section: 'Teaching' },
+  { key: 'teacher/gradebook/review', label: 'Review Queue', section: 'Teaching' },
+  { key: 'teacher/results/enter', label: 'Result Entry', section: 'Exams' },
+  { key: 'teacher/students', label: 'My Students', section: 'Students' },
+  { key: 'teacher/activity', label: 'Student Activity', section: 'Students' },
+  { key: 'teacher/gamification', label: 'Gamification', section: 'Students' },
+  { key: 'teacher/analytics', label: 'Student Performance', section: 'Students' },
+  { key: 'teacher/forum', label: 'Forum', section: 'Content' },
+  { key: 'teacher/profile', label: 'Profile', section: 'Account' },
+  { key: 'teacher/settings', label: 'Settings', section: 'Account' },
 ];
 
 export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
@@ -109,6 +136,7 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
 ];
 
 export const STUDENT_SIDEBAR_ITEM_KEYS = new Set(STUDENT_SIDEBAR_ITEMS.map((item) => item.key));
+export const TEACHER_SIDEBAR_ITEM_KEYS = new Set(TEACHER_SIDEBAR_ITEMS.map((item) => item.key));
 export const ADMIN_SIDEBAR_ITEM_KEYS = new Set(ADMIN_SIDEBAR_ITEMS.map((item) => item.key));
 
 export function moduleForSidebarKey(key: string): 'finance' | 'exams' | 'admissions' | 'courses' | 'organization' | 'academic' | 'content' | 'communication' | 'system' | null {
@@ -125,11 +153,15 @@ export function moduleForSidebarKey(key: string): 'finance' | 'exams' | 'admissi
 }
 
 function registryFor(portal: SidebarPortal): SidebarItemDef[] {
-  return portal === 'admin' ? ADMIN_SIDEBAR_ITEMS : STUDENT_SIDEBAR_ITEMS;
+  if (portal === 'admin') return ADMIN_SIDEBAR_ITEMS;
+  if (portal === 'teacher') return TEACHER_SIDEBAR_ITEMS;
+  return STUDENT_SIDEBAR_ITEMS;
 }
 
 export function keysFor(portal: SidebarPortal): Set<string> {
-  return portal === 'admin' ? ADMIN_SIDEBAR_ITEM_KEYS : STUDENT_SIDEBAR_ITEM_KEYS;
+  if (portal === 'admin') return ADMIN_SIDEBAR_ITEM_KEYS;
+  if (portal === 'teacher') return TEACHER_SIDEBAR_ITEM_KEYS;
+  return STUDENT_SIDEBAR_ITEM_KEYS;
 }
 
 export function mergeSidebarOverrides(overrides: { key: string; visible: boolean }[], portal: SidebarPortal = 'student') {
