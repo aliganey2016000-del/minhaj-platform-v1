@@ -10,7 +10,7 @@ import * as portalScheduleCtrl from '../../controllers/portal-class-schedule.con
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminOrTeacher, roleMiddleware } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
-import { validateScheduleRoomConflict } from '../../middleware/timetable-room-conflict.middleware';
+import { validateScheduleRoomConflict, validateLegacyScheduleConflicts } from '../../middleware/timetable-room-conflict.middleware';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -21,7 +21,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/', adminOrTeacher, asyncHandler(dispatchCtrl.getAllSchedules));
-router.post('/', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.create));
+router.post('/', roleMiddleware(['admin', 'org_admin']), asyncHandler(validateLegacyScheduleConflicts), asyncHandler(ctrl.create));
 
 // Simplified school-only CRUD/import/export workflow. Static school routes must
 // be registered before /school/:id so names such as "period-settings" are not
@@ -46,7 +46,7 @@ router.get('/my-teaching', roleMiddleware(['teacher']), asyncHandler(portalSched
 router.get('/status/:courseId', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(ctrl.checkScheduleStatus));
 router.post('/bulk-delete', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.bulkRemove));
 router.get('/:id', adminOrTeacher, asyncHandler(ctrl.getById));
-router.put('/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.update));
+router.put('/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(validateLegacyScheduleConflicts), asyncHandler(ctrl.update));
 router.delete('/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(ctrl.remove));
 
 export default router;

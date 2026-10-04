@@ -39,6 +39,9 @@ jobs:
       - name: Class Schedule & Timetable A-Z QA
         run: npm run test:schedule-qa
 
+      - name: Legacy class-schedule conflict regression (teacher/room/class double-booking)
+        run: npm run test:legacy-schedule-conflicts
+
       - name: Class Schedule edge-case regressions
         run: npx ts-node src/__tests__/class-schedule-edge-cases.e2e.ts
 
@@ -123,6 +126,9 @@ jobs:
 
       - name: Financial core payment tests
         run: npm run test:financial-core
+
+      - name: Installment-plan vs. discount mismatch regression
+        run: npm run test:installment-plan-discount-mismatch
 
       - name: Parent portal privacy and authorization tests
         run: npm run test:parent-portal
