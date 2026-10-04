@@ -8,9 +8,11 @@ import Department from '../models/department.model';
 import AcademicStructure from '../models/academic-structure.model';
 import School from '../models/school.model';
 import Student from '../models/student.model';
+import Parent from '../models/parent.model';
+import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, NotFoundError } from '../utils/api-error';
-import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord } from '../utils/tenant-scope';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherRecord, isTenantScoped } from '../utils/tenant-scope';
 import { moveToTrash, moveManyToTrash } from '../utils/trash';
 import ensureStudentRecord from '../utils/ensure-student';
 import { resolveInstitutionType } from '../utils/academic-config';
@@ -395,7 +397,41 @@ export const updateStatus = async (req: Request, res: Response): Promise<Respons
 // ---------------------------------------------------------------------------
 
 export const getSchedule = async (req: Request, res: Response): Promise<Response> => {
-  const classes = await ClassModel.find({ course: req.params.courseId })
+  const { courseId } = req.params;
+
+  // This route has no role gate — every authenticated role reaches it, and
+  // the controller previously applied no scope at all (any course's weekly
+  // schedule + its teacher could be read by any logged-in user from any
+  // organization). Scope it the same way course-content/assignment reads
+  // already are.
+  const course = await Course.findById(courseId).select('school teacher').lean();
+  if (!course) throw new NotFoundError('Course');
+
+  const role = req.user?.role;
+  if (role === 'teacher') {
+    const teacher = await getOwnTeacherRecord(req);
+    if (!teacher || (course as any).teacher?.toString() !== teacher._id.toString()) {
+      throw new ForbiddenError('You can only view the schedule for your own courses.');
+    }
+  } else if (role === 'student') {
+    const student = await Student.findOne({ user: req.user!.userId }).select('enrolledCourses').lean();
+    const enrolledIds = (student?.enrolledCourses || []).map((id: any) => id.toString());
+    if (!enrolledIds.includes(courseId)) {
+      throw new ForbiddenError('You can only view the schedule for your enrolled courses.');
+    }
+  } else if (role === 'parent') {
+    const parent = await Parent.findOne({ user: req.user!.userId }).select('children').lean();
+    const enrolled = parent?.children?.length
+      ? await Student.exists({ _id: { $in: parent.children }, enrolledCourses: courseId })
+      : null;
+    if (!enrolled) throw new ForbiddenError("You can only view the schedule for your children's courses.");
+  } else if (isTenantScoped(req)) {
+    assertOwnsOrg(req, course, 'school');
+  } else if (role !== 'admin') {
+    throw new ForbiddenError('You do not have permission to view this schedule.');
+  }
+
+  const classes = await ClassModel.find({ course: courseId })
     .populate('teacher', 'teacherId')
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
