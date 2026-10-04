@@ -60,7 +60,8 @@
     "test:financial-report": "ts-node src/__tests__/financial-report.e2e.ts",
     "test:finance-reconciliation": "ts-node src/__tests__/finance-reconciliation.e2e.ts",
     "test:installment-plan": "ts-node src/__tests__/installment-plan.e2e.ts",
-    "test:reliability-phase5": "ts-node src/__tests__/reliability-phase5.e2e.ts"
+    "test:reliability-phase5": "ts-node src/__tests__/reliability-phase5.e2e.ts",
+    "test:auth-org-reassignment": "ts-node src/__tests__/auth-org-reassignment-revocation.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

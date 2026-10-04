@@ -19,6 +19,7 @@ export interface AuthState {
   isActive: boolean;
   role?: string;
   permissions: string[];
+  organizationId?: string;
 }
 
 const cache = new Map<string, { state: AuthState; expiresAt: number }>();
@@ -49,9 +50,15 @@ export async function getAuthState(userId: string): Promise<AuthState> {
   const hit = cache.get(userId);
   if (hit && hit.expiresAt > now) return hit.state;
 
-  const user: any = await User.findById(userId).select('isActive role permissions').lean();
+  const user: any = await User.findById(userId).select('isActive role permissions organizationId').lean();
   const state: AuthState = user
-    ? { exists: true, isActive: user.isActive !== false, role: user.role, permissions: flattenPermissions(user.permissions) }
+    ? {
+        exists: true,
+        isActive: user.isActive !== false,
+        role: user.role,
+        permissions: flattenPermissions(user.permissions),
+        organizationId: user.organizationId ? String(user.organizationId) : undefined,
+      }
     : { exists: false, isActive: false, permissions: [] };
 
   if (cache.size >= MAX_ENTRIES) {
@@ -77,10 +84,22 @@ export function invalidateAuthState(userId: unknown): void {
 }
 
 /** Why a token no longer matches its account, or null when it still does. */
-export function tokenMismatch(state: AuthState, token: { role: string; permissions?: string[] }): string | null {
+export function tokenMismatch(
+  state: AuthState,
+  token: { role: string; permissions?: string[]; organizationId?: string },
+): string | null {
   if (!state.exists) return 'This account no longer exists.';
   if (!state.isActive) return 'Your account has been deactivated. Please contact an administrator.';
   if (state.role !== token.role) return 'Your access has changed. Please sign in again.';
+  // A platform admin moving a user to a different organization must take
+  // effect immediately, not after the access token happens to expire: the
+  // token's organizationId claim is what every tenant-scoped query trusts
+  // (see req.user.organizationId), so a stale claim would let the user keep
+  // acting on their old organization's data after being reassigned away
+  // from it.
+  if ((state.organizationId || '') !== (token.organizationId || '')) {
+    return 'Your access has changed. Please sign in again.';
+  }
   if (state.role === 'staff') {
     const current = [...state.permissions].sort().join('|');
     const claimed = [...(token.permissions || [])].sort().join('|');
