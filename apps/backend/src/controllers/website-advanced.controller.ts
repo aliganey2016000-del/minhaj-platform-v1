@@ -10,6 +10,7 @@ import WebsiteAnalyticsDaily from '../models/website-analytics.model';
 import WebsiteVersion from '../models/website-version.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { requestHostname } from '../utils/request-tenant';
 import {
   cloudflareAutoProvisionEnabled,
   cloudflareDnsConfigured,
