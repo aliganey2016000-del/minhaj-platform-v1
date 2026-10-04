@@ -157,6 +157,22 @@ async function main() {
     });
     assert(res.status === 403, `Staff cannot change their own module/sidebar grants (got ${res.status})`);
 
+    res = await request(app).put('/api/v1/sidebar-settings').set(auth(staffManager)).send({
+      portal: 'student',
+      items: [{ key: 'student/courses', visible: true }],
+    });
+    assert(res.status === 403, `Staff cannot administer tenant Student/Teacher sidebar settings (got ${res.status})`);
+
+    res = await request(app).get('/api/v1/users/sidebar/catalog').set(auth(orgAdminA));
+    const catalogKeys = new Set((res.body?.data || []).map((item: any) => item.key));
+    assert(
+      res.status === 200
+      && !catalogKeys.has('admin/roles')
+      && !catalogKeys.has('admin/settings/sidebar')
+      && !catalogKeys.has('admin/hr/access'),
+      'Staff access catalog excludes role, permission and tenant-sidebar administration pages',
+    );
+
     section('Page-specific action normalization');
     res = await request(app).patch(`/api/v1/users/${staffA._id}/permissions`).set(auth(orgAdminA)).send({
       permissions: [{
