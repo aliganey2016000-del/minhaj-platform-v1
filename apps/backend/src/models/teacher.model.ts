@@ -64,6 +64,11 @@ teacherSchema.pre('save', async function (next) {
 // Every teacher list/report query scopes by school first — this had no
 // index at all, so GET /teachers (and the search aggregation above it) ran
 // a full collection scan on every call.
-teacherSchema.index({ school: 1, status: 1 });
+// GET /teachers (teacher.controller.ts getAll) filters by {school, status?}
+// and always sorts by createdAt desc for pagination. Without createdAt in
+// the index, Mongo could use {school,status} for the filter but still had
+// to sort the matched set in memory (blocking sort) once a school had more
+// teachers than fit a single batch.
+teacherSchema.index({ school: 1, status: 1, createdAt: -1 });
 
 export default mongoose.model<ITeacher>('Teacher', teacherSchema);

@@ -69,7 +69,8 @@
     "test:reliability-phase5": "ts-node src/__tests__/reliability-phase5.e2e.ts",
     "test:password-reset-race": "ts-node src/__tests__/password-reset-race.e2e.ts",
     "test:gamification-integrity": "ts-node src/__tests__/gamification-integrity.e2e.ts",
-    "test:csv-injection": "ts-node src/__tests__/csv-export-formula-injection.e2e.ts"
+    "test:csv-injection": "ts-node src/__tests__/csv-export-formula-injection.e2e.ts",
+    "test:list-query-index-coverage": "ts-node --files src/__tests__/list-query-index-coverage.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

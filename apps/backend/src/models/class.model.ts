@@ -73,6 +73,11 @@ const classSchema = new Schema<IClass>(
 );
 
 classSchema.index({ school: 1, academicYear: 1, studyYear: 1, semesterNumber: 1 });
+// GET /classes (class.controller.ts getAll) filters by {school, status?}
+// (plus an optional department) and always sorts by createdAt desc for
+// pagination. Nothing above covers that combination, so the admin Classes
+// table did a full collection scan + in-memory sort per page on every call.
+classSchema.index({ school: 1, status: 1, createdAt: -1 });
 
 const ClassModel = mongoose.model<IClass>('Class', classSchema);
 export default ClassModel;
