@@ -76,7 +76,8 @@
     "test:email-html-injection": "ts-node src/__tests__/email-template-html-injection.e2e.ts",
     "test:seating-plan-import-capacity": "ts-node src/__tests__/seating-plan-import-capacity-advisory.e2e.ts",
     "test:xlsx-content-type": "ts-node src/__tests__/xlsx-export-content-type.e2e.ts",
-    "test:gradebook-teacher-visible-bypass": "ts-node src/__tests__/gradebook-teacher-visible-bypass.e2e.ts"
+    "test:gradebook-teacher-visible-bypass": "ts-node src/__tests__/gradebook-teacher-visible-bypass.e2e.ts",
+    "test:auth-org-reassignment": "ts-node src/__tests__/auth-org-reassignment-revocation.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

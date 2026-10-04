@@ -208,6 +208,9 @@ jobs:
       - name: Exam Seating smart-fix (capacity-advisory + duplicate-seat suggestion) regression
         run: npm run test:seating-smart-fix
 
+      - name: Org-reassignment JWT revocation regression
+        run: npm run test:auth-org-reassignment
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest
