@@ -113,7 +113,7 @@ router.use('/quizzes', quizRoutes);
 router.use('/courses/:courseId/lessons/:lessonId/gate', lessonBlockProgressRoutes);
 router.use('/ai', aiRoutes);
 router.use('/forum', authMiddleware, requireModulePermission('communication'), forumRoutes);
-router.use('/sidebar-settings', authMiddleware, requireModulePermission('system'), sidebarSettingRoutes);
+router.use('/sidebar-settings', sidebarSettingRoutes);
 router.use('/tenant', tenantRoutes);
 router.use('/website-management', websiteManagementRoutes);
 router.use('/departments', departmentRoutes);

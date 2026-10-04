@@ -15,7 +15,7 @@ import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '.
 import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
 import { escapeRegex } from '../utils/escape-regex';
-import { normalizeStaffPermissions, STAFF_PERMISSION_CATALOG } from '../utils/staff-permissions';
+import { allowedActionsForSidebarKey, normalizeStaffPermissions, STAFF_PERMISSION_CATALOG } from '../utils/staff-permissions';
 import { ADMIN_SIDEBAR_ITEMS, moduleForSidebarKey } from '../utils/sidebar-items';
 import * as XLSX from 'xlsx';
 import School from '../models/school.model';
@@ -50,6 +50,7 @@ export const getPermissionCatalog = async (_req: Request, res: Response): Promis
 };
 
 export const updatePermissions = async (req: Request, res: Response): Promise<Response> => {
+  if (req.user?.isStaff) throw new ForbiddenError('Staff cannot assign or change Staff permissions');
   const user = await User.findById(req.params.id);
   if (!user) throw new NotFoundError('User');
   if (user.role !== 'staff') throw new BadRequestError('Permissions can only be assigned to Staff users');
@@ -547,12 +548,24 @@ export const importStaff = async (req: Request, res: Response): Promise<Response
   return ApiResponse.success(res, { totalRows: rows.length, created, failed: errors.length, errors }, 'Staff import completed');
 };
 
+const STAFF_FORBIDDEN_SIDEBAR_KEYS = new Set([
+  'admin/roles',
+  'admin/settings/sidebar',
+  'admin/hr/access',
+]);
+
 export const getSidebarCatalog = async (_req: Request, res: Response): Promise<Response> => ApiResponse.success(
   res,
-  ADMIN_SIDEBAR_ITEMS.map((item) => ({ ...item, module: moduleForSidebarKey(item.key) })),
+  ADMIN_SIDEBAR_ITEMS
+    .filter((item) => !STAFF_FORBIDDEN_SIDEBAR_KEYS.has(item.key))
+    .map((item) => {
+      const module = moduleForSidebarKey(item.key);
+      return { ...item, module, allowedActions: module ? allowedActionsForSidebarKey(item.key, module) : [] };
+    }),
 );
 
 export const updateSidebarAccess = async (req: Request, res: Response): Promise<Response> => {
+  if (req.user?.isStaff) throw new ForbiddenError('Staff cannot assign or change Staff sidebar access');
   const user = await User.findById(req.params.id);
   if (!user) throw new NotFoundError('User');
   if (user.role !== 'staff') throw new BadRequestError('Sidebar access can only be assigned to Staff users');

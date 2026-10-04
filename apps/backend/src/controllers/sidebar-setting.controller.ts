@@ -2,13 +2,10 @@
  * Sidebar Setting Controller
  * Tenant-scoped show/hide configuration for portal sidebars.
  *
- *   - portal 'student': org_admin manages their own org; admin manages any
- *     org (must select one — no global/shared setting).
- *   - portal 'admin': ONLY admin (super admin) may view/edit — this is the
- *     shared org_admin/teacher admin-portal sidebar, and letting an
- *     org_admin edit what they themselves see would defeat the point.
- *     org_admin/teacher can only READ their own org's setting (via /mine)
- *     to filter their own nav.
+ *   - portal 'student' and 'teacher': org_admin manages their own org;
+ *     platform admin manages any explicitly selected org.
+ *   - portal 'admin': platform admin controls the org-admin/staff visibility
+ *     layer. Organization staff can only read their own effective setting.
  */
 
 import { Request, Response } from 'express';
@@ -20,9 +17,9 @@ import { getOwnTeacherRecord } from '../utils/tenant-scope';
 import ensureStudentRecord from '../utils/ensure-student';
 
 function parsePortal(value: unknown): SidebarPortal {
-  if (value === 'admin') return 'admin';
-  if (value === 'student' || value === undefined) return 'student';
-  throw new BadRequestError('portal must be "student" or "admin"');
+  if (value === 'admin' || value === 'teacher' || value === 'student') return value;
+  if (value === undefined) return 'student';
+  throw new BadRequestError('portal must be "student", "teacher" or "admin"');
 }
 
 /**
@@ -91,14 +88,15 @@ export const getMine = async (req: Request, res: Response): Promise<Response> =>
   const role = req.user?.role;
 
   let school: unknown;
-  if (portal === 'admin') {
-    if (role === 'org_admin') {
+  if (portal === 'teacher') {
+    if (role !== 'teacher') throw new ForbiddenError('Only teachers have a teacher-portal sidebar to read.');
+    const teacher = await getOwnTeacherRecord(req);
+    school = teacher?.school;
+  } else if (portal === 'admin') {
+    if (role === 'org_admin' || role === 'staff') {
       school = req.user!.organizationId;
-    } else if (role === 'teacher') {
-      const teacher = await getOwnTeacherRecord(req);
-      school = teacher?.school;
     } else {
-      throw new ForbiddenError('Only org_admin/teacher have an admin-portal sidebar to read.');
+      throw new ForbiddenError('Only organization administrators and staff have an admin-portal sidebar to read.');
     }
   } else {
     if (role !== 'student') throw new ForbiddenError('Only students have a student-portal sidebar to read.');
