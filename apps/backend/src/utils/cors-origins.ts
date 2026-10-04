@@ -5,6 +5,8 @@
  * organizations use), not just a single hardcoded URL.
  */
 
+import { isPlatformRootHost } from './platform-domains';
+
 export function getAllowedOrigins(): string[] {
   const raw = process.env.CLIENT_URL || 'http://localhost:5173';
   return raw
@@ -19,8 +21,7 @@ export async function isAllowedOrigin(origin?: string): Promise<boolean> {
   let url: URL;
   try { url = new URL(origin); } catch { return false; }
   if (url.protocol !== 'https:' || url.origin !== origin || url.port || url.username || url.password) return false;
-  const base = (process.env.BASE_DOMAIN || 'sahaledu.com').toLowerCase();
-  if (url.hostname === base || url.hostname === `www.${base}`) return true;
+  if (isPlatformRootHost(url.hostname)) return true;
   const { default: School } = await import('../models/school.model');
   return Boolean(await School.findByHost(url.hostname));
 }
