@@ -8,7 +8,7 @@ import CourseCategory from '../models/course-category.model';
 import Course from '../models/course.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
-import { assertOwnsOrg, resolveOrgIdForCreate } from '../utils/tenant-scope';
+import { assertOwnsOrg, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 
 function slugify(name: string): string {
   return name
@@ -33,12 +33,18 @@ async function uniqueSlug(base: string, schoolId: string, excludeId?: string): P
 
 // GET /course-categories — org_admin auto-scoped; super admin narrows via ?school=
 export const getAll = async (req: Request, res: Response): Promise<Response> => {
+  // This route has no role gate — every authenticated role reaches it, so
+  // `?school=` must never be trusted verbatim (a teacher/student in one org
+  // could otherwise read another org's categories). resolveViewableOrgId
+  // pins every non-admin role to their own JWT organizationId regardless of
+  // the query param, and only lets the real platform admin target an
+  // arbitrary org (or none, for the full list) via `?school=`.
   const filter: Record<string, unknown> = {};
-  if (req.user?.role === 'org_admin') {
-    if (!req.user.organizationId) return ApiResponse.success(res, []);
-    filter.school = req.user.organizationId;
-  } else if (req.query.school) {
-    filter.school = req.query.school as string;
+  const orgId = resolveViewableOrgId(req, req.query.school);
+  if (orgId) {
+    filter.school = orgId;
+  } else if (req.user?.role !== 'admin') {
+    return ApiResponse.success(res, []);
   }
 
   const categories = await CourseCategory.find(filter).sort({ name: 1 }).lean();
