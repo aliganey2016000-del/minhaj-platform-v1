@@ -21,7 +21,7 @@ import { verifyAccessToken } from '../utils/jwt';
 import User from '../models/user.model';
 import { isAllowedOrigin } from '../utils/cors-origins';
 import { canUserViewStudent } from '../utils/student-visibility';
-import { getAuthState, tokenMismatch } from '../utils/auth-state';
+import { getAuthState, tokenMismatch, onAuthStateInvalidated } from '../utils/auth-state';
 
 let io: SocketIOServer | null = null;
 
@@ -155,6 +155,35 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 export function emitToUser(userId: string, event: string, payload: unknown): void {
   io?.to(userRoom(userId)).emit(event, payload);
 }
+
+/**
+ * Force-closes every open socket for a user, right now, instead of waiting
+ * for the client to reconnect or the access token to expire. Called the
+ * instant that user's auth state is invalidated (deactivation, role
+ * change, permission/sidebar change — see auth-state.ts) so a live socket
+ * connection never outlives the account state it was authenticated under:
+ * without this, a deactivated/role-changed user's already-open tab kept
+ * receiving notifications, presence and activity-feed events exactly like
+ * before, even though their very next HTTP request would already be
+ * rejected by authMiddleware's identical tokenMismatch check.
+ */
+export function disconnectUserSockets(userId: string, reason = 'Your session is no longer valid. Please sign in again.'): void {
+  const room = io?.sockets.adapter.rooms.get(userRoom(userId));
+  if (!room) return;
+  for (const socketId of [...room]) {
+    const socket = io?.sockets.sockets.get(socketId);
+    if (!socket) continue;
+    socket.emit('auth:invalidated', { reason });
+    socket.disconnect(true);
+  }
+}
+
+// Wired up at module load (not inside initSocket) so it is registered even
+// if initSocket() itself hasn't run yet in some test harness — in that
+// case `io` is still null and disconnectUserSockets is simply a no-op,
+// same as every other exported function here when there is no socket
+// layer.
+onAuthStateInvalidated((userId) => disconnectUserSockets(userId));
 
 /**
  * Push a live update to the admins/teachers currently watching one student's

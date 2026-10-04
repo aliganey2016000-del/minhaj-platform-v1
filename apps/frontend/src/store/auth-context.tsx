@@ -95,11 +95,21 @@ function clearAuthStorage() {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
   });
-  // The service worker caches /my/ API responses by URL alone (see sw.ts).
-  // On a shared device the next person to sign in must never be served the
-  // previous account's dashboard, results or seating from that cache.
+  // The service worker caches several authenticated-API responses by URL
+  // alone, with no account/tenant identifier in the cache key (see sw.ts:
+  // api-student-cache, api-course-content-cache, api-gamification-cache).
+  // On a shared device the next person to sign in — or the same person
+  // after logging out — must never be served a previous account's
+  // dashboard, results, seating, course content or leaderboard position
+  // from that cache. All three authenticated runtime caches are dropped
+  // here; only font/image/app-code caches (not account-specific) are left
+  // alone.
   if ('caches' in window) {
-    void caches.delete('api-student-cache').catch(() => {});
+    void Promise.all(
+      ['api-student-cache', 'api-course-content-cache', 'api-gamification-cache'].map((name) =>
+        caches.delete(name).catch(() => {}),
+      ),
+    );
   }
 }
 
