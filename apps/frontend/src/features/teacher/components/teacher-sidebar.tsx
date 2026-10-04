@@ -18,7 +18,12 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     { path: '/teacher/attendance', label: 'Student Attendance', icon: '🗓️' },
     { path: '/teacher/my-attendance', label: 'My Attendance', icon: '📍' },
     { path: '/teacher/assignments', label: 'Assignments', icon: '📝' },
-    { path: '/teacher/exams', label: 'Exam Operations', icon: '🧪' },
+    { key: 'group:teacher-exams', label: 'Exam Workspace', icon: '🧪', children: [
+      { path: '/teacher/exams', label: 'Exam Schedule & Workspace', icon: '🗓️' },
+      { path: '/teacher/exam-attendance', label: 'Exam Attendance', icon: '✅' },
+      { path: '/teacher/exam-papers', label: 'Exam Papers', icon: '📄' },
+      { path: '/teacher/exam-incidents', label: 'Exam Incidents', icon: '⚠️' },
+    ] },
     { key: 'group:quizzes', label: 'Quiz Builder', icon: '❓', children: [
       { path: '/teacher/quizzes', label: 'All Quizzes', icon: '📋' },
       { path: '/teacher/quizzes/create', label: 'Create Quiz', icon: '➕' },
