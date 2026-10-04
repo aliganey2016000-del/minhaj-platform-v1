@@ -1519,11 +1519,25 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     if (dupExam) throw new ConflictError(`An exam titled "${req.body.title}" already exists for this course on that date and time`);
   }
 
+  // `period` must actually belong to this exam's school — otherwise a
+  // client could tag an exam to a period from an entirely different
+  // organization, scrambling that org's period-scoped reporting.
+  if (req.body.period) {
+    const period = await ExamPeriod.findOne({ _id: req.body.period, school: course.school || null }).select('_id').lean();
+    if (!period) throw new BadRequestError('period does not belong to this exam\'s school');
+  }
+
   const payload = {
     ...req.body,
     // Always stamped from the course's own org — never trust the client here.
     school: course.school || null,
     createdBy: req.user!.userId,
+    // A newly-created exam is always a fresh draft/scheduled item with
+    // results hidden — status and resultsPublished are workflow state the
+    // client must never set directly (see updateStatus/publishResults),
+    // only ever transition via their own dedicated endpoints.
+    status: 'scheduled',
+    resultsPublished: false,
   };
   const exam = await Exam.create(payload);
   const populated = await Exam.findById(exam._id)
