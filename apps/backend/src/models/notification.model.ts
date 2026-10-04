@@ -8,6 +8,14 @@ export interface INotification extends Document {
   link?: string;
   read: boolean;
   createdAt: Date;
+  // Optional dedupe key for notifications emitted by a recurring job (e.g.
+  // "send at most one installment reminder per user/installment/day").
+  // Callers build their own stable key and check it via the indexed
+  // `metadata.dedupeKey` field below instead of scanning message text with
+  // a regex, which cannot use an index.
+  metadata?: {
+    dedupeKey?: string;
+  };
 }
 
 const schema = new Schema<INotification>(
@@ -18,12 +26,16 @@ const schema = new Schema<INotification>(
     type: { type: String, enum: ['info', 'success', 'warning', 'error'], default: 'info' },
     link: { type: String, default: '' },
     read: { type: Boolean, default: false, index: true },
+    metadata: {
+      dedupeKey: { type: String },
+    },
   },
   { timestamps: true }
 );
 
 schema.index({ user: 1, read: 1 });
 schema.index({ createdAt: -1 });
+schema.index({ user: 1, 'metadata.dedupeKey': 1 });
 // Retention: notifications are kept for 12 months, then MongoDB removes them.
 schema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60, name: 'createdAt_ttl_12_months' });
 

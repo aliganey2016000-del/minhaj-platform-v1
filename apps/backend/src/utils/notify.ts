@@ -16,10 +16,20 @@ interface NotifyInput {
   message: string;
   type?: 'info' | 'success' | 'warning' | 'error';
   link?: string;
+  // Stable key recurring jobs can use to avoid sending the same
+  // notification twice (see Notification model's `metadata.dedupeKey`).
+  dedupeKey?: string;
 }
 
-export async function notifyUser({ userId, title, message, type = 'info', link = '' }: NotifyInput) {
-  const notification = await Notification.create({ user: userId, title, message, type, link });
+export async function notifyUser({ userId, title, message, type = 'info', link = '', dedupeKey }: NotifyInput) {
+  const notification = await Notification.create({
+    user: userId,
+    title,
+    message,
+    type,
+    link,
+    ...(dedupeKey ? { metadata: { dedupeKey } } : {}),
+  });
 
   emitToUser(userId, 'notification:new', {
     _id: notification._id,
