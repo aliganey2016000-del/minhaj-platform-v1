@@ -77,7 +77,7 @@ async function main() {
   const teacherUser = await User.create({ email: 'activity-teacher@test.local', password: 'Password123!', role: 'teacher' });
   const teacherProfile = await Profile.create({ user: teacherUser._id, firstName: 'Faarax', lastName: 'Nuur', gender: 'male' });
   const teacher = await Teacher.create({ user: teacherUser._id, profile: teacherProfile._id, school: school._id });
-  const teacherToken = tokenFor(teacherUser._id.toString(), 'teacher');
+  const teacherToken = tokenFor(teacherUser._id.toString(), 'teacher', school._id.toString());
 
   const course = await Course.create({
     title: { en: 'English G 10' }, slug: `english-g10-${new mongoose.Types.ObjectId().toString().slice(-6)}`,
@@ -91,7 +91,7 @@ async function main() {
     user: studentUser._id, profile: studentProfile._id, school: school._id,
     status: 'active', approvalStatus: 'approved', enrolledCourses: [course._id], enrollmentHistory: [],
   });
-  const studentToken = tokenFor(studentUser._id.toString(), 'student');
+  const studentToken = tokenFor(studentUser._id.toString(), 'student', school._id.toString());
 
   section('PAGE TIME — a screen that is not a lesson is still tracked');
   const pageStart = await request(app)
