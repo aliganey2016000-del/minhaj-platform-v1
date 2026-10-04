@@ -54,6 +54,9 @@ jobs:
       - name: Staff escalation, certificate scope and exam deadline security regression
         run: npx ts-node src/__tests__/staff-escalation-certificates-exam-deadline.e2e.ts
 
+      - name: Tenant sidebar and Staff/Admin access security regression
+        run: npx ts-node src/__tests__/tenant-sidebar-staff-access.e2e.ts
+
       - name: Tenant isolation phase 2 regression (staff, content, resources, login domain, pending students, catalog)
         run: npx ts-node src/__tests__/tenant-isolation-phase2.e2e.ts
 
