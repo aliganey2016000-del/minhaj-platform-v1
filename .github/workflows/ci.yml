@@ -154,6 +154,15 @@ jobs:
       - name: Dependency supply-chain regression (exceljs/uuid override)
         run: npx ts-node src/__tests__/dependency-supply-chain.e2e.ts
 
+      - name: Email template HTML-injection regression (verification email)
+        run: npm run test:email-html-injection
+
+      - name: Exam seating-plan import capacity-advisory regression
+        run: npm run test:seating-plan-import-capacity
+
+      - name: Exam Seating smart-fix (capacity-advisory + duplicate-seat suggestion) regression
+        run: npm run test:seating-smart-fix
+
   frontend:
     name: Frontend build and lint
     runs-on: ubuntu-latest

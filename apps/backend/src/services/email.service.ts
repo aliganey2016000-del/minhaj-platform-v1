@@ -20,6 +20,22 @@ const BRAND_COLOR = '#059669';
 
 let transporter: Transporter | null = null;
 
+/**
+ * Escapes HTML metacharacters before interpolating untrusted text (a
+ * profile's first name) into an email template's HTML body. firstName is
+ * only ever validated as "a string up to 50 chars" (see registration's
+ * Joi schema) — nothing stops it from containing `<img onerror=...>` or a
+ * closing `</a>` that breaks the Reset Password button out of its link.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function smtpConfigured(): boolean {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
 }
@@ -125,7 +141,7 @@ function wrapTemplate(
  */
 export async function sendVerificationEmail(to: string, firstName: string, token: string): Promise<void> {
   const verifyUrl = `${clientBaseUrl()}/auth/verify-email?token=${encodeURIComponent(token)}`;
-  const greeting = firstName ? `Hi ${firstName},` : 'Hi,';
+  const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : 'Hi,';
   const text = `Welcome to ${BRAND_NAME}! Please verify your email address by opening this link:\n\n${verifyUrl}\n\nThis link expires in 24 hours.`;
   const bodyHtml = `<p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.6;">${greeting}</p>
     <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.6;">Welcome to ${BRAND_NAME}! Please confirm your email address to complete your registration.</p>
@@ -145,7 +161,7 @@ export async function sendVerificationEmail(to: string, firstName: string, token
  */
 export async function sendPasswordResetEmail(to: string, firstName: string, token: string): Promise<void> {
   const resetUrl = `${clientBaseUrl()}/auth/reset-password?token=${encodeURIComponent(token)}`;
-  const greeting = firstName ? `Hi ${firstName},` : 'Hi,';
+  const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : 'Hi,';
   const text = `We received a request to reset your password. Reset it here:\n\n${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, you can safely ignore this email.`;
   const bodyHtml = `<p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.6;">${greeting}</p>
     <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.6;">We received a request to reset your password. Click the button below to choose a new one.</p>

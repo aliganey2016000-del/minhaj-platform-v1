@@ -34,7 +34,7 @@
     "test:exam-dedupe": "ts-node src/__tests__/exam-import-dedupe.e2e.ts",
     "test:seating-import": "ts-node src/__tests__/seating-import-cross-org.e2e.ts",
     "test:invoice-batch-void": "ts-node src/__tests__/invoice-batch-void.e2e.ts",
-    "test:seating-smart-fix": "ts-node src/__tests__/seating-smart-fix.e2e.ts",
+    "test:seating-smart-fix": "ts-node src/__tests__/seating-import-smart-fix.e2e.ts",
     "test:seating-bulk-delete": "ts-node src/__tests__/seating-bulk-delete.e2e.ts",
     "test:exam-duration": "ts-node src/__tests__/exam-attempt-duration.e2e.ts",
     "test:class-department-filter": "ts-node src/__tests__/class-department-filter.e2e.ts",
@@ -60,7 +60,9 @@
     "test:financial-report": "ts-node src/__tests__/financial-report.e2e.ts",
     "test:finance-reconciliation": "ts-node src/__tests__/finance-reconciliation.e2e.ts",
     "test:installment-plan": "ts-node src/__tests__/installment-plan.e2e.ts",
-    "test:reliability-phase5": "ts-node src/__tests__/reliability-phase5.e2e.ts"
+    "test:reliability-phase5": "ts-node src/__tests__/reliability-phase5.e2e.ts",
+    "test:email-html-injection": "ts-node src/__tests__/email-template-html-injection.e2e.ts",
+    "test:seating-plan-import-capacity": "ts-node src/__tests__/seating-plan-import-capacity-advisory.e2e.ts"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",
