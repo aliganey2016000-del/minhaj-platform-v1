@@ -259,9 +259,9 @@ function Eyebrow({ label, color, dark }: { label: string; color: string; dark?: 
   return (
     <p
       style={dark ? { borderColor: tint('#ffffff', 28), color: '#ffbf24' } : { borderColor: tint(color, 28), color }}
-      className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-[.2em] sm:text-[11px]"
+      className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] sm:text-[11px]"
     >
-      <Sparkles className="h-3.5 w-3.5" />
+
       {label}
     </p>
   );
@@ -276,7 +276,7 @@ function Heading({ ctx, section, dark, center, color, className = '' }: {
   return (
     <div className={`${centered ? 'mx-auto text-center' : ''} max-w-3xl ${className}`}>
       <Eyebrow label={text(ctx, section, 'subtitle')} color={color || ctx.primary} dark={dark} />
-      {title && <h2 className={`mt-5 text-3xl font-black leading-[1.06] tracking-[-.035em] sm:text-4xl lg:text-[2.9rem] ${dark ? 'text-white' : 'text-[#25388d]'}`}>{title}</h2>}
+      {title && <h2 className={`mt-3 text-2xl font-black leading-tight tracking-tight sm:text-3xl ${dark ? 'text-white' : 'text-slate-900'}`}>{title}</h2>}
       {body && <p className={`mt-5 whitespace-pre-line text-sm leading-7 sm:text-base sm:leading-8 ${dark ? 'text-white/76' : 'text-slate-600'}`}>{body}</p>}
     </div>
   );
@@ -287,8 +287,8 @@ function PrimaryButton({ ctx, href, children, onClick, light, className = '' }: 
     <a
       href={href}
       onClick={onClick}
-      style={light ? { borderRadius: ctx.radius, color: ctx.secondary } : { backgroundColor: ctx.accent, borderRadius: ctx.radius }}
-      className={`group inline-flex min-h-11 items-center justify-center gap-2 px-6 py-3 text-sm font-black transition duration-200 hover:-translate-y-0.5 ${light ? 'bg-white shadow-lg' : 'text-[#173b33] shadow-[0_10px_28px_-12px_rgba(0,0,0,.35)]'} ${className}`}
+      style={light ? { borderRadius: ctx.radius, color: ctx.secondary } : { backgroundColor: ctx.primary, borderRadius: ctx.radius }}
+      className={`group inline-flex min-h-11 items-center justify-center gap-2 px-6 py-3 text-sm font-black transition duration-200 hover:-translate-y-0.5 ${light ? 'bg-white shadow-lg' : 'text-white shadow-[0_10px_28px_-12px_rgba(0,0,0,.35)]'} ${className}`}
     >
       {children}
       <ArrowRight className="h-4 w-4 shrink-0 transition group-hover:translate-x-0.5 rtl:rotate-180" />
@@ -301,7 +301,7 @@ function SecondaryButton({ ctx, href, children, dark, className = '' }: { ctx: R
     <a
       href={href}
       style={{ borderRadius: ctx.radius }}
-      className={`inline-flex min-h-11 items-center justify-center gap-2 border px-6 py-3 text-sm font-extrabold transition duration-200 hover:-translate-y-0.5 ${dark ? 'border-white/30 bg-white/5 text-white hover:bg-white/10' : 'border-white/30 bg-transparent text-white hover:bg-white/10'} ${className}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-2 border px-6 py-3 text-sm font-extrabold transition duration-200 hover:-translate-y-0.5 ${dark ? 'border-white/30 bg-white/5 text-white hover:bg-white/10' : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'} ${className}`}
     >
       {children}
     </a>
@@ -324,7 +324,7 @@ function Shell({ section, ctx, children, className = '' }: { section: WebsiteSec
           ? '#f6f7f9'
           : '#ffffff';
   return (
-    <section id={section.id} style={{ background }} className={`relative scroll-mt-24 overflow-hidden px-4 py-20 sm:px-6 sm:py-24 lg:px-8 lg:py-28 ${className}`}>
+    <section id={section.id} style={{ background }} className={`relative scroll-mt-24 overflow-hidden px-4 py-10 sm:px-6 sm:py-12 lg:px-8 lg:py-14 ${className}`}>
       {dark && <>
         <div aria-hidden="true" className="pointer-events-none absolute -right-28 -top-28 h-80 w-80 rounded-full border border-white/5" />
         <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full border border-white/5" />
@@ -342,108 +342,24 @@ function HeroBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSecti
   const title = text(ctx, section, 'title') || ctx.displayName;
   const body = text(ctx, section, 'body');
   const buttonText = text(ctx, section, 'buttonText');
-  const hasHeroMedia = !!(section.imageUrl || section.videoUrl);
-  const centered = section.alignment === 'center' && !hasHeroMedia;
-  const accentedTitle = title.match(/^(.*?\band\s+)(.+)$/i);
   return (
-    <section
-      id={section.id}
-      style={{ background: `linear-gradient(115deg, color-mix(in srgb, ${ctx.secondary} 84%, #39499b), #39499b 56%, color-mix(in srgb, ${ctx.primary} 28%, #39499b))` }}
-      className="relative scroll-mt-24 overflow-hidden text-white"
-    >
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-[.08]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.8) 1px, transparent 1px)', backgroundSize: '56px 56px' }} />
-      <div aria-hidden="true" style={{ backgroundColor: tint(ctx.primary, 28) }} className="pointer-events-none absolute -right-36 -top-44 h-[520px] w-[520px] rounded-full blur-3xl" />
-      <div className={`relative mx-auto grid max-w-[1180px] items-center gap-12 px-4 pb-24 pt-14 sm:px-6 sm:pb-28 sm:pt-20 lg:px-8 lg:pb-32 lg:pt-20 ${centered ? '' : 'lg:grid-cols-[1.02fr_.98fr]'}`}>
-        <div className={centered ? 'mx-auto max-w-4xl text-center' : ''}>
-          <Eyebrow label={text(ctx, section, 'subtitle')} color={ctx.accent} dark />
-          {accentedTitle ? (
-            <>
-              <h1 className="mt-6 text-[clamp(1.72rem,8vw,2.2rem)] font-black leading-[.98] tracking-[-.045em] sm:hidden">
-                <span className="block whitespace-nowrap text-white">{accentedTitle[1]}</span>
-                <span
-                  className="mt-1 block whitespace-nowrap bg-clip-text text-transparent [text-shadow:0_8px_24px_rgba(0,0,0,.14)]"
-                  style={{ backgroundImage: `linear-gradient(90deg, #fff3a8 0%, ${ctx.accent} 45%, #ffb000 100%)` }}
-                >
-                  {accentedTitle[2]}
-                </span>
-              </h1>
-              <h1 className="mt-6 hidden max-w-[680px] text-6xl font-black leading-[.97] tracking-[-.045em] text-white sm:block lg:text-[4.5rem]">
-                <span>{accentedTitle[1]}</span>
-                <span
-                  className="bg-clip-text text-transparent [text-shadow:0_8px_24px_rgba(0,0,0,.14)]"
-                  style={{ backgroundImage: `linear-gradient(90deg, #fff3a8 0%, ${ctx.accent} 45%, #ffb000 100%)` }}
-                >
-                  {accentedTitle[2]}
-                </span>
-              </h1>
-            </>
-          ) : (
-            <h1 className="mt-6 max-w-[680px] text-[2.8rem] font-black leading-[.97] tracking-[-.045em] text-white sm:text-6xl lg:text-[4.5rem]">
-              {title}
-            </h1>
-          )}
-          {body && <p className={`mt-6 max-w-xl whitespace-pre-line text-[15px] leading-7 text-white/82 sm:text-base sm:leading-8 ${centered ? 'mx-auto' : ''}`}>{body}</p>}
-          {(buttonText || ctx.site.header.ctaText) && (
-            <div className={`mt-8 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:gap-3 ${centered ? 'sm:justify-center' : ''}`}>
-              {buttonText && (
-                <PrimaryButton
-                  ctx={ctx}
-                  href={section.buttonUrl || '#about'}
-                  onClick={() => ctx.onTrack?.('cta', ctx.pageSlug || '/')}
-                  className="w-full min-w-0 px-3 text-[12px] sm:w-auto sm:px-6 sm:text-sm"
-                >
-                  <span className="truncate">{buttonText}</span>
-                </PrimaryButton>
-              )}
-              {ctx.site.header.ctaText && (
-                <SecondaryButton
-                  ctx={ctx}
-                  dark
-                  href={ctx.site.header.ctaUrl || '/auth/login'}
-                  className="w-full min-w-0 px-3 text-[12px] sm:w-auto sm:px-6 sm:text-sm"
-                >
-                  <LogIn className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{ctx.tr('header.ctaText', ctx.site.header.ctaText)}</span>
-                </SecondaryButton>
-              )}
-            </div>
-          )}
-          <div className={`mt-8 flex items-center gap-4 ${centered ? 'justify-center' : ''}`}>
-            <div className="flex -space-x-2">
-              {[ctx.accent, ctx.primary, '#4cc9f0', '#f472b6'].map((color) => <span key={color} style={{ backgroundColor: color }} className="h-7 w-7 rounded-full border-2 border-white/70" />)}
-            </div>
-            <div>
-              <div className="text-[11px] tracking-[.16em] text-[#ffbf24]">★★★★★</div>
-              <p className="text-[10px] font-semibold text-white/65">Learning · Community · Achievement</p>
-            </div>
+    <section id={section.id} className="scroll-mt-24 bg-white px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
+      <div className="mx-auto grid max-w-[1180px] items-center gap-8 lg:grid-cols-2 lg:gap-12">
+        <div className="min-w-0">
+          <Eyebrow label={text(ctx, section, 'subtitle')} color={ctx.primary} />
+          <h1 className="mt-5 text-[clamp(2rem,7vw,3rem)] font-black leading-[1.08] tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">{title}</h1>
+          <div aria-hidden="true" style={{ backgroundColor: ctx.accent }} className="mt-5 h-1 w-20 rounded-full" />
+          {body && <p className="mt-5 max-w-xl whitespace-pre-line text-sm leading-7 text-slate-600 sm:text-base">{body}</p>}
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap">
+            {buttonText && <PrimaryButton ctx={ctx} href={section.buttonUrl || '#about'} onClick={() => ctx.onTrack?.('cta', ctx.pageSlug || '/')} className="min-w-0 px-3 sm:px-6">{buttonText}</PrimaryButton>}
+            <SecondaryButton ctx={ctx} href={ctx.site.header.ctaUrl || '/auth/login'} className="min-w-0 px-3 sm:px-6">{ctx.tr('header.ctaText', ctx.site.header.ctaText || 'Explore School')}</SecondaryButton>
           </div>
         </div>
-
-        {!centered && (
-          <div className="relative mx-auto w-full max-w-[560px] lg:max-w-none">
-            <div className="relative overflow-hidden rounded-[24px] border border-white/20 bg-black/25 p-2 shadow-[0_30px_70px_-30px_rgba(0,0,0,.65)] backdrop-blur-sm">
-              {section.videoUrl && (videoEmbed(section.videoUrl) || isDirectVideo(section.videoUrl)) ? (
-                <InlineVideo
-                  url={section.videoUrl}
-                  title={title || 'School video'}
-                  className="aspect-video w-full rounded-[16px] bg-black object-cover"
-                />
-              ) : section.imageUrl ? (
-                <img
-                  src={section.imageUrl}
-                  alt={title}
-                  {...{ fetchpriority: 'high' }}
-                  className="aspect-video w-full rounded-[16px] object-cover"
-                />
-              ) : (
-                <div style={{ background: `linear-gradient(145deg, ${tint(ctx.primary, 35)}, rgba(255,255,255,.12))` }} className="flex aspect-video w-full flex-col items-center justify-center rounded-[16px]">
-                  <PlayCircle className="h-20 w-20 text-white/70" />
-                  {ctx.preview && <p className="mt-3 text-xs font-bold text-white/65">Upload an image/video or add a video link.</p>}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        <div className="overflow-hidden rounded-2xl bg-slate-100">
+          {section.videoUrl && (videoEmbed(section.videoUrl) || isDirectVideo(section.videoUrl)) ? <InlineVideo url={section.videoUrl} title={title} className="aspect-[4/3] w-full bg-black object-cover" />
+            : section.imageUrl ? <img src={section.imageUrl} alt={title} {...{ fetchpriority: 'high' }} className="aspect-[4/3] w-full object-cover" />
+            : <div style={{ backgroundColor: tint(ctx.primary, 10) }} className="flex aspect-[4/3] items-center justify-center">{ctx.logo ? <img src={ctx.logo} alt={ctx.displayName} className="h-32 w-32 object-contain" /> : <School style={{ color: ctx.primary }} className="h-24 w-24" />}</div>}
+        </div>
       </div>
     </section>
   );
@@ -490,7 +406,7 @@ function StaffCompactCard({ ctx, card, index }: { ctx: RenderContext; card: Webs
   const title = cardTitle(ctx, card);
   const courses = cardText(ctx, card);
   return (
-    <article className="group relative w-[44vw] min-w-[150px] max-w-[180px] shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_16px_38px_-28px_rgba(15,23,42,.5)] ring-1 ring-slate-200/80 transition duration-300 hover:-translate-y-1 hover:shadow-xl sm:w-[210px] sm:max-w-[210px] lg:w-[250px] lg:max-w-[250px]">
+    <article className="group relative w-full min-w-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_16px_38px_-28px_rgba(15,23,42,.5)] ring-1 ring-slate-200/80 transition duration-300 hover:-translate-y-1 hover:shadow-xl">
       {card.imageUrl ? (
         <div className="overflow-hidden bg-slate-100">
           <img loading="lazy" src={card.imageUrl} alt={title} className="aspect-[4/5] w-full object-cover object-top transition duration-500 group-hover:scale-[1.035]" />
@@ -510,110 +426,21 @@ function StaffCompactCard({ ctx, card, index }: { ctx: RenderContext; card: Webs
 }
 
 function StaffTeamBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSection }) {
-  const [expanded, setExpanded] = useState(false);
-  const [marqueePaused, setMarqueePaused] = useState(false);
-  const dark = isDark(section);
-
-  if (!section.cards.length) {
-    return (
-      <Shell section={section} ctx={ctx}>
-        <Heading ctx={ctx} section={section} dark={dark} />
-        <div className="mt-12"><PreviewHint ctx={ctx}>Add the principal and teachers in Content.</PreviewHint></div>
-      </Shell>
-    );
-  }
-
-  const leadershipPattern = /\b(principal|principle|head\s*teacher|headteacher|head\s*master|headmaster|director|rector)\b/i;
-  const matchedLeaderIndex = section.cards.findIndex((card) => leadershipPattern.test(`${card.role || ''} ${card.title || ''}`));
-  const leaderIndex = matchedLeaderIndex >= 0 ? matchedLeaderIndex : 0;
-  const principal = section.cards[leaderIndex];
-  const teachers = section.cards.filter((_, index) => index !== leaderIndex);
-  const principalColor = paletteAt(0);
-  const principalTitle = cardTitle(ctx, principal);
-  const principalBody = cardText(ctx, principal);
-  const principalRole = principal.role ? ctx.tr(`card.${principal.id}.role`, principal.role) : ctx.tr('staff.principal', 'Principal / Head Teacher');
-  const marqueeDuration = Math.max(24, teachers.length * 5);
-
+  const leadershipPattern = /\b(principal|head\s*teacher|headteacher|head\s*master|headmaster|director|rector)\b/i;
+  const principal = section.cards.find((card) => leadershipPattern.test(`${card.role || ''} ${card.title || ''}`));
+  const teachers = section.cards.filter((card) => card !== principal);
+  if (!section.cards.length && !ctx.preview) return null;
   return (
     <Shell section={section} ctx={ctx}>
-      <style>{`@keyframes sahal-staff-marquee-left { from { transform: translateX(0); } to { transform: translateX(-50%); } } @media (prefers-reduced-motion: reduce) { .sahal-staff-marquee { animation: none !important; transform: none !important; } }`}</style>
-      <Heading ctx={ctx} section={section} dark={dark} />
-
-      <div className="mx-auto mt-12 max-w-4xl">
-        <article className="overflow-hidden rounded-[2rem] bg-white shadow-[0_24px_60px_-34px_rgba(15,23,42,.5)] ring-1 ring-slate-200/80 sm:grid sm:grid-cols-[230px_1fr] lg:grid-cols-[270px_1fr]">
-          {principal.imageUrl ? (
-            <img loading="lazy" src={principal.imageUrl} alt={principalTitle} className="h-[290px] w-full object-cover object-top sm:h-full sm:min-h-[285px]" />
-          ) : (
-            <div style={{ background: `linear-gradient(135deg, ${tint(principalColor, 22)}, ${tint(principalColor, 7)})` }} className="flex h-[260px] items-center justify-center sm:h-full sm:min-h-[285px]">
-              <Users style={{ color: principalColor }} className="h-20 w-20" />
-            </div>
-          )}
-          <div className="flex flex-col justify-center p-6 text-center sm:p-8 sm:text-left lg:p-10">
-            <span style={{ color: principalColor, backgroundColor: tint(principalColor, 12) }} className="mx-auto inline-flex w-fit rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[.16em] sm:mx-0">{ctx.tr('staff.leadership', 'School Leadership')}</span>
-            <h3 className="mt-4 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{principalTitle}</h3>
-            <p style={{ color: principalColor }} className="mt-1.5 text-sm font-extrabold sm:text-base">{principalRole}</p>
-            <p className="mt-4 line-clamp-3 whitespace-pre-line text-sm font-medium leading-6 text-slate-600 sm:text-[15px]">{principalBody || ctx.tr('staff.noCourse', 'No course assigned')}</p>
-          </div>
-        </article>
+      <Heading ctx={ctx} section={section} dark={isDark(section)} center={false} />
+      {principal && <article className="mx-auto mt-7 flex max-w-xl items-center gap-5 overflow-hidden rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        {principal.imageUrl ? <img loading="lazy" src={principal.imageUrl} alt={cardTitle(ctx, principal)} className="h-32 w-28 shrink-0 rounded-xl object-cover object-top sm:h-40 sm:w-36" /> : <Users style={{ color: ctx.primary }} className="h-24 w-24 shrink-0" />}
+        <div className="min-w-0"><h3 className="text-lg font-bold text-slate-900 sm:text-xl">{cardTitle(ctx, principal)}</h3><p style={{ color: ctx.primary }} className="mt-1 text-sm font-semibold">{principal.role ? ctx.tr(`card.${principal.id}.role`, principal.role) : ctx.tr('staff.principal', 'Principal / Head Teacher')}</p><p className="mt-2 whitespace-pre-line text-xs leading-5 text-slate-600 sm:text-sm">{cardText(ctx, principal)}</p></div>
+      </article>}
+      <div className="mt-7 grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
+        {teachers.map((card, index) => <StaffCompactCard key={card.id} ctx={ctx} card={card} index={index} />)}
       </div>
-
-      {teachers.length > 0 && (
-        <div className="mt-14">
-          <div className="mb-5 flex items-end justify-between gap-3">
-            <div>
-              <p className={`text-xs font-black uppercase tracking-[.16em] ${dark ? 'text-white/60' : 'text-slate-400'}`}>{ctx.tr('staff.teamEyebrow', 'Our Team')}</p>
-              <h3 className={`mt-1 text-xl font-black tracking-tight sm:text-2xl ${dark ? 'text-white' : 'text-slate-950'}`}>{ctx.tr('staff.teamTitle', 'Meet Our Teachers')}</h3>
-            </div>
-            {!expanded && teachers.length >= 3 && <p className={`hidden text-xs font-semibold sm:block ${dark ? 'text-white/55' : 'text-slate-400'}`}>{ctx.tr('staff.scrollHint', 'Moves right to left · hover to pause')}</p>}
-          </div>
-
-          {expanded ? (
-            <div className="grid grid-cols-2 justify-items-center gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {teachers.map((card, index) => <StaffCompactCard key={card.id} ctx={ctx} card={card} index={index} />)}
-            </div>
-          ) : teachers.length >= 3 ? (
-            <div
-              className="overflow-hidden py-2"
-              onPointerEnter={() => setMarqueePaused(true)}
-              onPointerLeave={() => setMarqueePaused(false)}
-              onPointerDown={() => setMarqueePaused(true)}
-              onPointerUp={() => setMarqueePaused(false)}
-              onPointerCancel={() => setMarqueePaused(false)}
-            >
-              <div
-                className="sahal-staff-marquee flex w-max"
-                style={{
-                  animation: `sahal-staff-marquee-left ${marqueeDuration}s linear infinite`,
-                  animationPlayState: marqueePaused ? 'paused' : 'running',
-                }}
-              >
-                {[0, 1].map((copy) => (
-                  <div key={copy} aria-hidden={copy === 1 ? true : undefined} className="flex shrink-0 gap-4 pr-4">
-                    {teachers.map((card, index) => <StaffCompactCard key={card.id} ctx={ctx} card={card} index={index} />)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex justify-center gap-4 overflow-x-auto pb-2">
-              {teachers.map((card, index) => <StaffCompactCard key={card.id} ctx={ctx} card={card} index={index} />)}
-            </div>
-          )}
-
-          {teachers.length > 4 && (
-            <div className="mt-8 flex justify-center">
-              <button
-                type="button"
-                onClick={() => setExpanded((value) => !value)}
-                className={`inline-flex min-w-40 items-center justify-center gap-2 rounded-full border px-5 py-2.5 text-sm font-extrabold transition ${dark ? 'border-white/25 bg-white/10 text-white hover:bg-white/15' : 'border-slate-200 bg-white text-slate-800 shadow-sm hover:border-slate-300 hover:shadow-md'}`}
-              >
-                {expanded ? ctx.tr('staff.showLess', 'Show Less') : ctx.tr('staff.showMore', 'Show More')}
-                <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      {!section.cards.length && <PreviewHint ctx={ctx}>Add the principal and teachers in Content.</PreviewHint>}
     </Shell>
   );
 }
@@ -684,7 +511,7 @@ function structuredAboutCards(primary: WebsiteCard[] = [], legacy: WebsiteCard[]
 function AboutBlock({ ctx, section, values }: { ctx: RenderContext; section: WebsiteSection; values?: WebsiteCard[] }) {
   // About is a standard school template across tenants. Schools edit content,
   // image, mission, vision and values; the public layout remains consistent.
-  const templateSection: WebsiteSection = { ...section, background: 'muted', alignment: 'left' };
+  const templateSection: WebsiteSection = { ...section, background: 'default', alignment: 'left' };
   const dark = false;
   const title = text(ctx, templateSection, 'title');
   const buttonText = text(ctx, templateSection, 'buttonText');
@@ -692,14 +519,14 @@ function AboutBlock({ ctx, section, values }: { ctx: RenderContext; section: Web
   const showVisual = true;
   return (
     <Shell section={templateSection} ctx={ctx}>
-      <div className={`grid items-center gap-16 lg:gap-20 ${showVisual ? 'lg:grid-cols-2' : ''}`}>
-        {showVisual && <div className="relative order-last mx-auto w-full max-w-xl lg:order-first lg:max-w-none">
-          <div aria-hidden="true" style={{ backgroundColor: tint(ctx.accent, 30) }} className="absolute -bottom-5 -right-5 h-2/3 w-2/3 rounded-[2.5rem]" />
+      <div className={`grid items-center gap-8 lg:gap-10 ${showVisual ? 'lg:grid-cols-2' : ''}`}>
+        {showVisual && <div className="relative mx-auto w-full max-w-xl lg:order-first lg:max-w-none">
+          <div aria-hidden="true" style={{ backgroundColor: tint(ctx.accent, 30) }} className="absolute -bottom-5 -right-5 h-2/3 w-2/3 rounded-2xl" />
           <div aria-hidden="true" style={{ backgroundImage: `radial-gradient(${tint(ctx.primary, 35)} 1.5px, transparent 1.6px)`, backgroundSize: '18px 18px' }} className="absolute -left-6 -top-6 h-36 w-36" />
           {section.imageUrl ? (
-            <img loading="lazy" src={section.imageUrl} alt={title} className="relative aspect-[4/3.4] w-full rounded-[2.5rem] object-cover shadow-[0_34px_80px_-40px_rgba(15,23,42,.55)]" />
+            <img loading="lazy" src={section.imageUrl} alt={title} className="relative aspect-[4/3] w-full rounded-2xl object-cover shadow-[0_34px_80px_-40px_rgba(15,23,42,.55)]" />
           ) : (
-            <div style={{ background: `linear-gradient(145deg, ${tint(ctx.primary, 22)}, ${tint(ctx.accent, 20)})` }} className="relative flex aspect-[4/3.4] w-full flex-col items-center justify-center gap-4 rounded-[2.5rem]">
+            <div style={{ background: `linear-gradient(145deg, ${tint(ctx.primary, 22)}, ${tint(ctx.accent, 20)})` }} className="relative flex aspect-[4/3] w-full flex-col items-center justify-center gap-4 rounded-2xl">
               <div style={{ backgroundColor: ctx.primary }} className="flex h-24 w-24 items-center justify-center rounded-[2rem] text-white shadow-xl"><Building2 className="h-12 w-12" /></div>
               {ctx.preview && <p className="rounded-full bg-slate-900/80 px-3 py-1 text-[11px] font-semibold text-white">Add an image for this section in Content</p>}
             </div>
@@ -712,11 +539,11 @@ function AboutBlock({ ctx, section, values }: { ctx: RenderContext; section: Web
         <div className={showVisual ? '' : section.alignment === 'center' ? 'mx-auto max-w-3xl text-center' : 'max-w-3xl'}>
           <Heading ctx={ctx} section={templateSection} dark={dark} center={false} />
           {points.length > 0 && (
-            <div className="mt-9 grid gap-4 sm:grid-cols-2">
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
               {points.map((card, index) => {
                 const color = paletteAt(index + 1);
                 return (
-                  <div key={card.id} className={`flex items-start gap-3.5 rounded-2xl p-4 ${dark ? 'bg-white/10' : 'bg-white shadow-sm ring-1 ring-slate-100'}`}>
+                  <div key={card.id} className={`flex flex-col items-start gap-3 rounded-xl p-4 ${dark ? 'bg-white/10' : 'bg-white shadow-sm ring-1 ring-slate-100'}`}>
                     <div style={{ backgroundColor: tint(color, dark ? 35 : 14), color: dark ? '#fff' : color }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"><Icon name={card.icon || 'CheckCircle2'} /></div>
                     <div>
                       <p className={`font-extrabold ${dark ? 'text-white' : 'text-slate-900'}`}>{cardTitle(ctx, card)}</p>
@@ -817,80 +644,14 @@ function LatestNewsBlock({ ctx, section }: { ctx: RenderContext; section: Websit
   const cards = orderedNewsCards(section.cards);
   if (!cards.length && !ctx.preview) return null;
   const dark = isDark(section);
-  const locale = ctx.site.defaultLanguage || 'en';
-  const shown = expanded ? cards : cards.slice(0, 5);
-  const socials = (ctx.site.footer.socials || []).filter((item) => item.visible && item.href);
-
-  return (
-    <Shell section={section} ctx={ctx}>
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
-        <div>
-          <div className="flex items-end justify-between gap-4">
-            <Heading ctx={ctx} section={section} dark={dark} center={false} color={ctx.accent} />
-            {cards.length > 5 && (
-              <button type="button" onClick={() => setExpanded((value) => !value)} className={`hidden shrink-0 items-center gap-1.5 text-sm font-extrabold sm:inline-flex ${dark ? 'text-white' : 'text-slate-700'}`}>
-                {expanded ? ctx.tr('news.showLess', 'Show Less') : ctx.tr('news.viewMore', 'View More')}
-                <ArrowRight className={`h-4 w-4 transition ${expanded ? 'rotate-90' : ''} rtl:rotate-180`} />
-              </button>
-            )}
-          </div>
-
-          {shown.length ? (
-            <div className="mt-8 space-y-3">
-              {shown.map((card) => {
-                const title = cardTitle(ctx, card);
-                const href = ctx.preview ? '#' : `/news/${newsSlug(card)}`;
-                return (
-                  <a key={card.id} href={href} className={`group flex gap-4 rounded-2xl border p-3 transition hover:-translate-y-0.5 hover:shadow-lg sm:p-4 ${dark ? 'border-white/15 bg-white/[.045] hover:bg-white/[.07]' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-                    <div className="h-[76px] w-[96px] shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:h-[84px] sm:w-[112px]">
-                      {card.imageUrl
-                        ? <img loading="lazy" src={card.imageUrl} alt={title} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
-                        : <div style={{ background: `linear-gradient(135deg, ${tint(ctx.primary, 24)}, ${tint(ctx.accent, 15)})` }} className="flex h-full w-full items-center justify-center"><CalendarDays style={{ color: ctx.primary }} className="h-8 w-8" /></div>}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {card.category && <span style={{ color: dark ? '#fff' : ctx.primary, backgroundColor: dark ? 'rgba(255,255,255,.10)' : tint(ctx.primary, 10) }} className="rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-[.08em]">{card.category}</span>}
-                      </div>
-                      <h3 className={`mt-1.5 line-clamp-2 text-sm font-extrabold leading-5 sm:text-[15px] ${dark ? 'text-white' : 'text-slate-950'}`}>{title}</h3>
-                      <div className={`mt-2 flex flex-wrap items-center gap-3 text-[10px] font-medium ${dark ? 'text-white/55' : 'text-slate-500'}`}>
-                        {card.date && <span className="inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{formatDate(card.date, locale)}</span>}
-                        {card.time && <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{card.time}</span>}
-                      </div>
-                    </div>
-                  </a>
-                );
-              })}
-            </div>
-          ) : <div className="mt-8"><PreviewHint ctx={ctx}>Add news posts in Content to show Latest News.</PreviewHint></div>}
-
-          {cards.length > 5 && (
-            <button type="button" onClick={() => setExpanded((value) => !value)} className={`mt-5 inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-extrabold sm:hidden ${dark ? 'border-white/20 text-white' : 'border-slate-200 text-slate-700'}`}>
-              {expanded ? ctx.tr('news.showLess', 'Show Less') : ctx.tr('news.viewMore', 'View More')}
-            </button>
-          )}
-        </div>
-
-        <aside className={`rounded-3xl border p-5 sm:p-6 ${dark ? 'border-white/15 bg-white/[.045]' : 'border-slate-200 bg-slate-50'}`}>
-          <p style={{ color: ctx.primary }} className="text-[10px] font-black uppercase tracking-[.14em]">{ctx.tr('news.stayInTouch', 'Stay in touch')}</p>
-          <h3 className={`mt-1 text-lg font-black ${dark ? 'text-white' : 'text-slate-950'}`}>{ctx.tr('news.followUpdates', 'Follow Our Updates')}</h3>
-          <div className={`mt-5 rounded-2xl p-5 text-center ${dark ? 'bg-black/15' : 'bg-white ring-1 ring-slate-200'}`}>
-            {ctx.logo ? <img src={ctx.logo} alt="" className="mx-auto h-16 w-16 rounded-2xl bg-white object-contain" /> : <div style={{ backgroundColor: ctx.primary }} className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl text-white"><School className="h-8 w-8" /></div>}
-            <p className={`mt-3 text-sm font-black ${dark ? 'text-white' : 'text-slate-950'}`}>{ctx.displayName}</p>
-            <p className={`mt-1 text-xs leading-5 ${dark ? 'text-white/55' : 'text-slate-500'}`}>{ctx.tr('news.followText', 'Follow our official channels for announcements, events and school updates.')}</p>
-          </div>
-          {socials.length > 0 && (
-            <div className="mt-4 grid gap-2">
-              {socials.slice(0, 5).map((item) => (
-                <a key={item.id} href={item.href} target="_blank" rel="noreferrer" className={`flex items-center justify-between rounded-xl border px-4 py-3 text-xs font-extrabold transition ${dark ? 'border-white/15 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
-                  {ctx.tr(`link.${item.id}.label`, item.label)}<ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" />
-                </a>
-              ))}
-            </div>
-          )}
-        </aside>
-      </div>
-    </Shell>
-  );
+  return <Shell section={section} ctx={ctx}>
+    <div className="flex items-end justify-between gap-3"><Heading ctx={ctx} section={section} dark={dark} center={false} />{cards.length > 3 && <button type="button" onClick={() => setExpanded(!expanded)} className={`shrink-0 text-xs font-bold ${dark ? 'text-white' : 'text-slate-700'}`}>{expanded ? ctx.tr('news.showLess', 'Show Less') : ctx.tr('news.viewMore', 'View All News')}</button>}</div>
+    <div className="mt-6 grid gap-4 lg:grid-cols-3">{(expanded ? cards : cards.slice(0, 3)).map((card) => <a key={card.id} href={ctx.preview ? '#' : `/news/${newsSlug(card)}`} className="group flex min-w-0 gap-3 rounded-xl bg-white p-3 text-slate-900 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md">
+      {card.imageUrl ? <img loading="lazy" src={card.imageUrl} alt={cardTitle(ctx, card)} className="h-24 w-24 shrink-0 rounded-lg object-cover" /> : <div style={{ backgroundColor: tint(ctx.primary, 10) }} className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg"><CalendarDays style={{ color: ctx.primary }} className="h-8 w-8" /></div>}
+      <div className="min-w-0"><h3 className="line-clamp-2 text-sm font-bold leading-5">{cardTitle(ctx, card)}</h3><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{cardText(ctx, card)}</p>{card.date && <p className="mt-2 text-[10px] text-slate-500">{formatDate(card.date, ctx.site.defaultLanguage || 'en')}</p>}</div>
+    </a>)}</div>
+    {!cards.length && <PreviewHint ctx={ctx}>Add news posts in Content to show Latest News.</PreviewHint>}
+  </Shell>;
 }
 
 function LatestNewsPostDetail({ ctx, section, card }: { ctx: RenderContext; section: WebsiteSection; card: WebsiteCard }) {
@@ -997,7 +758,7 @@ function VideoBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSect
       <Heading ctx={ctx} section={section} dark={isDark(section)} />
       {playable ? (
         <div className="relative mx-auto mt-14 max-w-5xl">
-          <div aria-hidden="true" style={{ background: `linear-gradient(135deg, ${ctx.primary}, ${ctx.accent})` }} className="absolute -inset-3 rounded-[2.5rem] opacity-80 blur-xl" />
+          <div aria-hidden="true" style={{ background: `linear-gradient(135deg, ${ctx.primary}, ${ctx.accent})` }} className="absolute -inset-3 rounded-2xl opacity-80 blur-xl" />
           <div className="relative overflow-hidden rounded-[2rem] bg-black shadow-2xl ring-4 ring-white">
             <InlineVideo url={section.videoUrl} title={text(ctx, section, 'title') || 'Video'} className="aspect-video w-full bg-black" />
           </div>
@@ -1129,22 +890,20 @@ function SectionView({ ctx, section, values }: { ctx: RenderContext; section: We
 }
 
 /**
- * The home page keeps the admin's section order, with two school-specific touches:
- * the stats directly under the hero overlap it, and the "values" cards (the starter's
+ * Every tenant home uses the same section order, with two school-specific touches:
+ * the "values" cards (the starter's
  * `values` services section) are shown as the About section's highlights instead of a
  * separate card grid.
  */
 function SchoolHome({ ctx, page }: { ctx: RenderContext; page: WebsitePage }) {
-  const sections = page.sections.filter((section) => section.visible);
+  const order: WebsiteSectionType[] = ['hero', 'stats', 'about', 'latest_news', 'news', 'staff', 'video', 'partners', 'services', 'programs', 'gallery', 'testimonials', 'faq', 'custom', 'contact'];
+  const sections = page.sections.filter((section) => section.visible).sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
   const about = sections.find((section) => section.type === 'about');
   const values = about ? sections.find((section) => section.id === 'values' && section.type === 'services') : undefined;
-  const heroIndex = sections.findIndex((section) => section.type === 'hero');
-  const overlapStats = heroIndex >= 0 && sections[heroIndex + 1]?.type === 'stats' ? sections[heroIndex + 1] : undefined;
   return (
     <>
       {sections.map((section) => {
         if (section === values) return null;
-        if (section === overlapStats) return <StatsBlock key={section.id} ctx={ctx} section={section} overlap />;
         if (section.type === 'hero') return <HeroBlock key={section.id} ctx={ctx} section={section} />;
         if (section === about) return <AboutBlock key={section.id} ctx={ctx} section={section} values={values?.cards} />;
         return <SectionView key={section.id} ctx={ctx} section={section} />;
@@ -1195,9 +954,8 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', newsSlug: r
   const ctx: RenderContext = { site, organization, tr, preview, sessionId, pageSlug, onTrack, primary, secondary, accent, radius, displayName, logo };
 
   const navItems = site.header.navItems.filter((item) => item.visible);
-  const phone = site.footer.phone || organization.phone || '';
-  const email = site.footer.email || organization.email || '';
-  const address = site.footer.address || organization.address || '';
+  const homeAbout = site.pages.find((item) => item.slug === '')?.sections.find((section) => section.type === 'about' && section.visible);
+  const exploreHref = homeAbout ? `/#${homeAbout.id}` : (site.header.ctaUrl || '/auth/login');
   const languagePicker = (className: string) => enabledLanguages.length > 1 && (
     <select aria-label="Website language" value={currentLanguage.code} onChange={(e) => setLanguage(e.target.value)} className={className}>
       {enabledLanguages.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
@@ -1209,38 +967,18 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', newsSlug: r
 
   return (
     <div dir={currentLanguage.direction} lang={currentLanguage.code} style={{ fontFamily: site.theme.fontFamily || undefined, '--website-primary': primary } as CSSProperties} className="min-h-screen overflow-x-clip bg-white text-slate-900 antialiased [overflow-wrap:anywhere]">
-      <header className={`${site.header.sticky && !preview ? 'sticky top-0' : 'relative'} z-40 bg-[#004f43] text-white shadow-sm [overflow-wrap:normal]`}>
-        <div className="mx-auto flex h-[74px] max-w-[1180px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <a href="/" className="flex min-w-0 items-center gap-3">
-            {brandMark('h-11 w-11')}
-            {site.header.showOrganizationName && (
-              <span className="line-clamp-2 max-w-[250px] text-[15px] font-black uppercase leading-tight tracking-[.045em] text-white sm:max-w-[330px] sm:text-[16px]">{displayName}</span>
-            )}
-          </a>
-          <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
-            {navItems.map((item) => <a key={item.id} href={item.href} className="whitespace-nowrap rounded-full px-3.5 py-2 text-[12px] font-bold text-white/78 transition hover:bg-white/10 hover:text-white">{tr(`link.${item.id}.label`, item.label)}</a>)}
-          </nav>
-          <div className="flex items-center gap-2">
-            {languagePicker('hidden rounded-full border border-white/20 bg-white/10 px-3 py-2 text-xs font-bold text-white sm:block')}
-            <a href="/auth/login" className="hidden rounded-full border border-white/25 px-4 py-2 text-xs font-black text-white transition hover:bg-white/10 sm:inline-flex">Sign in</a>
-            {site.header.ctaText && <a onClick={() => onTrack?.('cta', pageSlug || '/')} href={site.header.ctaUrl || '/auth/login'} style={{ backgroundColor: accent }} className="hidden shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-black text-[#18433a] shadow-sm transition hover:-translate-y-0.5 md:inline-flex">{tr('header.ctaText', site.header.ctaText)}<ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" /></a>}
-            <button type="button" onClick={() => setMobileOpen((value) => !value)} aria-expanded={mobileOpen} aria-label="Toggle navigation" className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white lg:hidden">{mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
+      <header className={`${site.header.sticky && !preview ? 'sticky top-0' : 'relative'} z-40 border-b border-slate-100 bg-white text-slate-900 shadow-sm`}>
+        <div className="mx-auto flex min-h-[74px] max-w-[1180px] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+          <a href="/" className="flex min-w-0 items-center gap-3">{brandMark('h-11 w-11')}{site.header.showOrganizationName && <span className="line-clamp-2 max-w-[240px] text-sm font-bold leading-tight sm:max-w-[320px] sm:text-base">{displayName}</span>}</a>
+          <nav aria-label="Main" className="hidden items-center gap-1 xl:flex">{navItems.map((item) => <a key={item.id} href={item.href} className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">{tr(`link.${item.id}.label`, item.label)}</a>)}</nav>
+          <div className="flex shrink-0 items-center gap-2">
+            {languagePicker('hidden rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs sm:block')}
+            <div className="hidden gap-2 md:flex"><a href={exploreHref} style={{ backgroundColor: primary }} className="rounded-lg px-4 py-2 text-xs font-bold text-white" onClick={() => onTrack?.('cta', pageSlug || '/')}>{tr('header.explore', 'Explore')}</a><a href="/auth/login" className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold"><LogIn className="h-3.5 w-3.5" />{tr('header.login', 'Login')}</a></div>
+            <button type="button" onClick={() => setMobileOpen((value) => !value)} aria-expanded={mobileOpen} aria-controls="organization-navigation" aria-label="Toggle navigation" className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 xl:hidden">{mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
           </div>
         </div>
-        {mobileOpen && (
-          <nav aria-label="Mobile" className="border-t border-white/10 bg-[#004f43] px-4 pb-5 pt-3 shadow-xl lg:hidden">
-            {navItems.map((item) => (
-              <a key={item.id} href={item.href} onClick={() => setMobileOpen(false)} className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-white/90 hover:bg-white/10">
-                {tr(`link.${item.id}.label`, item.label)}<ArrowRight className="h-4 w-4 text-white/45 rtl:rotate-180" />
-              </a>
-            ))}
-            {languagePicker('mt-2 w-full rounded-xl border border-white/20 bg-white/10 px-3 py-3 text-sm font-bold text-white sm:hidden')}
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <a href="/auth/login" className="flex items-center justify-center rounded-xl border border-white/20 px-4 py-3 text-sm font-black text-white">Sign in</a>
-              {site.header.ctaText && <a onClick={() => onTrack?.('cta', pageSlug || '/')} href={site.header.ctaUrl || '/auth/login'} style={{ backgroundColor: accent }} className="flex items-center justify-center rounded-xl px-4 py-3 text-sm font-black text-[#18433a]">{tr('header.ctaText', site.header.ctaText)}</a>}
-            </div>
-          </nav>
-        )}
+        <div className="mx-auto grid max-w-[1180px] grid-cols-2 gap-2 px-4 pb-3 sm:px-6 md:hidden"><a href={exploreHref} style={{ backgroundColor: primary }} onClick={() => onTrack?.('cta', pageSlug || '/')} className="rounded-lg px-3 py-2.5 text-center text-xs font-bold text-white">{tr('header.explore', 'Explore')}</a><a href="/auth/login" className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2.5 text-xs font-bold"><LogIn className="h-4 w-4" />{tr('header.login', 'Login')}</a></div>
+        {mobileOpen && <nav id="organization-navigation" aria-label="Mobile" className="border-t border-slate-100 px-4 py-3 xl:hidden">{navItems.map((item) => <a key={item.id} href={item.href} onClick={() => setMobileOpen(false)} className="block rounded-lg px-3 py-3 text-sm font-semibold hover:bg-slate-50">{tr(`link.${item.id}.label`, item.label)}</a>)}{languagePicker('mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:hidden')}</nav>}
       </header>
 
       <main>
@@ -1263,7 +1001,7 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', newsSlug: r
         )}
       </main>
 
-      <footer className="relative overflow-hidden bg-[#12377b] text-white">
+      <footer style={{ backgroundColor: secondary }} className="relative overflow-hidden text-white">
         <div aria-hidden="true" className="pointer-events-none absolute -right-28 top-8 h-48 w-48 rounded-full border border-white/5" />
         <div aria-hidden="true" className="pointer-events-none absolute -right-16 top-16 h-32 w-32 rounded-full border border-white/5" />
         <div className="relative mx-auto max-w-[1180px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
@@ -1279,6 +1017,7 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', newsSlug: r
             </div>
           </div>
 
+          <nav aria-label="Footer" className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-white/75">{site.footer.quickLinks.filter((item) => item.visible).map((item) => <a key={item.id} href={item.href} className="hover:text-white">{tr(`link.${item.id}.label`, item.label)}</a>)}</nav>
           <div className="mt-4 border-t border-white/10 pt-3 text-[9px] text-white/45 sm:text-[10px]">
             <p>{tr('footer.copyright', site.footer.copyright)}</p>
           </div>
