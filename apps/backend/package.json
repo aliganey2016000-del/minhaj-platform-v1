@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "nodemon --ext ts,json --exec ts-node src/server.ts",
-    "prebuild": "node scripts/apply-teacher-edit-account-patch.mjs",
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",

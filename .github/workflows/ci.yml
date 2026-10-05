@@ -102,8 +102,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: TypeScript build
-        run: npx tsc
+      - name: Production build (same npm lifecycle as Coolify)
+        run: npm run build
+
+      - name: Coolify Docker build (Node 22)
+        run: docker build --tag sahal-backend-ci .
 
       - name: Lint
         run: npm run lint

@@ -202,6 +202,28 @@ async function main() {
   assert(editRes.body?.data?.qualification === 'MA Islamic Studies', 'Edit Teacher persists the updated qualification');
   assert(editRes.body?.data?.status === 'on_leave', 'Edit Teacher persists the updated status');
 
+  // Account editing is committed source code; it must work without a build-time patch.
+  section('EDIT ACCOUNT FIELDS — email, phone, title and password');
+  const teacherUserId = addRes.body?.data?.user?._id || addRes.body?.data?.user;
+  const beforeAccountEdit = await User.findById(teacherUserId).select('+tokenVersion');
+  const accountRes = await request(app).patch(`/api/v1/teachers/${newTeacherId}`).set('Authorization', `Bearer ${orgAdminToken}`).send({
+    email: '  UPDATED-TEACHER@test.local  ', phone: '+252699000099', title: 'Senior Teacher', password: 'UpdatedPassword123!',
+  });
+  assert(accountRes.status === 200, `Account edit succeeds (status ${accountRes.status})`);
+  assert(accountRes.body?.data?.user?.email === 'updated-teacher@test.local', 'account edit normalizes and returns email');
+  assert(accountRes.body?.data?.user?.phone === '+252699000099', 'account edit returns phone');
+  assert(accountRes.body?.data?.user?.title === 'Senior Teacher', 'account edit returns title alongside phone');
+  const afterAccountEdit = await User.findById(teacherUserId).select('+password +tokenVersion');
+  assert(!!afterAccountEdit && await afterAccountEdit.comparePassword('UpdatedPassword123!'), 'updated password authenticates');
+  assert(afterAccountEdit?.tokenVersion === Number(beforeAccountEdit?.tokenVersion || 0) + 1, 'password change revokes existing tokens');
+  const titleRes = await request(app).patch(`/api/v1/teachers/${newTeacherId}`).set('Authorization', `Bearer ${orgAdminToken}`).send({
+    title: 'Head Teacher', password: '',
+  });
+  assert(titleRes.status === 200 && titleRes.body?.data?.user?.title === 'Head Teacher', 'title-only edit works with a blank password');
+  const afterTitleEdit = await User.findById(teacherUserId).select('+password +tokenVersion');
+  assert(!!afterTitleEdit && await afterTitleEdit.comparePassword('UpdatedPassword123!'), 'blank password preserves the current password');
+  assert(afterTitleEdit?.tokenVersion === afterAccountEdit?.tokenVersion, 'title-only edit preserves token version');
+
   // -------------------------------------------------------------------
   section('TABLE (GET /teachers)');
   // -------------------------------------------------------------------
