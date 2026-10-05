@@ -45,6 +45,10 @@ async function main() {
     const site = configs[0].body.data.draft;
     assert.equal(site.pages[0].sections[0].title, 'Balcad School');
     for (const type of ['news', 'staff', 'partners', 'gallery', 'video']) assert.ok(site.pages[0].sections.some((s: any) => s.type === type));
+    const starterAbout = site.pages[0].sections.find((s: any) => s.type === 'about');
+    assert.deepEqual(starterAbout.cards.map((card: any) => card.id), ['about-mission', 'about-vision', 'about-values']);
+    assert.deepEqual(starterAbout.cards.map((card: any) => card.title), ['Our Mission', 'Our Vision', 'Core Values']);
+    assert.equal(site.pages[0].sections.some((s: any) => s.id === 'values'), false, 'new school template keeps mission/vision/values inside About');
     await request(app).get(`/website?schoolId=${b}`).set('Authorization', auth).expect(403);
     await request(app).put('/website').set('Authorization', auth).send({ schoolId: b, site }).expect(403);
     await request(app).post('/website/publish').set('Authorization', auth).send({ schoolId: b }).expect(403);
