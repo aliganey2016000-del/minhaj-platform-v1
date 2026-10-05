@@ -70,19 +70,11 @@ export function buildDefaultSite(school: any): WebsiteSiteDocument {
           body: `${school.name} brings together caring educators, strong values and meaningful learning experiences to help students grow academically, socially and personally.`,
           imageUrl: '', videoUrl: '', icon: 'Building2',
           buttonText: 'Learn More About Us', buttonUrl: '/#contact',
-          background: 'muted', alignment: 'left', visible: true, cards: [],
-        },
-        {
-          id: 'values', type: 'services',
-          title: 'More Than a School',
-          subtitle: 'Why Families Choose Us',
-          body: 'A supportive school community focused on the whole student.',
-          imageUrl: '', videoUrl: '', icon: 'Heart', buttonText: '', buttonUrl: '',
-          background: 'default', alignment: 'center', visible: true,
+          background: 'muted', alignment: 'left', visible: true,
           cards: [
-            { id: 'value-1', title: 'Safe & Supportive', text: 'A welcoming environment where students can learn with confidence.', icon: 'ShieldCheck' },
-            { id: 'value-2', title: 'Modern Learning', text: 'Teaching approaches designed to build knowledge, skills and curiosity.', icon: 'Sparkles' },
-            { id: 'value-3', title: 'Strong Values', text: 'Character, responsibility and respect are part of everyday learning.', icon: 'Heart' },
+            { id: 'about-mission', title: 'Our Mission', text: '', icon: 'BookOpen' },
+            { id: 'about-vision', title: 'Our Vision', text: '', icon: 'Sparkles' },
+            { id: 'about-values', title: 'Core Values', text: '', icon: 'Heart' },
           ],
         },
         {
