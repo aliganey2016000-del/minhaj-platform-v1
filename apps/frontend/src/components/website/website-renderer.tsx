@@ -307,9 +307,18 @@ function HeroBlock({ ctx, section, badge }: { ctx: RenderContext; section: Websi
       <div className={`relative mx-auto grid max-w-[1180px] items-center gap-12 px-4 pb-24 pt-14 sm:px-6 sm:pb-28 sm:pt-20 lg:px-8 lg:pb-32 lg:pt-20 ${centered ? '' : 'lg:grid-cols-[1.02fr_.98fr]'}`}>
         <div className={centered ? 'mx-auto max-w-4xl text-center' : ''}>
           <Eyebrow label={text(ctx, section, 'subtitle')} color={ctx.accent} dark />
-          <h1 className="mt-6 max-w-[680px] text-[2.8rem] font-black leading-[.97] tracking-[-.045em] text-white sm:text-6xl lg:text-[4.5rem]">
-            {accentedTitle ? (
-              <>
+          {accentedTitle ? (
+            <>
+              <h1 className="mt-6 text-[clamp(1.72rem,8vw,2.2rem)] font-black leading-[.98] tracking-[-.045em] sm:hidden">
+                <span className="block whitespace-nowrap text-white">{accentedTitle[1]}</span>
+                <span
+                  className="mt-1 block whitespace-nowrap bg-clip-text text-transparent [text-shadow:0_8px_24px_rgba(0,0,0,.14)]"
+                  style={{ backgroundImage: `linear-gradient(90deg, #fff3a8 0%, ${ctx.accent} 45%, #ffb000 100%)` }}
+                >
+                  {accentedTitle[2]}
+                </span>
+              </h1>
+              <h1 className="mt-6 hidden max-w-[680px] text-6xl font-black leading-[.97] tracking-[-.045em] text-white sm:block lg:text-[4.5rem]">
                 <span>{accentedTitle[1]}</span>
                 <span
                   className="bg-clip-text text-transparent [text-shadow:0_8px_24px_rgba(0,0,0,.14)]"
@@ -317,9 +326,13 @@ function HeroBlock({ ctx, section, badge }: { ctx: RenderContext; section: Websi
                 >
                   {accentedTitle[2]}
                 </span>
-              </>
-            ) : title}
-          </h1>
+              </h1>
+            </>
+          ) : (
+            <h1 className="mt-6 max-w-[680px] text-[2.8rem] font-black leading-[.97] tracking-[-.045em] text-white sm:text-6xl lg:text-[4.5rem]">
+              {title}
+            </h1>
+          )}
           {body && <p className={`mt-6 max-w-xl whitespace-pre-line text-[15px] leading-7 text-white/82 sm:text-base sm:leading-8 ${centered ? 'mx-auto' : ''}`}>{body}</p>}
           {(buttonText || ctx.site.header.ctaText) && (
             <div className={`mt-8 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:gap-3 ${centered ? 'sm:justify-center' : ''}`}>
