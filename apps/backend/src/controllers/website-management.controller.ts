@@ -25,7 +25,7 @@ import { deleteFromR2, getFromR2, r2Enabled, uploadToR2, websiteMediaProxyUrl } 
 
 const SECTION_TYPES = new Set<WebsiteSectionType>([
   'hero', 'about', 'services', 'programs', 'stats', 'gallery',
-  'video', 'testimonials', 'faq', 'contact', 'custom', 'news', 'staff', 'partners',
+  'video', 'testimonials', 'faq', 'contact', 'custom', 'news', 'latest_news', 'staff', 'partners',
 ]);
 const BACKGROUNDS = new Set(['default', 'muted', 'primary', 'dark']);
 const ALIGNMENTS = new Set(['left', 'center']);
@@ -76,6 +76,11 @@ function normalizeCard(value: any, prefix: string): WebsiteCard {
     question: cleanText(value?.question, 500),
     answer: cleanText(value?.answer, 4000),
     date: /^\d{4}-\d{2}-\d{2}$/.test(value?.date || "") ? value.date : "",
+    time: /^([01]\d|2[0-3]):[0-5]\d$/.test(value?.time || "") ? value.time : "",
+    category: cleanText(value?.category, 80),
+    slug: cleanText(value?.slug, 120).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''),
+    content: cleanText(value?.content, 20000),
+    gallery: Array.isArray(value?.gallery) ? value.gallery.slice(0, 12).map((item: unknown) => cleanUrl(item)).filter(Boolean) : [],
     role: cleanText(value?.role, 160),
   };
 }
