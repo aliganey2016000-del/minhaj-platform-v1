@@ -78,7 +78,7 @@ export function TeacherExams() {
   }, [exams]);
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-3 pt-16 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">
+    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-3 pt-3 sm:p-6 sm:pt-6 lg:p-8">
       <main className="mx-auto max-w-7xl space-y-5 sm:space-y-6">
         <header>
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-emerald-600">
