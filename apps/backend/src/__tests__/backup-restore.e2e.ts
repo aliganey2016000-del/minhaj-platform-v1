@@ -42,6 +42,7 @@ process.env.NODE_ENV = 'test';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 
 let failures = 0;
 function assert(condition: boolean, label: string) {
@@ -146,6 +147,38 @@ fs.writeFileSync(${JSON.stringify(restoreSentinel)}, JSON.stringify({ dumpDirArg
       let wrongPasswordThrew = false;
       try { decryptBackup(encFile, 'wrong-password'); } catch { wrongPasswordThrew = true; }
       assert(wrongPasswordThrew, 'decrypting with the wrong password throws instead of silently returning garbage');
+      const original = fs.readFileSync(encFile);
+      assert(original.subarray(0, 9).toString() === 'ENCRYP002', 'new backups use the authenticated versioned format');
+      // Cover header, salt, nonce, authentication tag and ciphertext corruption.
+      for (const offset of [0, 9, 25, 37, 53, original.length - 1]) {
+        const damaged = Buffer.from(original);
+        damaged[offset] ^= 1;
+        fs.writeFileSync(encFile, damaged);
+        let rejected = false;
+        try { decryptBackup(encFile, 'correct-password'); } catch { rejected = true; }
+        assert(rejected, `tampering at byte ${offset} is rejected`);
+      }
+      for (const length of [0, 9, 37, 52, original.length - 1]) {
+        fs.writeFileSync(encFile, original.subarray(0, length));
+        let rejected = false;
+        try { decryptBackup(encFile, 'correct-password'); } catch { rejected = true; }
+        assert(rejected, `truncation to ${length} bytes is rejected`);
+      }
+      fs.writeFileSync(encFile, original);
+      const emptyFile = path.join(workDir, 'empty.txt');
+      fs.writeFileSync(emptyFile, '');
+      encryptBackup(emptyFile, encFile, 'correct-password');
+      assert(decryptBackup(encFile, 'correct-password').length === 0, 'authenticated empty payload round-trips');
+
+      // Preserve access to backups produced before this format change.
+      const salt = Buffer.alloc(16, 7);
+      const iv = Buffer.alloc(16, 8);
+      const key = crypto.pbkdf2Sync('legacy-password', salt, 100000, 32, 'sha256');
+      const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+      const legacy = Buffer.concat([Buffer.from('ENCRYPTED'), salt, iv, cipher.update('legacy backup bytes'), cipher.final()]);
+      fs.writeFileSync(encFile, legacy);
+      assert(decryptBackup(encFile, 'legacy-password').toString() === 'legacy backup bytes', 'legacy CBC backups still decrypt with their correct password');
+
     }
 
     section('createBackup produces a real, non-empty, unencrypted artifact');
@@ -188,7 +221,7 @@ fs.writeFileSync(${JSON.stringify(restoreSentinel)}, JSON.stringify({ dumpDirArg
       encBackupFile = path.join(backupDir, encFiles[0]);
       assert(!fs.existsSync(encBackupFile.replace(/\.enc$/, '')), 'the unencrypted tar.gz sibling was removed, only the .enc remains');
       const raw = fs.readFileSync(encBackupFile);
-      assert(raw.toString('utf-8', 0, 9) === 'ENCRYPTED', 'the artifact on disk is actually encrypted (not plaintext tar.gz renamed)');
+      assert(raw.toString('utf-8', 0, 9) === 'ENCRYP002', 'the artifact on disk is actually encrypted (not plaintext tar.gz renamed)');
     }
 
     section('restoreBackup decrypts, extracts, and restores an encrypted backup end-to-end');
