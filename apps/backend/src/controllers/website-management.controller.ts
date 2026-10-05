@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
 import School from '../models/school.model';
+import User from '../models/user.model';
 import Teacher from '../models/teacher.model';
 import Course from '../models/course.model';
 import WebsiteConfig, {
@@ -169,19 +170,48 @@ async function syncStaffSectionsFromTeachers(site: WebsiteSiteDocument, schoolId
   const staffSections = site.pages.flatMap((page) => page.sections.filter((section) => section.type === 'staff'));
   if (!staffSections.length) return site;
 
-  const teachers: any[] = await Teacher.find({ school: schoolId, status: 'active' })
+  // Teacher Management has had more than one historical source of tenant
+  // ownership: current records use Teacher.school, while some older imports
+  // are reliably tied to the organization through User.organizationId.
+  // Use both so the website button sees the same teachers admins see instead
+  // of silently producing zero cards for legacy-but-valid teacher records.
+  const teacherUsers: any[] = await User.find({
+    organizationId: schoolId,
+    role: 'teacher',
+    isActive: { $ne: false },
+  }).select('_id').lean();
+  const teacherUserIds = teacherUsers.map((user) => user._id);
+
+  const teachers: any[] = await Teacher.find({
+    $or: [
+      { school: schoolId },
+      ...(teacherUserIds.length ? [{ user: { $in: teacherUserIds } }] : []),
+    ],
+    status: { $nin: ['inactive', 'on_leave'] },
+  })
     .populate('profile', 'firstName lastName avatar')
-    .populate('user', 'title isActive')
+    .populate('user', 'title isActive organizationId role')
     .sort({ createdAt: 1 })
     .lean();
 
-  const visibleTeachers = teachers.filter((teacher) => teacher.user?.isActive !== false);
+  const targetSchoolId = String(schoolId);
+  const visibleTeachers = teachers.filter((teacher) => {
+    if (teacher.user?.isActive === false) return false;
+    const teacherSchool = teacher.school ? String(teacher.school) : '';
+    const userSchool = teacher.user?.organizationId ? String(teacher.user.organizationId) : '';
+    return teacherSchool === targetSchoolId || userSchool === targetSchoolId;
+  });
+
   const teacherIds = visibleTeachers.map((teacher) => teacher._id);
   const courses: any[] = teacherIds.length
     ? await Course.find({
-        school: schoolId,
         teacher: { $in: teacherIds },
         status: { $ne: 'archived' },
+        $or: [
+          { school: schoolId },
+          { school: null },
+          { school: { $exists: false } },
+        ],
       }).select('title teacher').sort({ 'title.en': 1 }).lean()
     : [];
 
@@ -419,8 +449,13 @@ export async function syncWebsiteTeam(req: Request, res: Response): Promise<Resp
   const config = await WebsiteConfig.findOne({ school: school._id });
   if (!config) throw new NotFoundError('Website configuration');
 
-  const normalized = normalizeSite(config.draft, school);
-  const synced = await syncStaffSectionsFromTeachers(normalized, school._id);
+  // Generate against the draft currently visible in the editor when it is
+  // supplied. This makes the button work even before the user separately
+  // presses Save, and avoids syncing an older server-side draft.
+  const source = req.body?.site
+    ? normalizeSite(req.body.site, school)
+    : normalizeSite(config.draft, school);
+  const synced = await syncStaffSectionsFromTeachers(source, school._id);
   config.draft = synced;
   config.updatedBy = new mongoose.Types.ObjectId(req.user!.userId);
   config.version += 1;
