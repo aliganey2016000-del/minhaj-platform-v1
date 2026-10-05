@@ -307,6 +307,7 @@ function CardEditor({
   uploading,
   onSyncTeam,
   syncingTeam,
+  teamSyncFeedback,
 }: {
   section: WebsiteSection;
   onChange: (cards: WebsiteCard[]) => void;
@@ -315,6 +316,7 @@ function CardEditor({
   uploading: boolean;
   onSyncTeam?: () => Promise<void>;
   syncingTeam?: boolean;
+  teamSyncFeedback?: { type: 'success' | 'error'; text: string } | null;
 }) {
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const update = (index: number, patch: Partial<WebsiteCard>) => onChange(section.cards.map((card, i) => i === index ? { ...card, ...patch } : card));
@@ -340,6 +342,7 @@ function CardEditor({
               {syncingTeam ? 'Creating Team…' : 'Create All Team from Teachers'}
             </button>
           </div>
+          {teamSyncFeedback && <div className={`mt-3 rounded-xl border px-3 py-2.5 text-xs font-semibold leading-5 ${teamSyncFeedback.type === 'success' ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-950/20 dark:text-green-300' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'}`}>{teamSyncFeedback.text}</div>}
         </div>
 
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -444,6 +447,7 @@ export function WebsiteManagement() {
   const [publishing, setPublishing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [syncingTeam, setSyncingTeam] = useState(false);
+  const [teamSyncFeedback, setTeamSyncFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const sectionMediaRef = useRef<HTMLInputElement>(null);
@@ -549,11 +553,14 @@ export function WebsiteManagement() {
   };
 
   const syncTeam = async () => {
-    if (!selectedSchoolId) return;
+    if (!selectedSchoolId || !site) return;
     setSyncingTeam(true);
     setNotice(null);
+    setTeamSyncFeedback(null);
     try {
-      const { data } = await api.post('/website-management/team/sync', { schoolId: selectedSchoolId });
+      // Send the draft currently visible in the editor. The user should not
+      // have to Save first before Create All Team works.
+      const { data } = await api.post('/website-management/team/sync', { schoolId: selectedSchoolId, site });
       const draft = data.data?.draft as WebsiteSiteDocument;
       if (draft) {
         setSite(draft);
@@ -561,9 +568,19 @@ export function WebsiteManagement() {
       }
       if (data.data?.version) setVersion(data.data.version);
       const count = Number(data.data?.syncedTeachers || 0);
-      setNotice({ type: 'success', text: `Team created from Teacher Management: ${count} active teacher${count === 1 ? '' : 's'}. Name, title and courses were refreshed; matching website photos were kept.` });
+      if (count > 0) {
+        const text = `Created ${count} team card${count === 1 ? '' : 's'} from Teacher Management. You can now Edit a card to add its photo or Delete it from the website.`;
+        setTeamSyncFeedback({ type: 'success', text });
+        setNotice({ type: 'success', text });
+      } else {
+        const text = 'No active teachers were found for this organization. Check Manage Teachers and make sure the teachers are Active and belong to this school.';
+        setTeamSyncFeedback({ type: 'error', text });
+        setNotice({ type: 'error', text });
+      }
     } catch (err: any) {
-      setNotice({ type: 'error', text: err.response?.data?.message || 'Could not create the team from Teacher Management.' });
+      const text = err.response?.data?.message || 'Could not create the team from Teacher Management.';
+      setTeamSyncFeedback({ type: 'error', text });
+      setNotice({ type: 'error', text });
     } finally {
       setSyncingTeam(false);
     }
@@ -905,7 +922,7 @@ export function WebsiteManagement() {
                   <div><label className={labelClass}>Alignment</label><select className={fieldClass} value={activeSection.alignment} onChange={(e) => updateSection({ alignment: e.target.value as WebsiteSection['alignment'] })}><option value="left">Left</option><option value="center">Center</option></select></div>
                   {['hero', 'about', 'custom'].includes(activeSection.type) && <><div><label className={labelClass}>Button text</label><input className={fieldClass} value={activeSection.buttonText} onChange={(e) => updateSection({ buttonText: e.target.value })} /></div><div><label className={labelClass}>Button URL</label><input className={fieldClass} value={activeSection.buttonUrl} onChange={(e) => updateSection({ buttonUrl: e.target.value })} /></div></>}
                 </div>
-                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} onUploadImage={uploadImage} uploading={uploading} onSyncTeam={syncTeam} syncingTeam={syncingTeam} />}
+                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} onUploadImage={uploadImage} uploading={uploading} onSyncTeam={syncTeam} syncingTeam={syncingTeam} teamSyncFeedback={teamSyncFeedback} />}
               </div> : <div className={`${panelClass} flex min-h-[300px] items-center justify-center p-8 text-center text-sm text-[var(--color-text-tertiary)]`}>Add or select a section to edit it.</div>}
             </div>
           )}

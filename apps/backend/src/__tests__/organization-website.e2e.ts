@@ -64,10 +64,30 @@ async function main() {
       _id: principalTeacherId, user: principalUserId, profile: principalProfileId, school: a,
       teacherId: 'TCH-2026-0001', status: 'active', courses: [],
     } as any);
+
+    // Legacy teacher: older records may be organization-owned through User
+    // while Teacher.school/status were not backfilled. Team generation must
+    // still see the same valid teacher for this organization.
+    const legacyUserId = new mongoose.Types.ObjectId();
+    const legacyProfileId = new mongoose.Types.ObjectId();
+    const legacyTeacherId = new mongoose.Types.ObjectId();
+    await User.collection.insertOne({
+      _id: legacyUserId, email: 'legacy-teacher@balcad.test', password: 'not-used',
+      role: 'teacher', title: 'English Teacher', organizationId: a, isActive: true, isVerified: true,
+    } as any);
+    await Profile.collection.insertOne({
+      _id: legacyProfileId, user: legacyUserId, firstName: 'Maryan', lastName: 'Ali', avatar: '',
+    } as any);
+    await Teacher.collection.insertOne({
+      _id: legacyTeacherId, user: legacyUserId, profile: legacyProfileId,
+      teacherId: 'TCH-2026-0002', courses: [],
+    } as any);
+
     await Course.collection.insertMany([
       { _id: new mongoose.Types.ObjectId(), school: a, teacher: principalTeacherId, title: { en: 'Mathematics' }, slug: 'math-grade-1', status: 'published' },
       { _id: new mongoose.Types.ObjectId(), school: a, teacher: principalTeacherId, title: { en: 'Mathematics' }, slug: 'math-grade-2', status: 'draft' },
       { _id: new mongoose.Types.ObjectId(), school: a, teacher: principalTeacherId, title: { en: 'Science' }, slug: 'science-grade-3', status: 'published' },
+      { _id: new mongoose.Types.ObjectId(), teacher: legacyTeacherId, title: { en: 'English' }, slug: 'english-legacy', status: 'published' },
     ] as any[]);
 
     site.header.displayName = 'Balcad Learning Community';
@@ -85,15 +105,25 @@ async function main() {
       { id: 'manual-principal', title: 'Abas Abdulle', role: 'Principle', text: 'Add a short description.', imageUrl: '/legacy-principal.jpg' },
       { id: 'manual-ghost', title: 'Old Teacher', role: 'Teacher', text: 'Legacy only', imageUrl: '' },
     ];
-    await WebsiteConfig.updateOne({ school: a }, { $set: { draft: legacyDraft } });
-    const syncResult = (await request(app).post('/website/team/sync').set('Authorization', auth).send({}).expect(200)).body.data;
-    assert.equal(syncResult.syncedTeachers, 1);
-    const syncedCards = syncResult.draft.pages[0].sections.find((s: any) => s.type === 'staff').cards;
-    assert.equal(syncedCards.length, 1);
+    const serverDraft = JSON.parse(JSON.stringify(legacyDraft));
+    serverDraft.pages[0].sections.find((s: any) => s.type === 'staff').title = 'Old Server Team';
+    await WebsiteConfig.updateOne({ school: a }, { $set: { draft: serverDraft } });
+
+    const editorDraft = JSON.parse(JSON.stringify(legacyDraft));
+    editorDraft.pages[0].sections.find((s: any) => s.type === 'staff').title = 'Current Editor Team';
+    const syncResult = (await request(app).post('/website/team/sync').set('Authorization', auth).send({ site: editorDraft }).expect(200)).body.data;
+    assert.equal(syncResult.syncedTeachers, 2);
+    const syncedSection = syncResult.draft.pages[0].sections.find((s: any) => s.type === 'staff');
+    assert.equal(syncedSection.title, 'Current Editor Team', 'team creation must use the currently visible editor draft');
+    const syncedCards = syncedSection.cards;
+    assert.equal(syncedCards.length, 2);
     assert.equal(syncedCards[0].title, 'Abas Abdulle');
     assert.equal(syncedCards[0].role, 'Principal');
     assert.equal(syncedCards[0].text, 'Mathematics · Science');
     assert.equal(syncedCards[0].imageUrl, '/legacy-principal.jpg');
+    assert.equal(syncedCards[1].title, 'Maryan Ali');
+    assert.equal(syncedCards[1].role, 'English Teacher');
+    assert.equal(syncedCards[1].text, 'English');
 
     const firstPublish = (await request(app).post('/website/publish').set('Authorization', auth).send({}).expect(200)).body.data.version;
     const live = (await publicSite('balcad.sahaledu.com').expect(200)).body.data.site;
@@ -127,7 +157,7 @@ async function main() {
     for (const origin of ['https://unknown.sahaledu.com', 'https://balcad.attacker.example', 'http://balcad.sahaledu.com', 'https://school.example.edu:444', 'null']) assert.equal(await isAllowedOrigin(origin), false);
     await request(app).post('/website/unpublish').set('Authorization', auth).send({}).expect(200);
     assert.equal((await publicSite('balcad.sahaledu.com')).body.data.site, null);
-    console.log('PASS: organization authorization, tenant domains, explicit team creation, per-card delete persistence, legacy cleanup, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
+    console.log('PASS: organization authorization, tenant domains, explicit team creation from current draft, legacy teacher ownership, per-card delete persistence, legacy cleanup, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
   } finally {
     fs.rmSync(`uploads/organization-websites/${a}`, { recursive: true, force: true });
     await mongoose.disconnect();
