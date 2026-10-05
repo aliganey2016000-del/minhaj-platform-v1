@@ -41,6 +41,11 @@ async function main() {
     const { default: ExamEligibility } = await import('../models/exam-eligibility.model');
     const { default: ExamPaper } = await import('../models/exam-paper.model');
     const { default: ExamAttempt } = await import('../models/exam-attempt.model');
+    // The assertions below intentionally exercise the compound unique index.
+    // Model index creation is asynchronous after import, so explicitly await it
+    // before writing attempts; otherwise CI can race the index build and a
+    // genuine duplicate document may slip through before the index exists.
+    await ExamAttempt.init();
     const { default: ExamAttendance } = await import('../models/exam-attendance.model');
     const { default: ExamIncident } = await import('../models/exam-incident.model');
     const { default: ExamAppeal } = await import('../models/exam-appeal.model');
