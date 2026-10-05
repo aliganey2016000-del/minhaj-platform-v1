@@ -234,26 +234,26 @@ function Heading({ ctx, section, dark, center, color, className = '' }: {
   );
 }
 
-function PrimaryButton({ ctx, href, children, onClick, light }: { ctx: RenderContext; href: string; children: ReactNode; onClick?: () => void; light?: boolean }) {
+function PrimaryButton({ ctx, href, children, onClick, light, className = '' }: { ctx: RenderContext; href: string; children: ReactNode; onClick?: () => void; light?: boolean; className?: string }) {
   return (
     <a
       href={href}
       onClick={onClick}
       style={light ? { borderRadius: ctx.radius, color: ctx.secondary } : { backgroundColor: ctx.accent, borderRadius: ctx.radius }}
-      className={`group inline-flex min-h-11 items-center justify-center gap-2 px-6 py-3 text-sm font-black transition duration-200 hover:-translate-y-0.5 ${light ? 'bg-white shadow-lg' : 'text-[#173b33] shadow-[0_10px_28px_-12px_rgba(0,0,0,.35)]'}`}
+      className={`group inline-flex min-h-11 items-center justify-center gap-2 px-6 py-3 text-sm font-black transition duration-200 hover:-translate-y-0.5 ${light ? 'bg-white shadow-lg' : 'text-[#173b33] shadow-[0_10px_28px_-12px_rgba(0,0,0,.35)]'} ${className}`}
     >
       {children}
-      <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5 rtl:rotate-180" />
+      <ArrowRight className="h-4 w-4 shrink-0 transition group-hover:translate-x-0.5 rtl:rotate-180" />
     </a>
   );
 }
 
-function SecondaryButton({ ctx, href, children, dark }: { ctx: RenderContext; href: string; children: ReactNode; dark?: boolean }) {
+function SecondaryButton({ ctx, href, children, dark, className = '' }: { ctx: RenderContext; href: string; children: ReactNode; dark?: boolean; className?: string }) {
   return (
     <a
       href={href}
       style={{ borderRadius: ctx.radius }}
-      className={`inline-flex min-h-11 items-center justify-center gap-2 border px-6 py-3 text-sm font-extrabold transition duration-200 hover:-translate-y-0.5 ${dark ? 'border-white/30 bg-white/5 text-white hover:bg-white/10' : 'border-white/30 bg-transparent text-white hover:bg-white/10'}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-2 border px-6 py-3 text-sm font-extrabold transition duration-200 hover:-translate-y-0.5 ${dark ? 'border-white/30 bg-white/5 text-white hover:bg-white/10' : 'border-white/30 bg-transparent text-white hover:bg-white/10'} ${className}`}
     >
       {children}
     </a>
@@ -295,6 +295,7 @@ function HeroBlock({ ctx, section, badge }: { ctx: RenderContext; section: Websi
   const body = text(ctx, section, 'body');
   const buttonText = text(ctx, section, 'buttonText');
   const centered = section.alignment === 'center' && !section.imageUrl;
+  const accentedTitle = title.match(/^(.*?\band\s+)(.+)$/i);
   return (
     <section
       id={section.id}
@@ -307,13 +308,42 @@ function HeroBlock({ ctx, section, badge }: { ctx: RenderContext; section: Websi
         <div className={centered ? 'mx-auto max-w-4xl text-center' : ''}>
           <Eyebrow label={text(ctx, section, 'subtitle')} color={ctx.accent} dark />
           <h1 className="mt-6 max-w-[680px] text-[2.8rem] font-black leading-[.97] tracking-[-.045em] text-white sm:text-6xl lg:text-[4.5rem]">
-            {title}
+            {accentedTitle ? (
+              <>
+                <span>{accentedTitle[1]}</span>
+                <span
+                  className="bg-clip-text text-transparent [text-shadow:0_8px_24px_rgba(0,0,0,.14)]"
+                  style={{ backgroundImage: `linear-gradient(90deg, #fff3a8 0%, ${ctx.accent} 45%, #ffb000 100%)` }}
+                >
+                  {accentedTitle[2]}
+                </span>
+              </>
+            ) : title}
           </h1>
           {body && <p className={`mt-6 max-w-xl whitespace-pre-line text-[15px] leading-7 text-white/82 sm:text-base sm:leading-8 ${centered ? 'mx-auto' : ''}`}>{body}</p>}
           {(buttonText || ctx.site.header.ctaText) && (
-            <div className={`mt-8 flex flex-wrap gap-3 ${centered ? 'justify-center' : ''}`}>
-              {buttonText && <PrimaryButton ctx={ctx} href={section.buttonUrl || '#about'} onClick={() => ctx.onTrack?.('cta', ctx.pageSlug || '/')}>{buttonText}</PrimaryButton>}
-              {ctx.site.header.ctaText && <SecondaryButton ctx={ctx} dark href={ctx.site.header.ctaUrl || '/auth/login'}><LogIn className="h-4 w-4" />{ctx.tr('header.ctaText', ctx.site.header.ctaText)}</SecondaryButton>}
+            <div className={`mt-8 grid grid-cols-2 gap-2.5 sm:flex sm:flex-wrap sm:gap-3 ${centered ? 'sm:justify-center' : ''}`}>
+              {buttonText && (
+                <PrimaryButton
+                  ctx={ctx}
+                  href={section.buttonUrl || '#about'}
+                  onClick={() => ctx.onTrack?.('cta', ctx.pageSlug || '/')}
+                  className="w-full min-w-0 px-3 text-[12px] sm:w-auto sm:px-6 sm:text-sm"
+                >
+                  <span className="truncate">{buttonText}</span>
+                </PrimaryButton>
+              )}
+              {ctx.site.header.ctaText && (
+                <SecondaryButton
+                  ctx={ctx}
+                  dark
+                  href={ctx.site.header.ctaUrl || '/auth/login'}
+                  className="w-full min-w-0 px-3 text-[12px] sm:w-auto sm:px-6 sm:text-sm"
+                >
+                  <LogIn className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{ctx.tr('header.ctaText', ctx.site.header.ctaText)}</span>
+                </SecondaryButton>
+              )}
             </div>
           )}
           <div className={`mt-8 flex items-center gap-4 ${centered ? 'justify-center' : ''}`}>
