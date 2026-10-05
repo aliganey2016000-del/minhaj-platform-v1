@@ -276,7 +276,7 @@ export function SidebarSettingsManage() {
         {!loading && targetReady && (tab === 'student' || tab === 'teacher') && (
           <>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div><h2 className="text-lg font-bold">{tab === 'student' ? 'Student Sidebar Manager' : 'Teacher Sidebar Manager'}</h2><p className="text-sm text-[var(--color-text-tertiary)]">Enable or disable navigation items for this tenant.</p></div>
+              <div><h2 className="text-lg font-bold">{tab === 'student' ? 'Student Sidebar Manager' : 'Teacher Sidebar Manager'}</h2><p className="text-sm text-[var(--color-text-tertiary)]">{tab === 'teacher' ? 'Enable or disable teacher navigation and direct page access for this tenant.' : 'Enable or disable navigation items for this tenant.'}</p></div>
               <button onClick={savePortal} disabled={saving || !items.length} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : 'Save Changes'}</button>
             </div>
             <div className="grid gap-4 md:grid-cols-2">

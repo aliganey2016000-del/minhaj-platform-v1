@@ -504,6 +504,9 @@ jobs:
       - name: Legacy attendance local calendar date regression
         run: node scripts/test-attendance-local-dates.mjs
 
+      - name: Teacher sidebar direct-route access regression
+        run: node scripts/test-teacher-sidebar-route-access.mjs
+
       - name: Build
         run: npm run build
 
