@@ -417,7 +417,7 @@ function HeroBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSecti
         {!centered && (
           <div className="relative mx-auto w-full max-w-[560px] lg:max-w-none">
             <div className="relative overflow-hidden rounded-[24px] border border-white/20 bg-black/25 p-2 shadow-[0_30px_70px_-30px_rgba(0,0,0,.65)] backdrop-blur-sm">
-              {section.videoUrl ? (
+              {section.videoUrl && (videoEmbed(section.videoUrl) || isDirectVideo(section.videoUrl)) ? (
                 <InlineVideo
                   url={section.videoUrl}
                   title={title || 'School video'}
