@@ -80,6 +80,25 @@ async function main() {
     assert.equal(staffCards[0].role, 'Principal');
     assert.equal(staffCards[0].text, 'Mathematics · Science');
     assert.equal(staffCards[0].imageUrl, '');
+
+    // Explicit "Sync All Teachers" must purge legacy/manual Team rows while
+    // preserving a matching website photo. Text/title/role come only from
+    // Teacher Management + course assignments, never old manual content.
+    const legacyDraft = JSON.parse(JSON.stringify(savedDraft));
+    legacyDraft.pages[0].sections.find((s: any) => s.type === 'staff').cards = [
+      { id: 'manual-principal', title: 'Abas Abdulle', role: 'Principle', text: 'Add a short description.', imageUrl: '/legacy-principal.jpg' },
+      { id: 'manual-ghost', title: 'Old Teacher', role: 'Teacher', text: 'Legacy only', imageUrl: '' },
+    ];
+    await WebsiteConfig.updateOne({ school: a }, { $set: { draft: legacyDraft } });
+    const syncResult = (await request(app).post('/website/team/sync').set('Authorization', auth).send({}).expect(200)).body.data;
+    assert.equal(syncResult.syncedTeachers, 1);
+    const syncedCards = syncResult.draft.pages[0].sections.find((s: any) => s.type === 'staff').cards;
+    assert.equal(syncedCards.length, 1);
+    assert.equal(syncedCards[0].title, 'Abas Abdulle');
+    assert.equal(syncedCards[0].role, 'Principal');
+    assert.equal(syncedCards[0].text, 'Mathematics · Science');
+    assert.equal(syncedCards[0].imageUrl, '/legacy-principal.jpg');
+
     const firstPublish = (await request(app).post('/website/publish').set('Authorization', auth).send({}).expect(200)).body.data.version;
     const live = (await publicSite('balcad.sahaledu.com').expect(200)).body.data.site;
     assert.equal(live.header.displayName, site.header.displayName);
@@ -102,7 +121,7 @@ async function main() {
     for (const origin of ['https://unknown.sahaledu.com', 'https://balcad.attacker.example', 'http://balcad.sahaledu.com', 'https://school.example.edu:444', 'null']) assert.equal(await isAllowedOrigin(origin), false);
     await request(app).post('/website/unpublish').set('Authorization', auth).send({}).expect(200);
     assert.equal((await publicSite('balcad.sahaledu.com')).body.data.site, null);
-    console.log('PASS: organization authorization, tenant domains, automatic teacher/team sync, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
+    console.log('PASS: organization authorization, tenant domains, explicit teacher/team sync, legacy cleanup, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
   } finally {
     fs.rmSync(`uploads/organization-websites/${a}`, { recursive: true, force: true });
     await mongoose.disconnect();

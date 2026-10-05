@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown, ArrowUp, Check, ChevronRight, Copy, Eye, EyeOff, FileText, Globe2,
   Image as ImageIcon, LayoutTemplate, Loader2, MoreVertical, Palette,
-  PanelsTopLeft, Plus, Save, Search, Trash2, UploadCloud,
+  PanelsTopLeft, Plus, RefreshCw, Save, Search, Trash2, UploadCloud,
   Video, X,
 } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -304,12 +304,16 @@ function CardEditor({
   media,
   onUploadImage,
   uploading,
+  onSyncTeam,
+  syncingTeam,
 }: {
   section: WebsiteSection;
   onChange: (cards: WebsiteCard[]) => void;
   media: WebsiteMediaItem[];
   onUploadImage: (file: File) => Promise<WebsiteMediaItem | null>;
   uploading: boolean;
+  onSyncTeam?: () => Promise<void>;
+  syncingTeam?: boolean;
 }) {
   const update = (index: number, patch: Partial<WebsiteCard>) => onChange(section.cards.map((card, i) => i === index ? { ...card, ...patch } : card));
   const add = () => onChange([...section.cards, defaultCard(section.type)]);
@@ -317,8 +321,20 @@ function CardEditor({
   if (section.type === 'staff') {
     return (
       <div className="mt-5 border-t border-[var(--color-border-subtle)] pt-5">
-        <div className="mb-4 rounded-xl border border-primary-200 bg-primary-50/60 p-3 text-xs leading-5 text-primary-800 dark:border-primary-900/50 dark:bg-primary-950/15 dark:text-primary-300">
-          Our Team is synced automatically from Teacher Management. Name, Position / Title and assigned courses are read-only here. Upload or replace only the website photo.
+        <div className="mb-4 rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900/50 dark:bg-primary-950/15">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-extrabold text-primary-800 dark:text-primary-300">Team source: Teacher Management</p>
+              <p className="mt-1 text-xs leading-5 text-primary-700/80 dark:text-primary-300/80">Sync All Teachers replaces old manually-created team cards with active Teacher Management records. Names, titles and assigned courses come from Teacher Management; matching website photos are kept.</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:min-w-[210px]">
+              <button type="button" disabled={syncingTeam} onClick={() => void onSyncTeam?.()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm disabled:opacity-50">
+                {syncingTeam ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {syncingTeam ? 'Syncing…' : 'Sync All Teachers'}
+              </button>
+              <a href="/admin/teachers" className="inline-flex items-center justify-center rounded-xl border border-primary-300 bg-white px-4 py-2.5 text-xs font-bold text-primary-700 dark:border-primary-800 dark:bg-transparent dark:text-primary-300">Open Teacher Management</a>
+            </div>
+          </div>
         </div>
         <div className="space-y-3">
           {section.cards.map((card, index) => (
@@ -393,6 +409,7 @@ export function WebsiteManagement() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [syncingTeam, setSyncingTeam] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const sectionMediaRef = useRef<HTMLInputElement>(null);
@@ -494,6 +511,27 @@ export function WebsiteManagement() {
       return false;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const syncTeam = async () => {
+    if (!selectedSchoolId) return;
+    setSyncingTeam(true);
+    setNotice(null);
+    try {
+      const { data } = await api.post('/website-management/team/sync', { schoolId: selectedSchoolId });
+      const draft = data.data?.draft as WebsiteSiteDocument;
+      if (draft) {
+        setSite(draft);
+        setSavedContent(JSON.stringify(draft));
+      }
+      if (data.data?.version) setVersion(data.data.version);
+      const count = Number(data.data?.syncedTeachers || 0);
+      setNotice({ type: 'success', text: `Our Team synced from Teacher Management. ${count} active teacher${count === 1 ? '' : 's'} loaded. Old manual team data was removed; matching website photos were kept.` });
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err.response?.data?.message || 'Could not sync Our Team from Teacher Management.' });
+    } finally {
+      setSyncingTeam(false);
     }
   };
 
@@ -827,13 +865,13 @@ export function WebsiteManagement() {
                       </div>
                     </div>
                   )}
-                  {activeSection.type !== 'contact' && activeSection.type !== 'hero' && activeSection.type !== 'video' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} onUpload={uploadImage} uploading={uploading} /></div>}
+                  {activeSection.type !== 'contact' && activeSection.type !== 'hero' && activeSection.type !== 'video' && activeSection.type !== 'staff' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} onUpload={uploadImage} uploading={uploading} /></div>}
                   {activeSection.type === 'video' && <div className="md:col-span-2"><label className={labelClass}>Video</label><VideoField value={activeSection.videoUrl} onChange={(videoUrl) => updateSection({ videoUrl })} media={site.media} /></div>}
                   <div><label className={labelClass}>Background</label><select className={fieldClass} value={activeSection.background} onChange={(e) => updateSection({ background: e.target.value as WebsiteSection['background'] })}><option value="default">White</option><option value="muted">Soft gray</option><option value="primary">Primary color</option><option value="dark">Dark</option></select></div>
                   <div><label className={labelClass}>Alignment</label><select className={fieldClass} value={activeSection.alignment} onChange={(e) => updateSection({ alignment: e.target.value as WebsiteSection['alignment'] })}><option value="left">Left</option><option value="center">Center</option></select></div>
                   {['hero', 'about', 'custom'].includes(activeSection.type) && <><div><label className={labelClass}>Button text</label><input className={fieldClass} value={activeSection.buttonText} onChange={(e) => updateSection({ buttonText: e.target.value })} /></div><div><label className={labelClass}>Button URL</label><input className={fieldClass} value={activeSection.buttonUrl} onChange={(e) => updateSection({ buttonUrl: e.target.value })} /></div></>}
                 </div>
-                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} onUploadImage={uploadImage} uploading={uploading} />}
+                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} onUploadImage={uploadImage} uploading={uploading} onSyncTeam={syncTeam} syncingTeam={syncingTeam} />}
               </div> : <div className={`${panelClass} flex min-h-[300px] items-center justify-center p-8 text-center text-sm text-[var(--color-text-tertiary)]`}>Add or select a section to edit it.</div>}
             </div>
           )}

@@ -215,7 +215,7 @@ async function syncStaffSectionsFromTeachers(site: WebsiteSiteDocument, schoolId
         const existing = currentById.get(cardId) || currentByName.get(normalizedNameKey(name));
         const courseNames = [...(courseNamesByTeacher.get(String(teacher._id))?.values() || [])];
         const managedTitle = cleanText(teacher.user?.title, 160);
-        const role = managedTitle || cleanText(existing?.role, 160) || 'Teacher';
+        const role = managedTitle || 'Teacher';
 
         return {
           id: cardId,
@@ -417,6 +417,32 @@ export async function saveWebsiteDraft(req: Request, res: Response): Promise<Res
     version: config!.version,
     updatedAt: config!.updatedAt,
   }, 'Website draft saved.');
+}
+
+export async function syncWebsiteTeam(req: Request, res: Response): Promise<Response> {
+  const school = await getManagedSchool(req, req.body?.schoolId || req.query.schoolId);
+  const config = await WebsiteConfig.findOne({ school: school._id });
+  if (!config) throw new NotFoundError('Website configuration');
+
+  const normalized = normalizeSite(config.draft, school);
+  const synced = await syncStaffSectionsFromTeachers(normalized, school._id);
+  config.draft = synced;
+  config.updatedBy = new mongoose.Types.ObjectId(req.user!.userId);
+  config.version += 1;
+  await config.save();
+
+  const syncedTeachers = synced.pages.reduce(
+    (total, page) => total + page.sections
+      .filter((section) => section.type === 'staff')
+      .reduce((count, section) => count + section.cards.length, 0),
+    0,
+  );
+
+  return ApiResponse.success(res, {
+    draft: synced,
+    version: config.version,
+    syncedTeachers,
+  }, 'Our Team synced from Teacher Management.');
 }
 
 export async function publishWebsite(req: Request, res: Response): Promise<Response> {
