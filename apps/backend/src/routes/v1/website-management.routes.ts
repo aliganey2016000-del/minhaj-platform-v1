@@ -35,6 +35,7 @@ router.use(roleMiddleware(['admin', 'org_admin']));
 
 router.get('/', asyncHandler(ctrl.getWebsiteConfig));
 router.put('/', asyncHandler(ctrl.saveWebsiteDraft));
+router.post('/team/sync', asyncHandler(ctrl.syncWebsiteTeam));
 router.post('/publish', asyncHandler(ctrl.publishWebsite));
 router.post('/unpublish', asyncHandler(ctrl.unpublishWebsite));
 router.post('/reset', asyncHandler(ctrl.resetWebsiteDraft));
