@@ -45,8 +45,12 @@ function getBackupFilename(): string {
   return `backup-${timestamp}.tar.gz`;
 }
 
+// Versioned authenticated format: magic (9), salt (16), nonce (12), tag (16), ciphertext.
+// Legacy ENCRYPTED/CBC backups remain readable, but cannot authenticate their contents.
+const AUTHENTICATED_MAGIC = Buffer.from('ENCRYP002');
+
 /**
- * Encrypt file using AES-256
+ * Encrypt new backups using AES-256-GCM.
  */
 function encryptBackup(inputFile: string, outputFile: string, password: string): void {
   if (!password) {
@@ -57,16 +61,12 @@ function encryptBackup(inputFile: string, outputFile: string, password: string):
   const data = fs.readFileSync(inputFile);
   const salt = crypto.randomBytes(16);
   const key = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-
-  const encryptedData = Buffer.concat([
-    Buffer.from('ENCRYPTED'), // Magic bytes
-    salt,
-    iv,
-    cipher.update(data),
-    cipher.final(),
-  ]);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const header = Buffer.concat([AUTHENTICATED_MAGIC, salt, iv]);
+  cipher.setAAD(header);
+  const ciphertext = Buffer.concat([cipher.update(data), cipher.final()]);
+  const encryptedData = Buffer.concat([header, cipher.getAuthTag(), ciphertext]);
 
   fs.writeFileSync(outputFile, encryptedData);
   console.log(`✅ Encrypted backup: ${path.basename(outputFile)}`);
@@ -78,7 +78,19 @@ function encryptBackup(inputFile: string, outputFile: string, password: string):
 function decryptBackup(inputFile: string, password: string): Buffer {
   const data = fs.readFileSync(inputFile);
 
-  if (data.toString('utf-8', 0, 9) !== 'ENCRYPTED') {
+  if (data.subarray(0, 9).equals(AUTHENTICATED_MAGIC)) {
+    if (data.length < 53) throw new Error('Invalid encrypted backup file');
+    const salt = data.subarray(9, 25);
+    const iv = data.subarray(25, 37);
+    const key = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAAD(data.subarray(0, 37));
+    decipher.setAuthTag(data.subarray(37, 53));
+    // Do not return any plaintext until final() has verified the authentication tag.
+    return Buffer.concat([decipher.update(data.subarray(53)), decipher.final()]);
+  }
+
+  if (data.toString('utf-8', 0, 9) !== 'ENCRYPTED' || data.length < 57 || (data.length - 41) % 16 !== 0) {
     throw new Error('Invalid encrypted backup file');
   }
 
