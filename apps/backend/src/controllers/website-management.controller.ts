@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
 import School from '../models/school.model';
+import Teacher from '../models/teacher.model';
+import Course from '../models/course.model';
 import WebsiteConfig, {
   WebsiteCard,
   WebsiteLanguage,
@@ -159,6 +161,80 @@ function normalizeTranslations(raw: any, languages: WebsiteLanguage[]): Record<s
   return result;
 }
 
+function normalizedNameKey(value: unknown): string {
+  return cleanText(value, 240).toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+async function syncStaffSectionsFromTeachers(site: WebsiteSiteDocument, schoolId: mongoose.Types.ObjectId | string): Promise<WebsiteSiteDocument> {
+  const staffSections = site.pages.flatMap((page) => page.sections.filter((section) => section.type === 'staff'));
+  if (!staffSections.length) return site;
+
+  const teachers: any[] = await Teacher.find({ school: schoolId, status: 'active' })
+    .populate('profile', 'firstName lastName avatar')
+    .populate('user', 'title isActive')
+    .sort({ createdAt: 1 })
+    .lean();
+
+  const visibleTeachers = teachers.filter((teacher) => teacher.user?.isActive !== false);
+  const teacherIds = visibleTeachers.map((teacher) => teacher._id);
+  const courses: any[] = teacherIds.length
+    ? await Course.find({
+        school: schoolId,
+        teacher: { $in: teacherIds },
+        status: { $ne: 'archived' },
+      }).select('title teacher').sort({ 'title.en': 1 }).lean()
+    : [];
+
+  const courseNamesByTeacher = new Map<string, Map<string, string>>();
+  for (const course of courses) {
+    const teacherId = String(course.teacher || '');
+    const name = cleanText(course.title?.en || course.title?.so || course.title?.ar, 160);
+    if (!teacherId || !name) continue;
+    const key = normalizedNameKey(name);
+    if (!courseNamesByTeacher.has(teacherId)) courseNamesByTeacher.set(teacherId, new Map());
+    if (!courseNamesByTeacher.get(teacherId)!.has(key)) courseNamesByTeacher.get(teacherId)!.set(key, name);
+  }
+
+  const nextPages = site.pages.map((page) => ({
+    ...page,
+    sections: page.sections.map((section) => {
+      if (section.type !== 'staff') return section;
+
+      const currentById = new Map(section.cards.map((card) => [card.id, card]));
+      const currentByName = new Map(
+        section.cards
+          .filter((card) => normalizedNameKey(card.title))
+          .map((card) => [normalizedNameKey(card.title), card]),
+      );
+
+      const cards: WebsiteCard[] = visibleTeachers.map((teacher) => {
+        const profile = teacher.profile || {};
+        const name = cleanText(`${profile.firstName || ''} ${profile.lastName || ''}`, 160)
+          || cleanText(teacher.teacherId, 160, 'Teacher');
+        const cardId = `teacher-${teacher._id}`;
+        const existing = currentById.get(cardId) || currentByName.get(normalizedNameKey(name));
+        const courseNames = [...(courseNamesByTeacher.get(String(teacher._id))?.values() || [])];
+        const managedTitle = cleanText(teacher.user?.title, 160);
+        const role = managedTitle || cleanText(existing?.role, 160) || 'Teacher';
+
+        return {
+          id: cardId,
+          title: name,
+          text: courseNames.join(' · '),
+          role,
+          imageUrl: cleanUrl(existing?.imageUrl || profile.avatar || ''),
+          icon: 'Users',
+          link: '',
+        };
+      });
+
+      return { ...section, cards };
+    }),
+  }));
+
+  return { ...site, pages: nextPages };
+}
+
 export function normalizeSite(raw: any, school: any): WebsiteSiteDocument {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new BadRequestError('Website content must be an object.');
@@ -302,9 +378,14 @@ export async function getWebsiteConfig(req: Request, res: Response): Promise<Res
   ).lean();
 
   const currentConfig = config!;
+  const normalizedDraft = normalizeSite(currentConfig.draft, school);
+  const syncedDraft = await syncStaffSectionsFromTeachers(normalizedDraft, school._id);
+  if (JSON.stringify(syncedDraft.pages) !== JSON.stringify(normalizedDraft.pages)) {
+    await WebsiteConfig.updateOne({ _id: currentConfig._id }, { $set: { draft: syncedDraft } });
+  }
   return ApiResponse.success(res, {
     school: schoolSummary(school),
-    draft: normalizeSite(currentConfig.draft, school),
+    draft: syncedDraft,
     isPublished: currentConfig.isPublished,
     publishedAt: currentConfig.publishedAt || null,
     version: currentConfig.version || 1,
@@ -316,11 +397,12 @@ export async function getWebsiteConfig(req: Request, res: Response): Promise<Res
 export async function saveWebsiteDraft(req: Request, res: Response): Promise<Response> {
   const school = await getManagedSchool(req, req.body?.schoolId || req.query.schoolId);
   const normalized = normalizeSite(req.body?.site, school);
+  const synced = await syncStaffSectionsFromTeachers(normalized, school._id);
 
   const config = await WebsiteConfig.findOneAndUpdate(
     { school: school._id },
     {
-      $set: { draft: normalized, updatedBy: req.user!.userId },
+      $set: { draft: synced, updatedBy: req.user!.userId },
       $inc: { version: 1 },
       $setOnInsert: { isPublished: false },
     },
@@ -343,8 +425,9 @@ export async function publishWebsite(req: Request, res: Response): Promise<Respo
   if (!config) throw new BadRequestError('Save the website draft before publishing.');
 
   const normalized = normalizeSite(config.draft, school);
-  config.draft = normalized;
-  config.published = JSON.parse(JSON.stringify(normalized));
+  const synced = await syncStaffSectionsFromTeachers(normalized, school._id);
+  config.draft = synced;
+  config.published = JSON.parse(JSON.stringify(synced));
   config.isPublished = true;
   config.publishedAt = new Date();
   config.updatedBy = new mongoose.Types.ObjectId(req.user!.userId);
