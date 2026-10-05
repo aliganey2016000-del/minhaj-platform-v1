@@ -32,6 +32,10 @@ import { nextFormattedId } from '../utils/id-sequence';
  * then fails the unique index) or reissue a retired ID once a teacher was
  * deleted and the count dropped back down.
  */
+function cleanTextTitle(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, 100) : '';
+}
+
 async function generateTeacherId(): Promise<string> {
   const year = new Date().getFullYear();
   return nextFormattedId(
@@ -65,7 +69,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
   const limitNum = Math.max(1, Math.min(100, parseInt(limit as string, 10) || 10));
   const skip = (pageNum - 1) * limitNum;
   const populateTeachers = (q: ReturnType<typeof Teacher.find>) => q
-    .populate('user', 'email phone isVerified isActive')
+    .populate('user', 'email phone title isVerified isActive')
     .populate('profile', 'firstName lastName gender avatar')
     .populate('school', 'name')
     .populate('courses', 'title.en slug');
@@ -120,7 +124,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
 export const getById = async (req: Request, res: Response): Promise<Response> => {
   const teacher = await Teacher.findById(req.params.id)
-    .populate('user', 'email phone isVerified isActive preferredLanguage')
+    .populate('user', 'email phone title isVerified isActive preferredLanguage')
     .populate('profile')
     .populate('school', 'name')
     .populate('courses', 'title.en slug category status');
@@ -176,7 +180,7 @@ export const viewDocument = async (req: Request, res: Response): Promise<void> =
 // ---------------------------------------------------------------------------
 
 export const create = async (req: Request, res: Response): Promise<Response> => {
-  const { email, password, firstName, lastName, gender, phone, school, qualification, specialization, experience, bio, joiningDate } = req.body;
+  const { email, password, firstName, lastName, gender, phone, title, school, qualification, specialization, experience, bio, joiningDate } = req.body;
   if (!email || !password || !firstName || !lastName || !gender) {
     throw new BadRequestError('email, password, firstName, lastName, and gender are required');
   }
@@ -187,7 +191,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const user = await User.create({
     email: email.toLowerCase(), password, role: 'teacher',
     organizationId: resolveOrgIdForCreate(req, school) || undefined,
-    phone: phone || undefined, isVerified: true, preferredLanguage: 'en',
+    phone: phone || undefined, title: cleanTextTitle(title), isVerified: true, preferredLanguage: 'en',
   });
 
   const profile = await Profile.create({ user: user._id, firstName, lastName, gender });
@@ -203,7 +207,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   });
 
   const populated = await Teacher.findById(teacher._id)
-    .populate('user', 'email phone isVerified isActive')
+    .populate('user', 'email phone title isVerified isActive')
     .populate('profile', 'firstName lastName gender avatar')
     .populate('school', 'name');
 
@@ -219,7 +223,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (!teacher) throw new NotFoundError('Teacher');
   assertOwnsOrg(req, teacher, 'school');
 
-  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate, email, phone, password } = req.body;
+  const { firstName, lastName, gender, school, qualification, specialization, experience, bio, status, joiningDate, email, phone, title, password } = req.body;
 
   const user = await User.findById(teacher.user).select('+password +tokenVersion');
   if (!user) throw new NotFoundError('Teacher user');
@@ -230,6 +234,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     const emailOwner = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } }).select('_id');
     if (emailOwner) throw new ConflictError('A user with this email already exists');
     user.email = normalizedEmail;
+  }
+
+  if (title !== undefined) {
+    user.title = cleanTextTitle(title);
   }
 
   if (phone !== undefined) {
@@ -249,7 +257,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     user.tokenVersion = Number(user.tokenVersion || 0) + 1;
   }
 
-  if (email !== undefined || phone !== undefined || (password !== undefined && String(password).length > 0)) {
+  if (email !== undefined || phone !== undefined || title !== undefined || (password !== undefined && String(password).length > 0)) {
     await user.save();
   }
 
@@ -272,7 +280,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   await teacher.save();
 
   const updated = await Teacher.findById(teacher._id)
-    .populate('user', 'email phone isVerified isActive')
+    .populate('user', 'email phone title isVerified isActive')
     .populate('profile')
     .populate('school', 'name')
     .populate('courses', 'title.en slug category status');
