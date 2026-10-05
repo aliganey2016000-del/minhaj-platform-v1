@@ -121,6 +121,33 @@ const dutyTone: Record<DutyStatus, string> = {
   completed: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
 };
 
+const scheduleCardTones = [
+  {
+    card: 'border-emerald-200/80 bg-emerald-50/45 dark:border-emerald-900/55 dark:bg-emerald-950/15',
+    course: 'text-emerald-700 dark:text-emerald-300',
+    badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/45 dark:text-emerald-300',
+    meta: 'bg-white/75 dark:bg-black/20',
+  },
+  {
+    card: 'border-sky-200/80 bg-sky-50/45 dark:border-sky-900/55 dark:bg-sky-950/15',
+    course: 'text-sky-700 dark:text-sky-300',
+    badge: 'bg-sky-100 text-sky-800 dark:bg-sky-950/45 dark:text-sky-300',
+    meta: 'bg-white/75 dark:bg-black/20',
+  },
+  {
+    card: 'border-amber-200/80 bg-amber-50/45 dark:border-amber-900/55 dark:bg-amber-950/15',
+    course: 'text-amber-700 dark:text-amber-300',
+    badge: 'bg-amber-100 text-amber-800 dark:bg-amber-950/45 dark:text-amber-300',
+    meta: 'bg-white/75 dark:bg-black/20',
+  },
+  {
+    card: 'border-violet-200/80 bg-violet-50/45 dark:border-violet-900/55 dark:bg-violet-950/15',
+    course: 'text-violet-700 dark:text-violet-300',
+    badge: 'bg-violet-100 text-violet-800 dark:bg-violet-950/45 dark:text-violet-300',
+    meta: 'bg-white/75 dark:bg-black/20',
+  },
+] as const;
+
 const tabs: { key: WorkspaceTab; label: string; shortLabel: string; icon: typeof CalendarDays }[] = [
   { key: 'schedule', label: 'Schedule', shortLabel: 'Schedule', icon: CalendarDays },
   { key: 'invigilation', label: 'Invigilation Rooms', shortLabel: 'Rooms', icon: Building2 },
@@ -279,22 +306,25 @@ export function TeacherExamPeriodWorkspace() {
                 {sortedExams.length === 0 ? emptyState('No course exams assigned', 'Your courses do not have a scheduled paper in this published exam period yet.', BookOpenCheck) : (
                   <>
                     <div className="grid gap-3 md:hidden">
-                      {sortedExams.map((exam) => (
-                        <article key={exam._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-black uppercase tracking-wide text-emerald-600">{exam.course?.title?.en || 'Course'}</p>
-                              <h3 className="mt-1 truncate font-bold text-[var(--color-text-primary)]">{exam.title}</h3>
-                              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{classLabel(exam)}</p>
+                      {sortedExams.map((exam, index) => {
+                        const tone = scheduleCardTones[index % scheduleCardTones.length];
+                        return (
+                          <article key={exam._id} className={`rounded-2xl border p-4 shadow-sm transition ${tone.card}`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className={`truncate text-xs font-black uppercase tracking-wide ${tone.course}`}>{exam.course?.title?.en || 'Course'}</p>
+                                <h3 className="mt-1 truncate font-bold text-[var(--color-text-primary)]">{exam.title}</h3>
+                                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{classLabel(exam)}</p>
+                              </div>
+                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${tone.badge}`}>Schedule</span>
                             </div>
-                            <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">Schedule</span>
-                          </div>
-                          <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                            <span className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><CalendarDays className="mb-1 h-4 w-4 text-[var(--color-text-tertiary)]" />{formatDate(exam.examDate)}</span>
-                            <span className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><Clock3 className="mb-1 h-4 w-4 text-[var(--color-text-tertiary)]" />{exam.startTime || '—'}{exam.endTime ? `–${exam.endTime}` : ''}</span>
-                          </div>
-                        </article>
-                      ))}
+                            <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                              <span className={`rounded-xl p-3 ${tone.meta}`}><CalendarDays className="mb-1 h-4 w-4 text-[var(--color-text-tertiary)]" />{formatDate(exam.examDate)}</span>
+                              <span className={`rounded-xl p-3 ${tone.meta}`}><Clock3 className="mb-1 h-4 w-4 text-[var(--color-text-tertiary)]" />{exam.startTime || '—'}{exam.endTime ? `–${exam.endTime}` : ''}</span>
+                            </div>
+                          </article>
+                        );
+                      })}
                     </div>
 
                     <div className="hidden overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] md:block">
