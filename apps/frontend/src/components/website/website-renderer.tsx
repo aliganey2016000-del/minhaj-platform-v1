@@ -480,15 +480,145 @@ function StatsBlock({ ctx, section, overlap }: { ctx: RenderContext; section: We
   );
 }
 
+function StaffCompactCard({ ctx, card, index }: { ctx: RenderContext; card: WebsiteCard; index: number }) {
+  const color = paletteAt(index + 1);
+  const title = cardTitle(ctx, card);
+  return (
+    <article className="group relative w-[44vw] min-w-[150px] max-w-[180px] shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_16px_38px_-28px_rgba(15,23,42,.5)] ring-1 ring-slate-200/80 transition duration-300 hover:-translate-y-1 hover:shadow-xl sm:w-[210px] sm:max-w-[210px] lg:w-[250px] lg:max-w-[250px]">
+      {card.imageUrl ? (
+        <div className="overflow-hidden bg-slate-100">
+          <img loading="lazy" src={card.imageUrl} alt={title} className="aspect-[4/5] w-full object-cover object-top transition duration-500 group-hover:scale-[1.035]" />
+        </div>
+      ) : (
+        <div style={{ background: `linear-gradient(135deg, ${tint(color, 22)}, ${tint(color, 7)})` }} className="flex aspect-[4/5] items-center justify-center">
+          <Users style={{ color }} className="h-12 w-12" />
+        </div>
+      )}
+      <div className="min-h-[92px] px-3.5 py-3.5 text-center sm:px-4">
+        <h3 className="line-clamp-2 text-sm font-extrabold leading-5 tracking-tight text-slate-950 sm:text-[15px]">{title}</h3>
+        {card.role && <p style={{ color }} className="mt-1 line-clamp-1 text-xs font-bold">{ctx.tr(`card.${card.id}.role`, card.role)}</p>}
+      </div>
+    </article>
+  );
+}
+
+function StaffTeamBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSection }) {
+  const [expanded, setExpanded] = useState(false);
+  const [marqueePaused, setMarqueePaused] = useState(false);
+  const dark = isDark(section);
+
+  if (!section.cards.length) {
+    return (
+      <Shell section={section} ctx={ctx}>
+        <Heading ctx={ctx} section={section} dark={dark} />
+        <div className="mt-12"><PreviewHint ctx={ctx}>Add the principal and teachers in Content.</PreviewHint></div>
+      </Shell>
+    );
+  }
+
+  const leadershipPattern = /\b(principal|principle|head\s*teacher|headteacher|head\s*master|headmaster|director|rector)\b/i;
+  const matchedLeaderIndex = section.cards.findIndex((card) => leadershipPattern.test(`${card.role || ''} ${card.title || ''}`));
+  const leaderIndex = matchedLeaderIndex >= 0 ? matchedLeaderIndex : 0;
+  const principal = section.cards[leaderIndex];
+  const teachers = section.cards.filter((_, index) => index !== leaderIndex);
+  const principalColor = paletteAt(0);
+  const principalTitle = cardTitle(ctx, principal);
+  const principalBody = cardText(ctx, principal);
+  const principalRole = principal.role ? ctx.tr(`card.${principal.id}.role`, principal.role) : ctx.tr('staff.principal', 'Principal / Head Teacher');
+  const marqueeDuration = Math.max(24, teachers.length * 5);
+
+  return (
+    <Shell section={section} ctx={ctx}>
+      <style>{`@keyframes sahal-staff-marquee-left { from { transform: translateX(0); } to { transform: translateX(-50%); } } @media (prefers-reduced-motion: reduce) { .sahal-staff-marquee { animation: none !important; transform: none !important; } }`}</style>
+      <Heading ctx={ctx} section={section} dark={dark} />
+
+      <div className="mx-auto mt-12 max-w-4xl">
+        <article className="overflow-hidden rounded-[2rem] bg-white shadow-[0_24px_60px_-34px_rgba(15,23,42,.5)] ring-1 ring-slate-200/80 sm:grid sm:grid-cols-[230px_1fr] lg:grid-cols-[270px_1fr]">
+          {principal.imageUrl ? (
+            <img loading="lazy" src={principal.imageUrl} alt={principalTitle} className="h-[290px] w-full object-cover object-top sm:h-full sm:min-h-[285px]" />
+          ) : (
+            <div style={{ background: `linear-gradient(135deg, ${tint(principalColor, 22)}, ${tint(principalColor, 7)})` }} className="flex h-[260px] items-center justify-center sm:h-full sm:min-h-[285px]">
+              <Users style={{ color: principalColor }} className="h-20 w-20" />
+            </div>
+          )}
+          <div className="flex flex-col justify-center p-6 text-center sm:p-8 sm:text-left lg:p-10">
+            <span style={{ color: principalColor, backgroundColor: tint(principalColor, 12) }} className="mx-auto inline-flex w-fit rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[.16em] sm:mx-0">{ctx.tr('staff.leadership', 'School Leadership')}</span>
+            <h3 className="mt-4 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{principalTitle}</h3>
+            <p style={{ color: principalColor }} className="mt-1.5 text-sm font-extrabold sm:text-base">{principalRole}</p>
+            {principalBody && <p className="mt-4 line-clamp-3 whitespace-pre-line text-sm leading-6 text-slate-600 sm:text-[15px]">{principalBody}</p>}
+          </div>
+        </article>
+      </div>
+
+      {teachers.length > 0 && (
+        <div className="mt-14">
+          <div className="mb-5 flex items-end justify-between gap-3">
+            <div>
+              <p className={`text-xs font-black uppercase tracking-[.16em] ${dark ? 'text-white/60' : 'text-slate-400'}`}>{ctx.tr('staff.teamEyebrow', 'Our Team')}</p>
+              <h3 className={`mt-1 text-xl font-black tracking-tight sm:text-2xl ${dark ? 'text-white' : 'text-slate-950'}`}>{ctx.tr('staff.teamTitle', 'Meet Our Teachers')}</h3>
+            </div>
+            {!expanded && teachers.length >= 3 && <p className={`hidden text-xs font-semibold sm:block ${dark ? 'text-white/55' : 'text-slate-400'}`}>{ctx.tr('staff.scrollHint', 'Moves right to left · hover to pause')}</p>}
+          </div>
+
+          {expanded ? (
+            <div className="grid grid-cols-2 justify-items-center gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {teachers.map((card, index) => <StaffCompactCard key={card.id} ctx={ctx} card={card} index={index} />)}
+            </div>
+          ) : teachers.length >= 3 ? (
+            <div
+              className="overflow-hidden py-2"
+              onPointerEnter={() => setMarqueePaused(true)}
+              onPointerLeave={() => setMarqueePaused(false)}
+              onPointerDown={() => setMarqueePaused(true)}
+              onPointerUp={() => setMarqueePaused(false)}
+              onPointerCancel={() => setMarqueePaused(false)}
+            >
+              <div
+                className="sahal-staff-marquee flex w-max"
+                style={{
+                  animation: `sahal-staff-marquee-left ${marqueeDuration}s linear infinite`,
+                  animationPlayState: marqueePaused ? 'paused' : 'running',
+                }}
+              >
+                {[0, 1].map((copy) => (
+                  <div key={copy} aria-hidden={copy === 1 ? true : undefined} className="flex shrink-0 gap-4 pr-4">
+                    {teachers.map((card, index) => <StaffCompactCard key={card.id} ctx={ctx} card={card} index={index} />)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-center gap-4 overflow-x-auto pb-2">
+              {teachers.map((card, index) => <StaffCompactCard key={card.id} ctx={ctx} card={card} index={index} />)}
+            </div>
+          )}
+
+          {teachers.length > 4 && (
+            <div className="mt-8 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setExpanded((value) => !value)}
+                className={`inline-flex min-w-40 items-center justify-center gap-2 rounded-full border px-5 py-2.5 text-sm font-extrabold transition ${dark ? 'border-white/25 bg-white/10 text-white hover:bg-white/15' : 'border-slate-200 bg-white text-slate-800 shadow-sm hover:border-slate-300 hover:shadow-md'}`}
+              >
+                {expanded ? ctx.tr('staff.showLess', 'Show Less') : ctx.tr('staff.showMore', 'Show More')}
+                <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </Shell>
+  );
+}
+
 function CardsBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSection }) {
   const dark = isDark(section);
-  const staff = section.type === 'staff';
   const cardSurface = ctx.site.theme.cardStyle === 'flat' ? 'bg-white' : ctx.site.theme.cardStyle === 'bordered' ? 'bg-white ring-1 ring-slate-200' : 'bg-white ring-1 ring-slate-200/70 shadow-[0_18px_45px_-30px_rgba(15,23,42,.35)]';
   return (
     <Shell section={section} ctx={ctx}>
       <Heading ctx={ctx} section={section} dark={dark} />
       {section.cards.length ? (
-        <div className={`mt-14 grid gap-6 sm:grid-cols-2 ${staff ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
+        <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {section.cards.map((card, index) => {
             const color = paletteAt(index);
             const title = cardTitle(ctx, card);
@@ -496,12 +626,10 @@ function CardsBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSect
             const inner = (
               <>
                 {card.imageUrl ? (
-                  <div className="overflow-hidden"><img loading="lazy" src={card.imageUrl} alt={title} className={`w-full object-cover transition duration-500 group-hover:scale-[1.04] ${staff ? 'aspect-square object-top' : 'aspect-[16/10]'}`} /></div>
-                ) : staff ? (
-                  <div style={{ background: `linear-gradient(135deg, ${tint(color, 22)}, ${tint(color, 6)})` }} className="flex aspect-square items-center justify-center"><Users style={{ color }} className="h-14 w-14" /></div>
+                  <div className="overflow-hidden"><img loading="lazy" src={card.imageUrl} alt={title} className="aspect-[16/10] w-full object-cover transition duration-500 group-hover:scale-[1.04]" /></div>
                 ) : null}
-                <div className={`relative flex flex-1 flex-col p-7 ${staff ? 'text-center' : ''}`}>
-                  {!card.imageUrl && !staff && (
+                <div className="relative flex flex-1 flex-col p-7">
+                  {!card.imageUrl && (
                     <>
                       <div aria-hidden="true" style={{ backgroundColor: tint(color, 10) }} className="absolute -right-10 -top-10 h-32 w-32 rounded-full" />
                       <div style={{ backgroundColor: color, boxShadow: `0 14px 28px -14px ${color}` }} className="relative mb-6 flex h-14 w-14 items-center justify-center rounded-2xl text-white"><Icon name={card.icon || section.icon} className="h-6 w-6" /></div>
@@ -808,8 +936,8 @@ function SectionView({ ctx, section, values }: { ctx: RenderContext; section: We
     case 'about':
     case 'custom': return <AboutBlock ctx={ctx} section={section} values={values} />;
     case 'services':
-    case 'programs':
-    case 'staff': return <CardsBlock ctx={ctx} section={section} />;
+    case 'programs': return <CardsBlock ctx={ctx} section={section} />;
+    case 'staff': return <StaffTeamBlock ctx={ctx} section={section} />;
     case 'stats': return <StatsBlock ctx={ctx} section={section} />;
     case 'gallery': return <GalleryBlock ctx={ctx} section={section} />;
     case 'news': return <NewsBlock ctx={ctx} section={section} />;
