@@ -12,6 +12,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '../../../store/auth-context';
+import { useTenant } from '../../../store/tenant-context';
 
 // ---------------------------------------------------------------------------
 // Zod schema
@@ -33,10 +34,13 @@ export function LoginPage() {
   const { t } = useTranslation('auth');
   const { t: tc } = useTranslation('common');
   const { login, error: authError, clearError } = useAuth();
+  const { tenant } = useTenant();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const tenantLogo = !tenant?.isMainSite ? tenant?.branding?.logo?.trim() : '';
+  const tenantName = !tenant?.isMainSite ? tenant?.name?.trim() : '';
 
   const {
     register,
@@ -97,10 +101,22 @@ export function LoginPage() {
         <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 shadow-elevated">
           {/* Header */}
           <div className="mb-8 text-center">
-            <Link to="/" className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-600 text-white shadow-gold-sm">
-              <svg className="h-8 w-8" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2L2 7v5.5c0 5.05 4.29 9.5 10 11 5.71-1.5 10-5.95 10-11V7l-10-5zm0 17.5c-4.2-1.4-8-4.93-8-9V8.81l8-4 8 4V10.5c0 4.07-3.8 7.6-8 9z"/>
-              </svg>
+            <Link
+              to="/"
+              aria-label={tenantName ? `${tenantName} home` : 'Home'}
+              className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl shadow-gold-sm ${tenantLogo ? 'border border-[var(--color-border-default)] bg-white p-1.5' : 'bg-primary-600 text-white'}`}
+            >
+              {tenantLogo ? (
+                <img
+                  src={tenantLogo}
+                  alt={tenantName ? `${tenantName} logo` : 'Organization logo'}
+                  className="h-full w-full object-contain"
+                />
+              ) : (
+                <svg className="h-8 w-8" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 2L2 7v5.5c0 5.05 4.29 9.5 10 11 5.71-1.5 10-5.95 10-11V7l-10-5zm0 17.5c-4.2-1.4-8-4.93-8-9V8.81l8-4 8 4V10.5c0 4.07-3.8 7.6-8 9z"/>
+                </svg>
+              )}
             </Link>
             <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">{t('login.title')}</h1>
             <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{tc('site_tagline')}</p>
