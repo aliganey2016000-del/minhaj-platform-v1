@@ -227,13 +227,56 @@ function LinkEditor({ items, onChange, title }: { items: WebsiteLink[]; onChange
   );
 }
 
-function ImageField({ value, onChange, media }: { value: string; onChange: (url: string) => void; media: WebsiteMediaItem[] }) {
+function ImageField({
+  value,
+  onChange,
+  media,
+  onUpload,
+  uploading = false,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+  media: WebsiteMediaItem[];
+  onUpload?: (file: File) => Promise<WebsiteMediaItem | null>;
+  uploading?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploadingHere, setUploadingHere] = useState(false);
+  const busy = uploading || uploadingHere;
+
+  const uploadFromDevice = async (file?: File) => {
+    if (!file || !onUpload) return;
+    setUploadingHere(true);
+    try {
+      const item = await onUpload(file);
+      if (item?.type === 'image' && item.url) onChange(item.url);
+    } finally {
+      setUploadingHere(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
   return <div className="space-y-2">
-    <input aria-label="Image URL" className={fieldClass} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Image URL or choose uploaded media" />
-    <select aria-label="Choose uploaded image" className={fieldClass} value="" onChange={(e) => { if (e.target.value) onChange(e.target.value); }}>
-      <option value="">Choose from uploaded images…</option>
-      {media.filter((item) => item.type === 'image').map((item) => <option key={item.id} value={item.url}>{item.name}</option>)}
-    </select>
+    <input aria-label="Image URL" className={fieldClass} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Paste image URL, choose uploaded image, or upload from device" />
+    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <select aria-label="Choose uploaded image" className={fieldClass} value="" onChange={(e) => { if (e.target.value) onChange(e.target.value); }}>
+        <option value="">Choose from uploaded images…</option>
+        {media.filter((item) => item.type === 'image').map((item) => <option key={item.id} value={item.url}>{item.name}</option>)}
+      </select>
+      {onUpload && <>
+        <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(e) => void uploadFromDevice(e.target.files?.[0])} />
+        <button
+          type="button"
+          aria-label="Upload image from device"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary-300 bg-primary-50 px-3.5 py-2.5 text-xs font-bold text-primary-700 transition hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-primary-800 dark:bg-primary-950/20 dark:text-primary-300 dark:hover:bg-primary-950/35"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+          {busy ? 'Uploading…' : 'Upload from device'}
+        </button>
+      </>}
+    </div>
     {value && <img src={value} alt="Selected image" className="h-20 max-w-full rounded-lg object-contain" />}
   </div>;
 }
@@ -255,7 +298,19 @@ function VideoField({ value, onChange, media }: { value: string; onChange: (url:
   </div>;
 }
 
-function CardEditor({ section, onChange, media }: { section: WebsiteSection; onChange: (cards: WebsiteCard[]) => void; media: WebsiteMediaItem[] }) {
+function CardEditor({
+  section,
+  onChange,
+  media,
+  onUploadImage,
+  uploading,
+}: {
+  section: WebsiteSection;
+  onChange: (cards: WebsiteCard[]) => void;
+  media: WebsiteMediaItem[];
+  onUploadImage: (file: File) => Promise<WebsiteMediaItem | null>;
+  uploading: boolean;
+}) {
   const update = (index: number, patch: Partial<WebsiteCard>) => onChange(section.cards.map((card, i) => i === index ? { ...card, ...patch } : card));
   const add = () => onChange([...section.cards, defaultCard(section.type)]);
   return (
@@ -277,7 +332,7 @@ function CardEditor({ section, onChange, media }: { section: WebsiteSection; onC
                 {['staff', 'testimonials'].includes(section.type) && <input className={fieldClass} value={card.role || ''} onChange={(e) => update(index, { role: e.target.value })} placeholder="Role or organization" />}
                 {section.type === 'stats' && <input className={fieldClass} value={card.value || ''} onChange={(e) => update(index, { value: e.target.value })} placeholder="Value e.g. 2,500+" />}
                 {!['gallery', 'stats'].includes(section.type) && <input className={fieldClass} value={card.icon || ''} onChange={(e) => update(index, { icon: e.target.value })} placeholder="Icon: BookOpen, Users..." />}
-                {['gallery', 'services', 'programs', 'testimonials', 'news', 'staff', 'partners'].includes(section.type) && <ImageField value={card.imageUrl || ''} onChange={(imageUrl) => update(index, { imageUrl })} media={media} />}
+                {['gallery', 'services', 'programs', 'testimonials', 'news', 'staff', 'partners'].includes(section.type) && <ImageField value={card.imageUrl || ''} onChange={(imageUrl) => update(index, { imageUrl })} media={media} onUpload={onUploadImage} uploading={uploading} />}
                 {section.type !== 'gallery' && <textarea className={`${fieldClass} sm:col-span-2`} rows={2} value={card.text} onChange={(e) => update(index, { text: e.target.value })} placeholder="Description" />}
                 {['services', 'programs', 'news', 'staff', 'partners'].includes(section.type) && <input className={`${fieldClass} sm:col-span-2`} value={card.link || ''} onChange={(e) => update(index, { link: e.target.value })} placeholder="Optional link" />}
               </div>
@@ -544,6 +599,20 @@ export function WebsiteManagement() {
     }
   };
 
+  const uploadImage = async (file: File): Promise<WebsiteMediaItem | null> => {
+    if (!file.type.startsWith('image/')) {
+      setNotice({ type: 'error', text: 'Please choose an image file from your device.' });
+      return null;
+    }
+    const item = await uploadMedia(file);
+    if (!item) return null;
+    if (item.type !== 'image') {
+      setNotice({ type: 'error', text: 'The selected file was not stored as an image.' });
+      return null;
+    }
+    return item;
+  };
+
   const uploadSectionMedia = async (file?: File) => {
     if (!activeSection || !file) return;
     const item = await uploadMedia(file);
@@ -663,7 +732,7 @@ export function WebsiteManagement() {
             <div className={`${panelClass} p-5 sm:p-6`}>
               <div className="mb-6"><h2 className="text-lg font-bold">Header & Navigation</h2><p className="text-xs text-[var(--color-text-tertiary)]">Manage logo, organization name, menus and the main action button.</p></div>
               <div className="grid gap-4 md:grid-cols-2">
-                <div><label className={labelClass}>Organization logo</label><ImageField value={site.header.logoUrl} onChange={(logoUrl) => updateSite((s) => ({ ...s, header: { ...s.header, logoUrl } }))} media={site.media} /><p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Leave empty to use Organization Branding.</p></div>
+                <div><label className={labelClass}>Organization logo</label><ImageField value={site.header.logoUrl} onChange={(logoUrl) => updateSite((s) => ({ ...s, header: { ...s.header, logoUrl } }))} media={site.media} onUpload={uploadImage} uploading={uploading} /><p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Leave empty to use Organization Branding.</p></div>
                 <div><label className={labelClass}>Website display name</label><input className={fieldClass} value={site.header.displayName || ''} placeholder={organization.name} onChange={(e) => updateSite((s) => ({ ...s, header: { ...s.header, displayName: e.target.value } }))} /></div>
                 <div><label className={labelClass}>CTA text</label><input className={fieldClass} value={site.header.ctaText} onChange={(e) => updateSite((s) => ({ ...s, header: { ...s.header, ctaText: e.target.value } }))} /></div>
                 <div><label className={labelClass}>CTA URL</label><input className={fieldClass} value={site.header.ctaUrl} onChange={(e) => updateSite((s) => ({ ...s, header: { ...s.header, ctaUrl: e.target.value } }))} /></div>
@@ -723,18 +792,18 @@ export function WebsiteManagement() {
                         </div>
                       </div>
                       <div className="mt-4 grid gap-4 md:grid-cols-2">
-                        <div><label className={labelClass}>Image</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl, ...(imageUrl ? { videoUrl: '' } : {}) })} media={site.media} /></div>
+                        <div><label className={labelClass}>Image</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl, ...(imageUrl ? { videoUrl: '' } : {}) })} media={site.media} onUpload={uploadImage} uploading={uploading} /></div>
                         <div><label className={labelClass}>Video / YouTube link</label><VideoField value={activeSection.videoUrl} onChange={(videoUrl) => updateSection({ videoUrl, ...(videoUrl ? { imageUrl: '' } : {}) })} media={site.media} /></div>
                       </div>
                     </div>
                   )}
-                  {activeSection.type !== 'contact' && activeSection.type !== 'hero' && activeSection.type !== 'video' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} /></div>}
+                  {activeSection.type !== 'contact' && activeSection.type !== 'hero' && activeSection.type !== 'video' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} onUpload={uploadImage} uploading={uploading} /></div>}
                   {activeSection.type === 'video' && <div className="md:col-span-2"><label className={labelClass}>Video</label><VideoField value={activeSection.videoUrl} onChange={(videoUrl) => updateSection({ videoUrl })} media={site.media} /></div>}
                   <div><label className={labelClass}>Background</label><select className={fieldClass} value={activeSection.background} onChange={(e) => updateSection({ background: e.target.value as WebsiteSection['background'] })}><option value="default">White</option><option value="muted">Soft gray</option><option value="primary">Primary color</option><option value="dark">Dark</option></select></div>
                   <div><label className={labelClass}>Alignment</label><select className={fieldClass} value={activeSection.alignment} onChange={(e) => updateSection({ alignment: e.target.value as WebsiteSection['alignment'] })}><option value="left">Left</option><option value="center">Center</option></select></div>
                   {['hero', 'about', 'custom'].includes(activeSection.type) && <><div><label className={labelClass}>Button text</label><input className={fieldClass} value={activeSection.buttonText} onChange={(e) => updateSection({ buttonText: e.target.value })} /></div><div><label className={labelClass}>Button URL</label><input className={fieldClass} value={activeSection.buttonUrl} onChange={(e) => updateSection({ buttonUrl: e.target.value })} /></div></>}
                 </div>
-                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} />}
+                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} onUploadImage={uploadImage} uploading={uploading} />}
               </div> : <div className={`${panelClass} flex min-h-[300px] items-center justify-center p-8 text-center text-sm text-[var(--color-text-tertiary)]`}>Add or select a section to edit it.</div>}
             </div>
           )}
@@ -781,7 +850,7 @@ export function WebsiteManagement() {
               <div><label className={labelClass}>Site title</label><input className={fieldClass} value={site.seo.siteTitle} onChange={(e) => updateSite((s) => ({ ...s, seo: { ...s.seo, siteTitle: e.target.value } }))} /></div>
               <div><label className={labelClass}>Description</label><textarea className={fieldClass} rows={4} value={site.seo.description} onChange={(e) => updateSite((s) => ({ ...s, seo: { ...s.seo, description: e.target.value } }))} /></div>
               <div><label className={labelClass}>Keywords</label><input className={fieldClass} value={site.seo.keywords} onChange={(e) => updateSite((s) => ({ ...s, seo: { ...s.seo, keywords: e.target.value } }))} placeholder="education, school, university..." /></div>
-              <div><label className={labelClass}>Social preview image URL</label><input className={fieldClass} value={site.seo.ogImage} onChange={(e) => updateSite((s) => ({ ...s, seo: { ...s.seo, ogImage: e.target.value } }))} /></div>
+              <div><label className={labelClass}>Social preview image</label><ImageField value={site.seo.ogImage} onChange={(ogImage) => updateSite((s) => ({ ...s, seo: { ...s.seo, ogImage } }))} media={site.media} onUpload={uploadImage} uploading={uploading} /></div>
             </div></div>
           )}
 
