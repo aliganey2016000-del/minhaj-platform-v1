@@ -557,19 +557,10 @@ export function WebsiteManagement() {
     setSyncingTeam(true);
     setNotice(null);
     setTeamSyncFeedback(null);
-    try {
-      // Send the draft currently visible in the editor. The user should not
-      // have to Save first before Create All Team works.
-      const { data } = await api.post('/website-management/team/sync', { schoolId: selectedSchoolId, site });
-      const draft = data.data?.draft as WebsiteSiteDocument;
-      if (draft) {
-        setSite(draft);
-        setSavedContent(JSON.stringify(draft));
-      }
-      if (data.data?.version) setVersion(data.data.version);
-      const count = Number(data.data?.syncedTeachers || 0);
+
+    const showResult = (count: number, fallback = false) => {
       if (count > 0) {
-        const text = `Created ${count} team card${count === 1 ? '' : 's'} from Teacher Management. You can now Edit a card to add its photo or Delete it from the website.`;
+        const text = `Created ${count} team card${count === 1 ? '' : 's'} from Teacher Management.${fallback ? ' Compatibility mode was used because the production backend does not yet expose the dedicated team endpoint.' : ''} You can now Edit a card to add its photo or Delete it from the website.`;
         setTeamSyncFeedback({ type: 'success', text });
         setNotice({ type: 'success', text });
       } else {
@@ -577,10 +568,116 @@ export function WebsiteManagement() {
         setTeamSyncFeedback({ type: 'error', text });
         setNotice({ type: 'error', text });
       }
+    };
+
+    const createTeamWithExistingApis = async () => {
+      const teachersResponse = await api.get('/teachers', { params: { status: 'active', page: '1', limit: '500', school: selectedSchoolId } });
+      const teachers: any[] = Array.isArray(teachersResponse.data?.data) ? teachersResponse.data.data : [];
+
+      let courses: any[] = [];
+      try {
+        const coursesResponse = await api.get('/courses/admin', { params: { page: '1', limit: '1000', school: selectedSchoolId } });
+        courses = Array.isArray(coursesResponse.data?.data) ? coursesResponse.data.data : [];
+      } catch {
+        // Older backends may not expose the admin course list in the same way.
+        // Teacher.courses is already populated by the teacher-list endpoint,
+        // so generation can still proceed from that source.
+      }
+
+      const courseNamesByTeacher = new Map<string, Map<string, string>>();
+      const addCourse = (teacherId: string, rawTitle: any) => {
+        const name = String(rawTitle?.en || rawTitle?.so || rawTitle?.ar || rawTitle || '').trim();
+        if (!teacherId || !name) return;
+        const key = name.toLowerCase().replace(/\s+/g, ' ');
+        if (!courseNamesByTeacher.has(teacherId)) courseNamesByTeacher.set(teacherId, new Map());
+        if (!courseNamesByTeacher.get(teacherId)!.has(key)) courseNamesByTeacher.get(teacherId)!.set(key, name);
+      };
+
+      for (const course of courses) {
+        const teacherId = String(course.teacher?._id || course.teacher || '');
+        addCourse(teacherId, course.title);
+      }
+      for (const teacher of teachers) {
+        const teacherId = String(teacher._id || '');
+        for (const course of teacher.courses || []) addCourse(teacherId, course.title);
+      }
+
+      const existingById = new Map<string, WebsiteCard>();
+      const existingByName = new Map<string, WebsiteCard>();
+      for (const page of site.pages) {
+        for (const section of page.sections) {
+          if (section.type !== 'staff') continue;
+          for (const card of section.cards) {
+            existingById.set(card.id, card);
+            if (card.title) existingByName.set(card.title.trim().toLowerCase().replace(/\s+/g, ' '), card);
+          }
+        }
+      }
+
+      const cards: WebsiteCard[] = teachers
+        .filter((teacher) => teacher.user?.isActive !== false)
+        .map((teacher) => {
+          const teacherId = String(teacher._id || '');
+          const name = `${teacher.profile?.firstName || ''} ${teacher.profile?.lastName || ''}`.trim() || teacher.teacherId || 'Teacher';
+          const id = `teacher-${teacherId}`;
+          const existing = existingById.get(id) || existingByName.get(name.toLowerCase().replace(/\s+/g, ' '));
+          const names = [...(courseNamesByTeacher.get(teacherId)?.values() || [])];
+          return {
+            id,
+            title: name,
+            role: String(teacher.user?.title || 'Teacher').trim() || 'Teacher',
+            text: names.join(' · '),
+            imageUrl: existing?.imageUrl || teacher.profile?.avatar || '',
+            icon: 'Users',
+            link: '',
+          };
+        });
+
+      const generatedSite: WebsiteSiteDocument = {
+        ...site,
+        pages: site.pages.map((page) => ({
+          ...page,
+          sections: page.sections.map((section) => section.type === 'staff' ? { ...section, cards } : section),
+        })),
+      };
+
+      const { data } = await api.put('/website-management', { schoolId: selectedSchoolId, site: generatedSite });
+      const draft = (data.data?.draft || generatedSite) as WebsiteSiteDocument;
+      setSite(draft);
+      setSavedContent(JSON.stringify(draft));
+      if (data.data?.version) setVersion(data.data.version);
+      showResult(cards.length, true);
+    };
+
+    try {
+      // Preferred path on current backend.
+      const { data } = await api.post('/website-management/team/sync', { schoolId: selectedSchoolId, site });
+      const draft = data.data?.draft as WebsiteSiteDocument;
+      if (draft) {
+        setSite(draft);
+        setSavedContent(JSON.stringify(draft));
+      }
+      if (data.data?.version) setVersion(data.data.version);
+      showResult(Number(data.data?.syncedTeachers || 0));
     } catch (err: any) {
-      const text = err.response?.data?.message || 'Could not create the team from Teacher Management.';
-      setTeamSyncFeedback({ type: 'error', text });
-      setNotice({ type: 'error', text });
+      // Production can temporarily have a newer frontend than backend during
+      // independent Coolify deploys. A 404 here means the dedicated route is
+      // not registered yet, not that Teacher Management is empty. Fall back
+      // to long-established teacher/course + website-save endpoints so the
+      // button still works immediately.
+      if (err.response?.status === 404) {
+        try {
+          await createTeamWithExistingApis();
+        } catch (fallbackErr: any) {
+          const text = fallbackErr.response?.data?.message || 'Could not create the team from Teacher Management using the compatibility path.';
+          setTeamSyncFeedback({ type: 'error', text });
+          setNotice({ type: 'error', text });
+        }
+      } else {
+        const text = err.response?.data?.message || 'Could not create the team from Teacher Management.';
+        setTeamSyncFeedback({ type: 'error', text });
+        setNotice({ type: 'error', text });
+      }
     } finally {
       setSyncingTeam(false);
     }
