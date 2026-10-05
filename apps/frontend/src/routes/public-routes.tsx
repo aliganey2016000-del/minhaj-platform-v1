@@ -41,6 +41,7 @@ export const publicRoutes: RouteObject[] = [
     element: <Suspense fallback={<PageLoader />}><PublicLayout /></Suspense>,
     children: [
       { index: true, element: lazyPage(<HomePage />) },
+      { path: 'news/:postSlug', element: lazyPage(<TenantWebsitePage />) },
       { path: ':pageSlug', element: lazyPage(<TenantWebsitePage />) },
     ],
   },
