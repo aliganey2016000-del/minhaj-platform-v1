@@ -238,6 +238,23 @@ function ImageField({ value, onChange, media }: { value: string; onChange: (url:
   </div>;
 }
 
+function VideoField({ value, onChange, media }: { value: string; onChange: (url: string) => void; media: WebsiteMediaItem[] }) {
+  return <div className="space-y-2">
+    <input
+      aria-label="Video URL"
+      className={fieldClass}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="YouTube, Vimeo, MP4, WEBM or uploaded video"
+    />
+    <select aria-label="Choose uploaded video" className={fieldClass} value="" onChange={(e) => { if (e.target.value) onChange(e.target.value); }}>
+      <option value="">Choose from uploaded videos…</option>
+      {media.filter((item) => item.type === 'video').map((item) => <option key={item.id} value={item.url}>{item.name}</option>)}
+    </select>
+    {value && <p className="rounded-lg bg-[var(--color-surface-secondary)] px-3 py-2 text-[11px] text-[var(--color-text-tertiary)]">Video selected. YouTube/Vimeo links are embedded inside the public website; the raw public link is not rendered.</p>}
+  </div>;
+}
+
 function CardEditor({ section, onChange, media }: { section: WebsiteSection; onChange: (cards: WebsiteCard[]) => void; media: WebsiteMediaItem[] }) {
   const update = (index: number, patch: Partial<WebsiteCard>) => onChange(section.cards.map((card, i) => i === index ? { ...card, ...patch } : card));
   const add = () => onChange([...section.cards, defaultCard(section.type)]);
@@ -293,6 +310,7 @@ export function WebsiteManagement() {
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const sectionMediaRef = useRef<HTMLInputElement>(null);
   const loadSequence = useRef(0);
   const [savedContent, setSavedContent] = useState('');
   const dirty = !!site && JSON.stringify(site) !== savedContent;
@@ -501,8 +519,8 @@ export function WebsiteManagement() {
     setActiveSectionId(next[0]?.id || '');
   };
 
-  const uploadMedia = async (file?: File) => {
-    if (!file || !site || !selectedSchoolId) return;
+  const uploadMedia = async (file?: File): Promise<WebsiteMediaItem | null> => {
+    if (!file || !site || !selectedSchoolId) return null;
     setUploading(true);
     setNotice(null);
     try {
@@ -514,12 +532,26 @@ export function WebsiteManagement() {
       const item = data.data as WebsiteMediaItem;
       updateSite((current) => ({ ...current, media: [item, ...current.media] }));
       const optimizedNote = optimized.size < file.size ? ` Image optimized from ${Math.round(file.size / 1024)} KB to ${Math.round(optimized.size / 1024)} KB.` : '';
-      setNotice({ type: 'success', text: `Media uploaded to ${item.storageProvider === 'r2' ? 'Cloudflare R2' : 'storage'}.${optimizedNote} Choose it from any image field.` });
+      setNotice({ type: 'success', text: `Media uploaded to ${item.storageProvider === 'r2' ? 'Cloudflare R2' : 'storage'}.${optimizedNote} It is ready to use.` });
+      return item;
     } catch (err: any) {
       setNotice({ type: 'error', text: err.response?.data?.message || 'Media upload failed.' });
+      return null;
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
+      if (sectionMediaRef.current) sectionMediaRef.current.value = '';
+    }
+  };
+
+  const uploadSectionMedia = async (file?: File) => {
+    if (!activeSection || !file) return;
+    const item = await uploadMedia(file);
+    if (!item) return;
+    if (item.type === 'video') {
+      updateSection({ videoUrl: item.url, imageUrl: '' });
+    } else if (item.type === 'image') {
+      updateSection({ imageUrl: item.url, videoUrl: '' });
     }
   };
 
@@ -675,8 +707,29 @@ export function WebsiteManagement() {
                   <div className="md:col-span-2"><label className={labelClass}>Title</label><input className={fieldClass} value={activeSection.title} onChange={(e) => updateSection({ title: e.target.value })} /></div>
                   <div className="md:col-span-2"><label className={labelClass}>Subtitle</label><input className={fieldClass} value={activeSection.subtitle} onChange={(e) => updateSection({ subtitle: e.target.value })} /></div>
                   <div className="md:col-span-2"><label className={labelClass}>Body text</label><textarea className={fieldClass} rows={5} value={activeSection.body} onChange={(e) => updateSection({ body: e.target.value })} /></div>
-                  {activeSection.type !== 'contact' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} /></div>}
-                  {activeSection.type === 'video' && <div><label className={labelClass}>Video URL</label><input className={fieldClass} value={activeSection.videoUrl} onChange={(e) => updateSection({ videoUrl: e.target.value })} placeholder="YouTube, Vimeo, MP4 or WEBM" /></div>}
+                  {activeSection.type === 'hero' && (
+                    <div className="md:col-span-2 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-bold text-[var(--color-text-primary)]">Hero media</p>
+                          <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Show one image or one video. Upload a file, choose existing media, or paste a YouTube/Vimeo/direct video link.</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <input ref={sectionMediaRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" className="hidden" onChange={(e) => void uploadSectionMedia(e.target.files?.[0])} />
+                          <button type="button" disabled={uploading} onClick={() => sectionMediaRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-3.5 py-2.5 text-xs font-semibold text-white disabled:opacity-50">
+                            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}Upload image/video
+                          </button>
+                          {(activeSection.imageUrl || activeSection.videoUrl) && <button type="button" onClick={() => updateSection({ imageUrl: '', videoUrl: '' })} className="rounded-xl border border-[var(--color-border-default)] px-3 py-2.5 text-xs font-semibold">Clear</button>}
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-4 md:grid-cols-2">
+                        <div><label className={labelClass}>Image</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl, ...(imageUrl ? { videoUrl: '' } : {}) })} media={site.media} /></div>
+                        <div><label className={labelClass}>Video / YouTube link</label><VideoField value={activeSection.videoUrl} onChange={(videoUrl) => updateSection({ videoUrl, ...(videoUrl ? { imageUrl: '' } : {}) })} media={site.media} /></div>
+                      </div>
+                    </div>
+                  )}
+                  {activeSection.type !== 'contact' && activeSection.type !== 'hero' && activeSection.type !== 'video' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} /></div>}
+                  {activeSection.type === 'video' && <div className="md:col-span-2"><label className={labelClass}>Video</label><VideoField value={activeSection.videoUrl} onChange={(videoUrl) => updateSection({ videoUrl })} media={site.media} /></div>}
                   <div><label className={labelClass}>Background</label><select className={fieldClass} value={activeSection.background} onChange={(e) => updateSection({ background: e.target.value as WebsiteSection['background'] })}><option value="default">White</option><option value="muted">Soft gray</option><option value="primary">Primary color</option><option value="dark">Dark</option></select></div>
                   <div><label className={labelClass}>Alignment</label><select className={fieldClass} value={activeSection.alignment} onChange={(e) => updateSection({ alignment: e.target.value as WebsiteSection['alignment'] })}><option value="left">Left</option><option value="center">Center</option></select></div>
                   {['hero', 'about', 'custom'].includes(activeSection.type) && <><div><label className={labelClass}>Button text</label><input className={fieldClass} value={activeSection.buttonText} onChange={(e) => updateSection({ buttonText: e.target.value })} /></div><div><label className={labelClass}>Button URL</label><input className={fieldClass} value={activeSection.buttonUrl} onChange={(e) => updateSection({ buttonUrl: e.target.value })} /></div></>}

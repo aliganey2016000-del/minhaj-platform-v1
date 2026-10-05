@@ -146,25 +146,68 @@ function Icon({ name, className = 'h-5 w-5' }: { name?: string; className?: stri
   return <Component className={className} strokeWidth={1.9} />;
 }
 
-function youtubeEmbed(url: string): string | null {
+function videoEmbed(url: string): string | null {
   if (!url) return null;
   try {
     const parsed = new URL(url, window.location.origin);
-    if (parsed.hostname.includes('youtu.be')) {
-      const id = parsed.pathname.replace('/', '');
-      return id ? `https://www.youtube.com/embed/${id}` : null;
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+
+    let youtubeId = '';
+    if (host === 'youtu.be') {
+      youtubeId = parsed.pathname.split('/').filter(Boolean)[0] || '';
+    } else if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+      youtubeId = parsed.searchParams.get('v') || '';
+      if (!youtubeId && parsed.pathname.startsWith('/embed/')) youtubeId = parsed.pathname.split('/').filter(Boolean)[1] || '';
+      if (!youtubeId && parsed.pathname.startsWith('/shorts/')) youtubeId = parsed.pathname.split('/').filter(Boolean)[1] || '';
     }
-    if (parsed.hostname.includes('youtube.com')) {
-      const id = parsed.searchParams.get('v');
-      if (id) return `https://www.youtube.com/embed/${id}`;
-      if (parsed.pathname.startsWith('/embed/')) return url;
+    if (/^[A-Za-z0-9_-]{6,}$/.test(youtubeId)) {
+      // Privacy-enhanced YouTube embed. The public page never renders the raw
+      // YouTube URL as a link, and the iframe sandbox prevents normal outbound
+      // navigation/popups while keeping playback and fullscreen available.
+      return `https://www.youtube-nocookie.com/embed/${youtubeId}?rel=0&modestbranding=1&playsinline=1`;
     }
-    if (parsed.hostname.includes('vimeo.com')) {
-      const id = parsed.pathname.split('/').filter(Boolean).pop();
-      return id ? `https://player.vimeo.com/video/${id}` : null;
+
+    if (host === 'vimeo.com' || host.endsWith('.vimeo.com')) {
+      const id = parsed.pathname.split('/').filter(Boolean).pop() || '';
+      return /^\d+$/.test(id) ? `https://player.vimeo.com/video/${id}` : null;
     }
   } catch {
     return null;
+  }
+  return null;
+}
+
+function isDirectVideo(url: string): boolean {
+  return /\.(mp4|webm)(\?.*)?$/i.test(url || '') || url.includes('/website-management/public/media/');
+}
+
+function InlineVideo({ url, title, className = '' }: { url: string; title: string; className?: string }) {
+  const embed = videoEmbed(url);
+  if (embed) {
+    return (
+      <iframe
+        loading="lazy"
+        src={embed}
+        title={title}
+        className={className}
+        sandbox="allow-scripts allow-same-origin allow-presentation"
+        referrerPolicy="strict-origin-when-cross-origin"
+        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+        allowFullScreen
+      />
+    );
+  }
+  if (isDirectVideo(url)) {
+    return (
+      <video
+        preload="metadata"
+        src={url}
+        controls
+        controlsList="nodownload noremoteplayback"
+        disablePictureInPicture={false}
+        className={className}
+      />
+    );
   }
   return null;
 }
@@ -290,11 +333,12 @@ function isDark(section: WebsiteSection) {
   return section.background === 'primary' || section.background === 'dark';
 }
 
-function HeroBlock({ ctx, section, badge }: { ctx: RenderContext; section: WebsiteSection; badge?: WebsiteCard }) {
+function HeroBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSection }) {
   const title = text(ctx, section, 'title') || ctx.displayName;
   const body = text(ctx, section, 'body');
   const buttonText = text(ctx, section, 'buttonText');
-  const centered = section.alignment === 'center' && !section.imageUrl;
+  const hasHeroMedia = !!(section.imageUrl || section.videoUrl);
+  const centered = section.alignment === 'center' && !hasHeroMedia;
   const accentedTitle = title.match(/^(.*?\band\s+)(.+)$/i);
   return (
     <section
@@ -372,32 +416,27 @@ function HeroBlock({ ctx, section, badge }: { ctx: RenderContext; section: Websi
 
         {!centered && (
           <div className="relative mx-auto w-full max-w-[560px] lg:max-w-none">
-            <div className="relative overflow-hidden rounded-[24px] border border-white/20 bg-white/10 p-2 shadow-[0_30px_70px_-30px_rgba(0,0,0,.65)] backdrop-blur-sm">
-              <div className="mb-2 flex items-center justify-between rounded-[17px] bg-white/10 px-4 py-3">
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-[.18em] text-[#ffbf24]">School in action</p>
-                  <p className="mt-1 text-sm font-black text-white">{ctx.displayName}</p>
-                </div>
-                <div className="flex gap-1.5"><span className="h-2 w-2 rounded-full bg-[#ffbf24]" /><span className="h-2 w-2 rounded-full bg-[#2dd4bf]" /><span className="h-2 w-2 rounded-full bg-[#60a5fa]" /></div>
-              </div>
-              {section.imageUrl ? (
-                <img src={section.imageUrl} alt={title} {...{ fetchpriority: 'high' }} className="aspect-[16/10] w-full rounded-[16px] object-cover" />
+            <div className="relative overflow-hidden rounded-[24px] border border-white/20 bg-black/25 p-2 shadow-[0_30px_70px_-30px_rgba(0,0,0,.65)] backdrop-blur-sm">
+              {section.videoUrl && (videoEmbed(section.videoUrl) || isDirectVideo(section.videoUrl)) ? (
+                <InlineVideo
+                  url={section.videoUrl}
+                  title={title || 'School video'}
+                  className="aspect-video w-full rounded-[16px] bg-black object-cover"
+                />
+              ) : section.imageUrl ? (
+                <img
+                  src={section.imageUrl}
+                  alt={title}
+                  {...{ fetchpriority: 'high' }}
+                  className="aspect-video w-full rounded-[16px] object-cover"
+                />
               ) : (
-                <div style={{ background: `linear-gradient(145deg, ${tint(ctx.primary, 35)}, rgba(255,255,255,.12))` }} className="flex aspect-[16/10] w-full items-center justify-center rounded-[16px]">
-                  <School className="h-24 w-24 text-white/70" />
+                <div style={{ background: `linear-gradient(145deg, ${tint(ctx.primary, 35)}, rgba(255,255,255,.12))` }} className="flex aspect-video w-full flex-col items-center justify-center rounded-[16px]">
+                  <PlayCircle className="h-20 w-20 text-white/70" />
+                  {ctx.preview && <p className="mt-3 text-xs font-bold text-white/65">Upload an image/video or add a video link.</p>}
                 </div>
               )}
-              <p className="px-4 pb-3 pt-4 text-xs leading-5 text-white/65">Discover academics, admissions, student life and school achievements from one trusted website.</p>
             </div>
-            {badge && cardTitle(ctx, badge) && (
-              <div className="absolute -bottom-5 left-5 flex items-center gap-3 rounded-xl border border-white/25 bg-[#34479a]/95 px-4 py-3 shadow-xl backdrop-blur sm:-left-5">
-                <div style={{ backgroundColor: ctx.accent }} className="flex h-9 w-9 items-center justify-center rounded-lg text-[#173b33]"><Icon name={badge.icon || 'ShieldCheck'} /></div>
-                <div className="max-w-[12rem]">
-                  <p className="text-xs font-black leading-tight text-white">{cardTitle(ctx, badge)}</p>
-                  {cardText(ctx, badge) && <p className="mt-0.5 line-clamp-1 text-[10px] text-white/60">{cardText(ctx, badge)}</p>}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -647,25 +686,20 @@ function PartnersBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteS
 
 function VideoBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSection }) {
   if (!section.videoUrl && !ctx.preview) return null;
-  const embed = youtubeEmbed(section.videoUrl);
-  const isFileVideo = /\.(mp4|webm)(\?.*)?$/i.test(section.videoUrl || '') || section.videoUrl.includes('/website-management/public/media/');
+  const playable = !!section.videoUrl && (!!videoEmbed(section.videoUrl) || isDirectVideo(section.videoUrl));
   return (
     <Shell section={section} ctx={ctx}>
       <Heading ctx={ctx} section={section} dark={isDark(section)} />
-      {section.videoUrl ? (
+      {playable ? (
         <div className="relative mx-auto mt-14 max-w-5xl">
           <div aria-hidden="true" style={{ background: `linear-gradient(135deg, ${ctx.primary}, ${ctx.accent})` }} className="absolute -inset-3 rounded-[2.5rem] opacity-80 blur-xl" />
           <div className="relative overflow-hidden rounded-[2rem] bg-black shadow-2xl ring-4 ring-white">
-            {embed ? (
-              <iframe loading="lazy" src={embed} title={text(ctx, section, 'title') || 'Video'} className="aspect-video w-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
-            ) : isFileVideo ? (
-              <video preload="metadata" src={section.videoUrl} controls className="aspect-video w-full bg-black" />
-            ) : (
-              <a href={section.videoUrl} target="_blank" rel="noreferrer" className="flex aspect-video items-center justify-center gap-3 font-bold text-white"><PlayCircle className="h-12 w-12" />{ctx.tr('video.open', 'Open video')}</a>
-            )}
+            <InlineVideo url={section.videoUrl} title={text(ctx, section, 'title') || 'Video'} className="aspect-video w-full bg-black" />
           </div>
         </div>
-      ) : <div className="mt-12"><PreviewHint ctx={ctx}>Add a YouTube, Vimeo or uploaded video URL in Content.</PreviewHint></div>}
+      ) : (
+        <div className="mt-12"><PreviewHint ctx={ctx}>Add a YouTube, Vimeo, MP4, WEBM or uploaded video in Content.</PreviewHint></div>
+      )}
     </Shell>
   );
 }
@@ -805,7 +839,7 @@ function SchoolHome({ ctx, page }: { ctx: RenderContext; page: WebsitePage }) {
       {sections.map((section) => {
         if (section === values) return null;
         if (section === overlapStats) return <StatsBlock key={section.id} ctx={ctx} section={section} overlap />;
-        if (section.type === 'hero') return <HeroBlock key={section.id} ctx={ctx} section={section} badge={values?.cards[0]} />;
+        if (section.type === 'hero') return <HeroBlock key={section.id} ctx={ctx} section={section} />;
         if (section === about) return <AboutBlock key={section.id} ctx={ctx} section={section} values={values?.cards} />;
         return <SectionView key={section.id} ctx={ctx} section={section} />;
       })}
