@@ -312,6 +312,64 @@ function VideoField({ value, onChange, media }: { value: string; onChange: (url:
   </div>;
 }
 
+const ABOUT_TEMPLATE_FIELDS = [
+  { id: 'about-mission', title: 'Our Mission', icon: 'BookOpen', label: 'Mission', placeholder: 'Write the school mission.' , match: /\bmission\b/i },
+  { id: 'about-vision', title: 'Our Vision', icon: 'Sparkles', label: 'Vision', placeholder: 'Write the school vision.', match: /\bvision\b/i },
+  { id: 'about-values', title: 'Core Values', icon: 'Heart', label: 'Core Values', placeholder: 'Write the school core values.', match: /\b(core\s*)?values?\b/i },
+] as const;
+
+function getAboutTemplateCards(cards: WebsiteCard[], fallbackCards: WebsiteCard[] = []): WebsiteCard[] {
+  const sources = [...cards, ...fallbackCards];
+  return ABOUT_TEMPLATE_FIELDS.map((field) => {
+    const found = sources.find((card) => card.id === field.id)
+      || sources.find((card) => field.match.test(card.title || ''));
+    return {
+      id: field.id,
+      title: field.title,
+      text: found?.text || '',
+      icon: field.icon,
+    };
+  });
+}
+
+function AboutTemplateEditor({
+  section,
+  fallbackCards,
+  onChange,
+}: {
+  section: WebsiteSection;
+  fallbackCards?: WebsiteCard[];
+  onChange: (cards: WebsiteCard[]) => void;
+}) {
+  const cards = getAboutTemplateCards(section.cards, fallbackCards);
+  const updateField = (index: number, text: string) => {
+    onChange(cards.map((card, i) => i === index ? { ...card, text } : card));
+  };
+
+  return (
+    <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/50 dark:bg-blue-950/15">
+      <div className="mb-4">
+        <p className="text-sm font-extrabold text-blue-800 dark:text-blue-300">Standard About template</p>
+        <p className="mt-1 text-xs leading-5 text-blue-700/80 dark:text-blue-300/80">All schools use the same About design. Enter only this school's Mission, Vision and Core Values; the layout stays consistent across tenants.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {ABOUT_TEMPLATE_FIELDS.map((field, index) => (
+          <div key={field.id} className={index === 2 ? 'md:col-span-2' : ''}>
+            <label className={labelClass}>{field.label}</label>
+            <textarea
+              className={fieldClass}
+              rows={index === 2 ? 4 : 3}
+              value={cards[index]?.text || ''}
+              onChange={(e) => updateField(index, e.target.value)}
+              placeholder={field.placeholder}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CardEditor({
   section,
   onChange,
@@ -1074,9 +1132,9 @@ export function WebsiteManagement() {
               {activeSection ? <div className={`${panelClass} p-5 sm:p-6`}>
                 <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><span className="rounded-lg bg-primary-50 px-2 py-1 text-[11px] font-bold uppercase text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{activeSection.type}</span><h2 className="text-lg font-bold">{activeSection.title || 'Untitled section'}</h2></div><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Edit content, media, layout and visibility.</p></div><div className="flex gap-1"><button type="button" onClick={() => moveSection(-1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowUp className="h-4 w-4" /></button><button type="button" onClick={() => moveSection(1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowDown className="h-4 w-4" /></button><button type="button" onClick={() => toggleSectionVisibility(activeSection.id, activeSection.visible)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${activeSection.visible ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-950/20 dark:text-green-300' : 'border-[var(--color-border-default)] text-[var(--color-text-tertiary)]'}`}>{activeSection.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}{activeSection.visible ? 'Shown' : 'Hidden'}</button><button type="button" onClick={removeSection} className="rounded-lg border border-red-200 p-2 text-red-500"><Trash2 className="h-4 w-4" /></button></div></div>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="md:col-span-2"><label className={labelClass}>Title</label><input className={fieldClass} value={activeSection.title} onChange={(e) => updateSection({ title: e.target.value })} /></div>
-                  {activeSection.type !== 'staff' && <div className="md:col-span-2"><label className={labelClass}>Subtitle</label><input className={fieldClass} value={activeSection.subtitle} onChange={(e) => updateSection({ subtitle: e.target.value })} placeholder={activeSection.type === 'latest_news' ? 'Optional small label above Latest News' : undefined} /></div>}
-                  {activeSection.type !== 'staff' && <div className="md:col-span-2"><label className={labelClass}>Body text</label><textarea className={fieldClass} rows={activeSection.type === 'latest_news' ? 3 : 5} value={activeSection.body} onChange={(e) => updateSection({ body: e.target.value })} placeholder={activeSection.type === 'latest_news' ? 'Optional short introduction for the news section.' : undefined} /></div>}
+                  <div className="md:col-span-2"><label className={labelClass}>{activeSection.type === 'hero' ? 'Hero title' : activeSection.type === 'about' ? 'About heading' : activeSection.type === 'staff' ? 'Team heading' : 'Title'}</label><input className={fieldClass} value={activeSection.title} onChange={(e) => updateSection({ title: e.target.value })} /></div>
+                  {activeSection.type !== 'staff' && <div className="md:col-span-2"><label className={labelClass}>{activeSection.type === 'hero' ? 'Hero label / subtitle' : activeSection.type === 'about' ? 'About label' : 'Subtitle'}</label><input className={fieldClass} value={activeSection.subtitle} onChange={(e) => updateSection({ subtitle: e.target.value })} placeholder={activeSection.type === 'latest_news' ? 'Optional small label above Latest News' : activeSection.type === 'about' ? 'About School Name' : undefined} /></div>}
+                  {activeSection.type !== 'staff' && <div className="md:col-span-2"><label className={labelClass}>{activeSection.type === 'hero' ? 'Hero description' : activeSection.type === 'about' ? 'About description' : 'Body text'}</label><textarea className={fieldClass} rows={activeSection.type === 'latest_news' ? 3 : 5} value={activeSection.body} onChange={(e) => updateSection({ body: e.target.value })} placeholder={activeSection.type === 'latest_news' ? 'Optional short introduction for the news section.' : activeSection.type === 'about' ? 'Write a short introduction about this school.' : undefined} /></div>}
                   {activeSection.type === 'hero' && (
                     <div className="md:col-span-2 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1100,10 +1158,11 @@ export function WebsiteManagement() {
                   )}
                   {activeSection.type !== 'contact' && activeSection.type !== 'hero' && activeSection.type !== 'video' && activeSection.type !== 'staff' && activeSection.type !== 'latest_news' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} onUpload={uploadImage} uploading={uploading} /></div>}
                   {activeSection.type === 'video' && <div className="md:col-span-2"><label className={labelClass}>Video</label><VideoField value={activeSection.videoUrl} onChange={(videoUrl) => updateSection({ videoUrl })} media={site.media} /></div>}
-                  <div><label className={labelClass}>Background</label><select className={fieldClass} value={activeSection.background} onChange={(e) => updateSection({ background: e.target.value as WebsiteSection['background'] })}><option value="default">White</option><option value="muted">Soft gray</option><option value="primary">Primary color</option><option value="dark">Dark</option></select></div>
-                  <div><label className={labelClass}>Alignment</label><select className={fieldClass} value={activeSection.alignment} onChange={(e) => updateSection({ alignment: e.target.value as WebsiteSection['alignment'] })}><option value="left">Left</option><option value="center">Center</option></select></div>
+                  {activeSection.type !== 'about' && <div><label className={labelClass}>Background</label><select className={fieldClass} value={activeSection.background} onChange={(e) => updateSection({ background: e.target.value as WebsiteSection['background'] })}><option value="default">White</option><option value="muted">Soft gray</option><option value="primary">Primary color</option><option value="dark">Dark</option></select></div>}
+                  {activeSection.type !== 'about' && <div><label className={labelClass}>Alignment</label><select className={fieldClass} value={activeSection.alignment} onChange={(e) => updateSection({ alignment: e.target.value as WebsiteSection['alignment'] })}><option value="left">Left</option><option value="center">Center</option></select></div>}
                   {['hero', 'about', 'custom'].includes(activeSection.type) && <><div><label className={labelClass}>Button text</label><input className={fieldClass} value={activeSection.buttonText} onChange={(e) => updateSection({ buttonText: e.target.value })} /></div><div><label className={labelClass}>Button URL</label><input className={fieldClass} value={activeSection.buttonUrl} onChange={(e) => updateSection({ buttonUrl: e.target.value })} /></div></>}
                 </div>
+                {activeSection.type === 'about' && <AboutTemplateEditor section={activeSection} fallbackCards={activePage?.sections.find((section) => section.id === 'values' && section.type === 'services')?.cards || []} onChange={(cards) => updateSection({ cards })} />}
                 {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'latest_news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} onUploadImage={uploadImage} uploading={uploading} onSyncTeam={syncTeam} syncingTeam={syncingTeam} teamSyncFeedback={teamSyncFeedback} />}
               </div> : <div className={`${panelClass} flex min-h-[300px] items-center justify-center p-8 text-center text-sm text-[var(--color-text-tertiary)]`}>Add or select a section to edit it.</div>}
             </div>
