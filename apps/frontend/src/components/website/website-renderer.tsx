@@ -661,14 +661,37 @@ function CardsBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSect
   );
 }
 
+const ABOUT_TEMPLATE = [
+  { id: 'about-mission', title: 'Our Mission', icon: 'BookOpen', match: /\bmission\b/i },
+  { id: 'about-vision', title: 'Our Vision', icon: 'Sparkles', match: /\bvision\b/i },
+  { id: 'about-values', title: 'Core Values', icon: 'Heart', match: /\b(core\s*)?values?\b/i },
+] as const;
+
+function structuredAboutCards(primary: WebsiteCard[] = [], legacy: WebsiteCard[] = []): WebsiteCard[] {
+  const sources = [...primary, ...legacy];
+  return ABOUT_TEMPLATE.map((template) => {
+    const found = sources.find((card) => card.id === template.id)
+      || sources.find((card) => template.match.test(card.title || ''));
+    return {
+      id: template.id,
+      title: template.title,
+      text: found?.text || '',
+      icon: template.icon,
+    };
+  });
+}
+
 function AboutBlock({ ctx, section, values }: { ctx: RenderContext; section: WebsiteSection; values?: WebsiteCard[] }) {
-  const dark = isDark(section);
-  const title = text(ctx, section, 'title');
-  const buttonText = text(ctx, section, 'buttonText');
-  const points = values || [];
-  const showVisual = section.type === 'about' || !!section.imageUrl;
+  // About is a standard school template across tenants. Schools edit content,
+  // image, mission, vision and values; the public layout remains consistent.
+  const templateSection: WebsiteSection = { ...section, background: 'muted', alignment: 'left' };
+  const dark = false;
+  const title = text(ctx, templateSection, 'title');
+  const buttonText = text(ctx, templateSection, 'buttonText');
+  const points = structuredAboutCards(section.cards, values);
+  const showVisual = true;
   return (
-    <Shell section={section} ctx={ctx}>
+    <Shell section={templateSection} ctx={ctx}>
       <div className={`grid items-center gap-16 lg:gap-20 ${showVisual ? 'lg:grid-cols-2' : ''}`}>
         {showVisual && <div className="relative order-last mx-auto w-full max-w-xl lg:order-first lg:max-w-none">
           <div aria-hidden="true" style={{ backgroundColor: tint(ctx.accent, 30) }} className="absolute -bottom-5 -right-5 h-2/3 w-2/3 rounded-[2.5rem]" />
@@ -687,7 +710,7 @@ function AboutBlock({ ctx, section, values }: { ctx: RenderContext; section: Web
           </div>
         </div>}
         <div className={showVisual ? '' : section.alignment === 'center' ? 'mx-auto max-w-3xl text-center' : 'max-w-3xl'}>
-          <Heading ctx={ctx} section={section} dark={dark} center={showVisual ? false : undefined} />
+          <Heading ctx={ctx} section={templateSection} dark={dark} center={false} />
           {points.length > 0 && (
             <div className="mt-9 grid gap-4 sm:grid-cols-2">
               {points.map((card, index) => {
@@ -697,7 +720,7 @@ function AboutBlock({ ctx, section, values }: { ctx: RenderContext; section: Web
                     <div style={{ backgroundColor: tint(color, dark ? 35 : 14), color: dark ? '#fff' : color }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"><Icon name={card.icon || 'CheckCircle2'} /></div>
                     <div>
                       <p className={`font-extrabold ${dark ? 'text-white' : 'text-slate-900'}`}>{cardTitle(ctx, card)}</p>
-                      {cardText(ctx, card) && <p className={`mt-1 text-sm leading-6 ${dark ? 'text-white/70' : 'text-slate-500'}`}>{cardText(ctx, card)}</p>}
+                      {(cardText(ctx, card) || ctx.preview) && <p className={`mt-1 text-sm leading-6 ${dark ? 'text-white/70' : 'text-slate-500'}`}>{cardText(ctx, card) || `Add your school's ${card.title.toLowerCase()} in Website Management.`}</p>}
                     </div>
                   </div>
                 );
