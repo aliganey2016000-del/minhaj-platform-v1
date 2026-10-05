@@ -53,7 +53,7 @@ export const getAll = async (req: Request, res: Response): Promise<Response> => 
 
   const [teachers, total] = await Promise.all([
     Teacher.find(scopedFilter)
-      .populate('user', 'email phone isVerified isActive')
+      .populate('user', 'email phone title isVerified isActive')
       .populate('profile', 'firstName lastName gender avatar')
       .populate('school', 'name')
       .populate('courses', 'title.en slug')
