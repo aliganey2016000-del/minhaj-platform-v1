@@ -39,7 +39,6 @@ export const TEACHER_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'teacher/assignments', label: 'Assignments', section: 'Teaching' },
   { key: 'group:teacher-exams', label: 'Exam Workspace (entire menu)', section: 'Exams' },
   { key: 'teacher/exams', label: 'Exam Schedule & Workspace', section: 'Exams' },
-  { key: 'teacher/exam-attendance', label: 'Exam Attendance', section: 'Exams' },
   { key: 'teacher/exam-papers', label: 'Exam Papers', section: 'Exams' },
   { key: 'teacher/exam-incidents', label: 'Exam Incidents', section: 'Exams' },
   { key: 'group:quizzes', label: 'Quiz Builder (entire menu)', section: 'Teaching' },
