@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
-  ArrowRight, Award, BookOpen, Briefcase, Building2, CalendarDays, Camera, CheckCircle2, ChevronDown,
+  ArrowRight, Award, BookOpen, Briefcase, Building2, CalendarDays, Camera, CheckCircle2, ChevronDown, Clock3,
   Dumbbell, FlaskConical, Globe2, GraduationCap, Heart, Loader2, LogIn, Mail, MapPin, Menu,
   Palette, Phone, PlayCircle, Quote, School, Send, ShieldCheck, Sparkles, Star, Trophy, Users, X,
 } from 'lucide-react';
@@ -9,7 +9,7 @@ import api from '../../lib/axios';
 
 export type WebsiteSectionType =
   | 'hero' | 'about' | 'services' | 'programs' | 'stats' | 'gallery'
-  | 'video' | 'testimonials' | 'faq' | 'contact' | 'custom' | 'news' | 'staff' | 'partners';
+  | 'video' | 'testimonials' | 'faq' | 'contact' | 'custom' | 'news' | 'latest_news' | 'staff' | 'partners';
 
 export interface WebsiteLink {
   id: string;
@@ -29,6 +29,11 @@ export interface WebsiteCard {
   question?: string;
   answer?: string;
   date?: string;
+  time?: string;
+  category?: string;
+  slug?: string;
+  content?: string;
+  gallery?: string[];
   role?: string;
 }
 
@@ -766,6 +771,153 @@ function NewsBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSecti
   );
 }
 
+function newsSlug(card: WebsiteCard): string {
+  if (card.slug) return card.slug;
+  const base = (card.title || card.id || 'news')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return base || card.id;
+}
+
+function orderedNewsCards(cards: WebsiteCard[]): WebsiteCard[] {
+  return [...cards].sort((a, b) => {
+    const av = `${a.date || ''}T${a.time || '00:00'}`;
+    const bv = `${b.date || ''}T${b.time || '00:00'}`;
+    return bv.localeCompare(av);
+  });
+}
+
+function LatestNewsBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSection }) {
+  const [expanded, setExpanded] = useState(false);
+  const cards = orderedNewsCards(section.cards);
+  if (!cards.length && !ctx.preview) return null;
+  const dark = isDark(section);
+  const locale = ctx.site.defaultLanguage || 'en';
+  const shown = expanded ? cards : cards.slice(0, 5);
+  const socials = (ctx.site.footer.socials || []).filter((item) => item.visible && item.href);
+
+  return (
+    <Shell section={section} ctx={ctx}>
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        <div>
+          <div className="flex items-end justify-between gap-4">
+            <Heading ctx={ctx} section={section} dark={dark} center={false} color={ctx.accent} />
+            {cards.length > 5 && (
+              <button type="button" onClick={() => setExpanded((value) => !value)} className={`hidden shrink-0 items-center gap-1.5 text-sm font-extrabold sm:inline-flex ${dark ? 'text-white' : 'text-slate-700'}`}>
+                {expanded ? ctx.tr('news.showLess', 'Show Less') : ctx.tr('news.viewMore', 'View More')}
+                <ArrowRight className={`h-4 w-4 transition ${expanded ? 'rotate-90' : ''} rtl:rotate-180`} />
+              </button>
+            )}
+          </div>
+
+          {shown.length ? (
+            <div className="mt-8 space-y-3">
+              {shown.map((card) => {
+                const title = cardTitle(ctx, card);
+                const href = ctx.preview ? '#' : `/news/${newsSlug(card)}`;
+                return (
+                  <a key={card.id} href={href} className={`group flex gap-4 rounded-2xl border p-3 transition hover:-translate-y-0.5 hover:shadow-lg sm:p-4 ${dark ? 'border-white/15 bg-white/[.045] hover:bg-white/[.07]' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                    <div className="h-[76px] w-[96px] shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:h-[84px] sm:w-[112px]">
+                      {card.imageUrl
+                        ? <img loading="lazy" src={card.imageUrl} alt={title} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" />
+                        : <div style={{ background: `linear-gradient(135deg, ${tint(ctx.primary, 24)}, ${tint(ctx.accent, 15)})` }} className="flex h-full w-full items-center justify-center"><CalendarDays style={{ color: ctx.primary }} className="h-8 w-8" /></div>}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {card.category && <span style={{ color: dark ? '#fff' : ctx.primary, backgroundColor: dark ? 'rgba(255,255,255,.10)' : tint(ctx.primary, 10) }} className="rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-[.08em]">{card.category}</span>}
+                      </div>
+                      <h3 className={`mt-1.5 line-clamp-2 text-sm font-extrabold leading-5 sm:text-[15px] ${dark ? 'text-white' : 'text-slate-950'}`}>{title}</h3>
+                      <div className={`mt-2 flex flex-wrap items-center gap-3 text-[10px] font-medium ${dark ? 'text-white/55' : 'text-slate-500'}`}>
+                        {card.date && <span className="inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{formatDate(card.date, locale)}</span>}
+                        {card.time && <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{card.time}</span>}
+                      </div>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          ) : <div className="mt-8"><PreviewHint ctx={ctx}>Add news posts in Content to show Latest News.</PreviewHint></div>}
+
+          {cards.length > 5 && (
+            <button type="button" onClick={() => setExpanded((value) => !value)} className={`mt-5 inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-extrabold sm:hidden ${dark ? 'border-white/20 text-white' : 'border-slate-200 text-slate-700'}`}>
+              {expanded ? ctx.tr('news.showLess', 'Show Less') : ctx.tr('news.viewMore', 'View More')}
+            </button>
+          )}
+        </div>
+
+        <aside className={`rounded-3xl border p-5 sm:p-6 ${dark ? 'border-white/15 bg-white/[.045]' : 'border-slate-200 bg-slate-50'}`}>
+          <p style={{ color: ctx.primary }} className="text-[10px] font-black uppercase tracking-[.14em]">{ctx.tr('news.stayInTouch', 'Stay in touch')}</p>
+          <h3 className={`mt-1 text-lg font-black ${dark ? 'text-white' : 'text-slate-950'}`}>{ctx.tr('news.followUpdates', 'Follow Our Updates')}</h3>
+          <div className={`mt-5 rounded-2xl p-5 text-center ${dark ? 'bg-black/15' : 'bg-white ring-1 ring-slate-200'}`}>
+            {ctx.logo ? <img src={ctx.logo} alt="" className="mx-auto h-16 w-16 rounded-2xl bg-white object-contain" /> : <div style={{ backgroundColor: ctx.primary }} className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl text-white"><School className="h-8 w-8" /></div>}
+            <p className={`mt-3 text-sm font-black ${dark ? 'text-white' : 'text-slate-950'}`}>{ctx.displayName}</p>
+            <p className={`mt-1 text-xs leading-5 ${dark ? 'text-white/55' : 'text-slate-500'}`}>{ctx.tr('news.followText', 'Follow our official channels for announcements, events and school updates.')}</p>
+          </div>
+          {socials.length > 0 && (
+            <div className="mt-4 grid gap-2">
+              {socials.slice(0, 5).map((item) => (
+                <a key={item.id} href={item.href} target="_blank" rel="noreferrer" className={`flex items-center justify-between rounded-xl border px-4 py-3 text-xs font-extrabold transition ${dark ? 'border-white/15 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
+                  {ctx.tr(`link.${item.id}.label`, item.label)}<ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" />
+                </a>
+              ))}
+            </div>
+          )}
+        </aside>
+      </div>
+    </Shell>
+  );
+}
+
+function LatestNewsPostDetail({ ctx, section, card }: { ctx: RenderContext; section: WebsiteSection; card: WebsiteCard }) {
+  const locale = ctx.site.defaultLanguage || 'en';
+  const title = cardTitle(ctx, card);
+  const content = card.content || cardText(ctx, card);
+  const related = orderedNewsCards(section.cards.filter((item) => item.id !== card.id)).slice(0, 4);
+  const dark = isDark(section);
+
+  return (
+    <Shell section={{ ...section, title: '', subtitle: '', body: '' }} ctx={ctx}>
+      <div className="mx-auto max-w-5xl">
+        <a href="/" style={{ color: dark ? '#fff' : ctx.primary }} className="inline-flex items-center gap-2 text-xs font-extrabold">← {ctx.tr('news.back', 'Back to home')}</a>
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          {card.category && <span style={{ backgroundColor: ctx.primary }} className="rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[.1em] text-white">{card.category}</span>}
+          {card.date && <span className={`inline-flex items-center gap-1 text-xs font-semibold ${dark ? 'text-white/60' : 'text-slate-500'}`}><CalendarDays className="h-3.5 w-3.5" />{formatDate(card.date, locale)}</span>}
+          {card.time && <span className={`inline-flex items-center gap-1 text-xs font-semibold ${dark ? 'text-white/60' : 'text-slate-500'}`}><Clock3 className="h-3.5 w-3.5" />{card.time}</span>}
+        </div>
+        <h1 className={`mt-4 max-w-4xl text-3xl font-black leading-[1.02] tracking-[-.035em] sm:text-5xl ${dark ? 'text-white' : 'text-slate-950'}`}>{title}</h1>
+        {card.text && card.content && <p className={`mt-5 max-w-3xl text-base leading-8 ${dark ? 'text-white/70' : 'text-slate-600'}`}>{card.text}</p>}
+
+        {card.imageUrl && <img src={card.imageUrl} alt={title} className="mt-8 aspect-[16/9] w-full rounded-[2rem] object-cover shadow-2xl" />}
+
+        <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <article className={`whitespace-pre-line text-[15px] leading-8 sm:text-base ${dark ? 'text-white/82' : 'text-slate-700'}`}>{content}</article>
+          {related.length > 0 && (
+            <aside>
+              <p className={`text-sm font-black ${dark ? 'text-white' : 'text-slate-950'}`}>{ctx.tr('news.moreNews', 'More News')}</p>
+              <div className="mt-3 space-y-3">
+                {related.map((item) => (
+                  <a key={item.id} href={`/news/${newsSlug(item)}`} className={`flex gap-3 rounded-xl border p-2.5 transition ${dark ? 'border-white/15 hover:bg-white/10' : 'border-slate-200 hover:bg-slate-50'}`}>
+                    {item.imageUrl && <img src={item.imageUrl} alt="" className="h-14 w-16 shrink-0 rounded-lg object-cover" />}
+                    <div className="min-w-0"><p className={`line-clamp-2 text-[11px] font-extrabold leading-4 ${dark ? 'text-white' : 'text-slate-900'}`}>{cardTitle(ctx, item)}</p>{item.date && <p className={`mt-1 text-[9px] ${dark ? 'text-white/50' : 'text-slate-400'}`}>{formatDate(item.date, locale)}</p>}</div>
+                  </a>
+                ))}
+              </div>
+            </aside>
+          )}
+        </div>
+
+        {(card.gallery || []).filter(Boolean).length > 0 && (
+          <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {(card.gallery || []).filter(Boolean).map((url, index) => <img key={`${url}-${index}`} src={url} alt={`${title} ${index + 1}`} className="aspect-[4/3] w-full rounded-xl object-cover" />)}
+          </div>
+        )}
+      </div>
+    </Shell>
+  );
+}
+
 function TestimonialsBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSection }) {
   if (!section.cards.length && !ctx.preview) return null;
   return (
@@ -943,6 +1095,7 @@ function SectionView({ ctx, section, values }: { ctx: RenderContext; section: We
     case 'stats': return <StatsBlock ctx={ctx} section={section} />;
     case 'gallery': return <GalleryBlock ctx={ctx} section={section} />;
     case 'news': return <NewsBlock ctx={ctx} section={section} />;
+    case 'latest_news': return <LatestNewsBlock ctx={ctx} section={section} />;
     case 'testimonials': return <TestimonialsBlock ctx={ctx} section={section} />;
     case 'partners': return <PartnersBlock ctx={ctx} section={section} />;
     case 'video': return <VideoBlock ctx={ctx} section={section} />;
@@ -977,10 +1130,11 @@ function SchoolHome({ ctx, page }: { ctx: RenderContext; page: WebsitePage }) {
   );
 }
 
-export function WebsiteRenderer({ site, organization, pageSlug = '', preview = false, sessionId, onTrack }: {
+export function WebsiteRenderer({ site, organization, pageSlug = '', newsSlug: requestedNewsSlug = '', preview = false, sessionId, onTrack }: {
   site: WebsiteSiteDocument;
   organization: WebsiteOrganization;
   pageSlug?: string;
+  newsSlug?: string;
   preview?: boolean;
   sessionId?: string;
   onTrack?: (event: 'cta', page: string) => void;
@@ -997,6 +1151,18 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
     () => site.pages.find((item) => item.slug.toLowerCase() === normalizedSlug) || (normalizedSlug ? undefined : site.pages.find((item) => item.slug === '') || site.pages[0]),
     [site.pages, normalizedSlug],
   );
+  const normalizedNewsSlug = requestedNewsSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+  const newsMatch = useMemo(() => {
+    if (!normalizedNewsSlug) return null;
+    for (const candidatePage of site.pages) {
+      for (const section of candidatePage.sections) {
+        if (section.type !== 'latest_news') continue;
+        const card = section.cards.find((item) => newsSlug(item).toLowerCase() === normalizedNewsSlug);
+        if (card) return { section, card };
+      }
+    }
+    return null;
+  }, [site.pages, normalizedNewsSlug]);
   const primary = site.theme.primaryColor || organization.branding?.themeColor || '#0d9488';
   const secondary = site.theme.secondaryColor || '#0f172a';
   const accent = site.theme.accentColor || '#f59e0b';
@@ -1055,7 +1221,11 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
       </header>
 
       <main>
-        {page ? (
+        {normalizedNewsSlug ? (
+          newsMatch
+            ? <LatestNewsPostDetail ctx={ctx} section={newsMatch.section} card={newsMatch.card} />
+            : <section className="flex min-h-[60vh] items-center justify-center px-6 text-center"><div><p style={{ color: primary }} className="text-7xl font-black tracking-tight">404</p><h1 className="mt-3 text-3xl font-black text-slate-950">{tr('notFound.news', 'News post not found')}</h1><div className="mt-8 flex justify-center"><PrimaryButton ctx={ctx} href="/">{tr('notFound.home', 'Return home')}</PrimaryButton></div></div></section>
+        ) : page ? (
           normalizedSlug === ''
             ? <SchoolHome ctx={ctx} page={page} />
             : page.sections.filter((section) => section.visible).map((section) => <SectionView key={section.id} ctx={ctx} section={section} />)
