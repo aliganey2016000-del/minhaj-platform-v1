@@ -313,6 +313,36 @@ function CardEditor({
 }) {
   const update = (index: number, patch: Partial<WebsiteCard>) => onChange(section.cards.map((card, i) => i === index ? { ...card, ...patch } : card));
   const add = () => onChange([...section.cards, defaultCard(section.type)]);
+
+  if (section.type === 'staff') {
+    return (
+      <div className="mt-5 border-t border-[var(--color-border-subtle)] pt-5">
+        <div className="mb-4 rounded-xl border border-primary-200 bg-primary-50/60 p-3 text-xs leading-5 text-primary-800 dark:border-primary-900/50 dark:bg-primary-950/15 dark:text-primary-300">
+          Our Team is synced automatically from Teacher Management. Name, Position / Title and assigned courses are read-only here. Upload or replace only the website photo.
+        </div>
+        <div className="space-y-3">
+          {section.cards.map((card, index) => (
+            <div key={card.id} className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(280px,1fr)] md:items-start">
+                <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Synced teacher</p>
+                  <p className="mt-1 text-sm font-extrabold text-[var(--color-text-primary)]">{card.title || 'Teacher'}</p>
+                  <p className="mt-1 text-xs font-semibold text-primary-600">{card.role || 'Teacher'}</p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">{card.text || 'No course assigned'}</p>
+                </div>
+                <div>
+                  <label className={labelClass}>Website photo</label>
+                  <ImageField value={card.imageUrl || ''} onChange={(imageUrl) => update(index, { imageUrl })} media={media} onUpload={onUploadImage} uploading={uploading} />
+                </div>
+              </div>
+            </div>
+          ))}
+          {!section.cards.length && <p className="rounded-xl border border-dashed border-[var(--color-border-default)] p-5 text-center text-sm text-[var(--color-text-tertiary)]">No active teachers found in Teacher Management.</p>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-5 border-t border-[var(--color-border-subtle)] pt-5">
       <div className="mb-3 flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Section items</p><button type="button" onClick={add} className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border-default)] px-2.5 py-1.5 text-xs font-semibold"><Plus className="h-3.5 w-3.5" />Add item</button></div>
