@@ -802,7 +802,6 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
   const phone = site.footer.phone || organization.phone || '';
   const email = site.footer.email || organization.email || '';
   const address = site.footer.address || organization.address || '';
-  const socials = site.footer.socials.filter((item) => item.visible);
   const languagePicker = (className: string) => enabledLanguages.length > 1 && (
     <select aria-label="Website language" value={currentLanguage.code} onChange={(e) => setLanguage(e.target.value)} className={className}>
       {enabledLanguages.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
@@ -865,35 +864,22 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
       </main>
 
       <footer className="relative overflow-hidden bg-[#12377b] text-white">
-        <div aria-hidden="true" className="pointer-events-none absolute -right-28 top-12 h-56 w-56 rounded-full border border-white/5" />
-        <div aria-hidden="true" className="pointer-events-none absolute -right-16 top-24 h-40 w-40 rounded-full border border-white/5" />
-        <div className="relative mx-auto max-w-[1180px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          {(email || phone || address) && (
-            <div className="grid overflow-hidden rounded-[16px] border border-white/15 bg-white/[.04] md:grid-cols-3">
-              {email && <a href={`mailto:${email}`} className="flex items-center gap-3 border-white/10 p-4 md:border-r"><div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15"><Mail className="h-4 w-4 text-[#ffbf24]" /></div><div className="min-w-0"><p className="text-[8px] font-black uppercase tracking-[.16em] text-white/45">Email</p><p className="mt-0.5 truncate text-[11px] font-black text-white">{email}</p></div></a>}
-              {phone && <a href={`tel:${phone.replace(/\s+/g, '')}`} className="flex items-center gap-3 border-white/10 p-4 md:border-r"><div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15"><Phone className="h-4 w-4 text-[#ffbf24]" /></div><div className="min-w-0"><p className="text-[8px] font-black uppercase tracking-[.16em] text-white/45">Phone</p><p className="mt-0.5 truncate text-[11px] font-black text-white">{phone}</p></div></a>}
-              {address && <div className="flex items-center gap-3 p-4"><div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15"><MapPin className="h-4 w-4 text-[#ffbf24]" /></div><div className="min-w-0"><p className="text-[8px] font-black uppercase tracking-[.16em] text-white/45">Address</p><p className="mt-0.5 truncate text-[11px] font-black text-white">{address}</p></div></div>}
-            </div>
-          )}
-
-          <div className={`flex items-start gap-3 ${email || phone || address ? 'mt-5' : ''}`}>
-            <div className="-translate-y-1 sm:translate-y-0">{brandMark('h-12 w-12 sm:h-14 sm:w-14')}</div>
-            <div className="min-w-0 flex-1 pt-0.5 sm:pt-1">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-28 top-8 h-48 w-48 rounded-full border border-white/5" />
+        <div aria-hidden="true" className="pointer-events-none absolute -right-16 top-16 h-32 w-32 rounded-full border border-white/5" />
+        <div className="relative mx-auto max-w-[1180px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="shrink-0">{brandMark('h-12 w-12 sm:h-14 sm:w-14')}</div>
+            <div className="min-w-0 flex-1">
               <p className="text-lg font-black leading-tight tracking-[.02em] text-white sm:text-2xl">{displayName}</p>
               {site.footer.description && (
                 <p className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-[9px] leading-4 text-white/55 sm:text-xs sm:leading-5">
                   {tr('footer.description', site.footer.description)}
                 </p>
               )}
-              {socials.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {socials.map((item) => <a key={item.id} href={item.href} target="_blank" rel="noreferrer" className="rounded-full border border-white/15 px-2.5 py-1 text-[9px] font-bold text-white/70 hover:bg-white/10 hover:text-white">{tr(`link.${item.id}.label`, item.label)}</a>)}
-                </div>
-              )}
             </div>
           </div>
 
-          <div className="mt-4 border-t border-white/10 pt-4 text-[9px] text-white/45 sm:text-[10px]">
+          <div className="mt-4 border-t border-white/10 pt-3 text-[9px] text-white/45 sm:text-[10px]">
             <p>{tr('footer.copyright', site.footer.copyright)}</p>
           </div>
         </div>
