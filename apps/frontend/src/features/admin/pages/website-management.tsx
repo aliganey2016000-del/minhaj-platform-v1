@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown, ArrowUp, Check, ChevronRight, Copy, Eye, EyeOff, FileText, Globe2,
-  Image as ImageIcon, LayoutTemplate, Loader2, MoreVertical, Palette,
+  Image as ImageIcon, LayoutTemplate, Loader2, MoreVertical, Palette, Pencil,
   PanelsTopLeft, Plus, RefreshCw, Save, Search, Trash2, UploadCloud,
   Video, X,
 } from 'lucide-react';
@@ -149,9 +149,10 @@ function defaultSection(type: WebsiteSectionType): WebsiteSection {
     visible: true,
     cards: [],
   };
-  if (['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(type)) {
+  if (['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'partners'].includes(type)) {
     section.cards = [defaultCard(type), defaultCard(type), defaultCard(type)];
   }
+  if (type === 'staff') section.cards = [];
   return section;
 }
 
@@ -319,41 +320,74 @@ function CardEditor({
   const add = () => onChange([...section.cards, defaultCard(section.type)]);
 
   if (section.type === 'staff') {
+    const [editingCardId, setEditingCardId] = useState<string | null>(null);
+    const removeTeamMember = (card: WebsiteCard) => {
+      if (!window.confirm(`Remove ${card.title || 'this team member'} from the website team? This does not delete the teacher from Teacher Management.`)) return;
+      onChange(section.cards.filter((item) => item.id !== card.id));
+      if (editingCardId === card.id) setEditingCardId(null);
+    };
+
     return (
       <div className="mt-5 border-t border-[var(--color-border-subtle)] pt-5">
         <div className="mb-4 rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900/50 dark:bg-primary-950/15">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-extrabold text-primary-800 dark:text-primary-300">Team source: Teacher Management</p>
-              <p className="mt-1 text-xs leading-5 text-primary-700/80 dark:text-primary-300/80">Sync All Teachers replaces old manually-created team cards with active Teacher Management records. Names, titles and assigned courses come from Teacher Management; matching website photos are kept.</p>
+              <p className="text-sm font-extrabold text-primary-800 dark:text-primary-300">Create team from Teacher Management</p>
+              <p className="mt-1 text-xs leading-5 text-primary-700/80 dark:text-primary-300/80">This creates one website card for every active teacher using only Name, Position / Title and assigned Course(s). After creation, use Edit on a card only when you want to add or replace that person's website photo.</p>
             </div>
-            <div className="flex flex-col gap-2 sm:min-w-[210px]">
-              <button type="button" disabled={syncingTeam} onClick={() => void onSyncTeam?.()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm disabled:opacity-50">
-                {syncingTeam ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                {syncingTeam ? 'Syncing…' : 'Sync All Teachers'}
-              </button>
-              <a href="/admin/teachers" className="inline-flex items-center justify-center rounded-xl border border-primary-300 bg-white px-4 py-2.5 text-xs font-bold text-primary-700 dark:border-primary-800 dark:bg-transparent dark:text-primary-300">Open Teacher Management</a>
-            </div>
+            <button type="button" disabled={syncingTeam} onClick={() => void onSyncTeam?.()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm disabled:opacity-50 sm:min-w-[245px]">
+              {syncingTeam ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {syncingTeam ? 'Creating Team…' : 'Create All Team from Teachers'}
+            </button>
           </div>
         </div>
+
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Team members</p>
+            <p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">{section.cards.length} member{section.cards.length === 1 ? '' : 's'} on this website</p>
+          </div>
+          <a href="/admin/teachers" className="rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-50 dark:text-primary-300 dark:hover:bg-primary-950/20">Teacher Management</a>
+        </div>
+
         <div className="space-y-3">
-          {section.cards.map((card, index) => (
-            <div key={card.id} className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-3">
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(280px,1fr)] md:items-start">
-                <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Synced teacher</p>
-                  <p className="mt-1 text-sm font-extrabold text-[var(--color-text-primary)]">{card.title || 'Teacher'}</p>
-                  <p className="mt-1 text-xs font-semibold text-primary-600">{card.role || 'Teacher'}</p>
-                  <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">{card.text || 'No course assigned'}</p>
+          {section.cards.map((card, index) => {
+            const editing = editingCardId === card.id;
+            return (
+              <div key={card.id} className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)]">
+                <div className="flex items-center gap-3 p-3 sm:p-4">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
+                    {card.imageUrl ? <img src={card.imageUrl} alt={card.title || 'Team member'} className="h-full w-full object-cover object-top" /> : <ImageIcon className="h-6 w-6 text-[var(--color-text-tertiary)]" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-extrabold text-[var(--color-text-primary)]">{card.title || 'Teacher'}</p>
+                    <p className="truncate text-xs font-semibold text-primary-600">{card.role || 'Teacher'}</p>
+                    <p className="mt-0.5 line-clamp-1 text-xs text-[var(--color-text-tertiary)]">{card.text || 'No course assigned'}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <button type="button" onClick={() => setEditingCardId(editing ? null : card.id)} className={`inline-flex h-9 items-center gap-1 rounded-lg border px-2.5 text-xs font-semibold transition ${editing ? 'border-primary-300 bg-primary-50 text-primary-700' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)]'}`}><Pencil className="h-3.5 w-3.5" /><span className="hidden sm:inline">{editing ? 'Close' : 'Edit'}</span></button>
+                    <button type="button" onClick={() => removeTeamMember(card)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:bg-transparent dark:hover:bg-red-950/20"><Trash2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Delete</span></button>
+                  </div>
                 </div>
-                <div>
-                  <label className={labelClass}>Website photo</label>
-                  <ImageField value={card.imageUrl || ''} onChange={(imageUrl) => update(index, { imageUrl })} media={media} onUpload={onUploadImage} uploading={uploading} />
-                </div>
+
+                {editing && (
+                  <div className="border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3 sm:p-4">
+                    <div className="mb-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5 text-xs leading-5 text-[var(--color-text-tertiary)]">
+                      <span className="font-semibold text-[var(--color-text-secondary)]">Read only:</span> {card.title || 'Teacher'} · {card.role || 'Teacher'} · {card.text || 'No course assigned'}. Change these in Teacher Management, then press “Create All Team from Teachers” again.
+                    </div>
+                    <label className={labelClass}>Website photo</label>
+                    <ImageField value={card.imageUrl || ''} onChange={(imageUrl) => update(index, { imageUrl })} media={media} onUpload={onUploadImage} uploading={uploading} />
+                  </div>
+                )}
               </div>
+            );
+          })}
+          {!section.cards.length && (
+            <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] p-7 text-center">
+              <p className="text-sm font-bold text-[var(--color-text-primary)]">No team cards yet</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">Press “Create All Team from Teachers” to generate the team from active teachers.</p>
             </div>
-          ))}
-          {!section.cards.length && <p className="rounded-xl border border-dashed border-[var(--color-border-default)] p-5 text-center text-sm text-[var(--color-text-tertiary)]">No active teachers found in Teacher Management.</p>}
+          )}
         </div>
       </div>
     );
@@ -527,9 +561,9 @@ export function WebsiteManagement() {
       }
       if (data.data?.version) setVersion(data.data.version);
       const count = Number(data.data?.syncedTeachers || 0);
-      setNotice({ type: 'success', text: `Our Team synced from Teacher Management. ${count} active teacher${count === 1 ? '' : 's'} loaded. Old manual team data was removed; matching website photos were kept.` });
+      setNotice({ type: 'success', text: `Team created from Teacher Management: ${count} active teacher${count === 1 ? '' : 's'}. Name, title and courses were refreshed; matching website photos were kept.` });
     } catch (err: any) {
-      setNotice({ type: 'error', text: err.response?.data?.message || 'Could not sync Our Team from Teacher Management.' });
+      setNotice({ type: 'error', text: err.response?.data?.message || 'Could not create the team from Teacher Management.' });
     } finally {
       setSyncingTeam(false);
     }
