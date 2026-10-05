@@ -50,7 +50,7 @@ function upsertCanonical(url: string) {
 }
 
 export function TenantWebsitePage() {
-  const { pageSlug = '' } = useParams();
+  const { pageSlug = '', postSlug = '' } = useParams();
   const { tenant, isLoading: tenantLoading, error: tenantError } = useTenant();
   const [payload, setPayload] = useState<PublicWebsitePayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,11 +88,24 @@ export function TenantWebsitePage() {
     const school = payload?.school;
     if (!site || !school) return;
     const normalized = pageSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
+    const normalizedPost = postSlug.replace(/^\/+|\/+$/g, '').toLowerCase();
     const page = site.pages.find((item) => item.slug.toLowerCase() === normalized)
       || (!normalized ? site.pages.find((item) => item.slug === '') : undefined);
-    const title = page?.seoTitle || site.seo.siteTitle || school.name;
-    const description = page?.seoDescription || site.seo.description;
-    const canonical = `${window.location.origin}${normalized ? `/${normalized}` : '/'}`;
+    const newsCard = normalizedPost
+      ? site.pages.flatMap((item) => item.sections)
+          .filter((section) => section.type === 'latest_news')
+          .flatMap((section) => section.cards)
+          .find((card) => {
+            const slug = (card.slug || card.title || card.id || '')
+              .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+            return slug === normalizedPost;
+          })
+      : undefined;
+    const title = newsCard?.title || page?.seoTitle || site.seo.siteTitle || school.name;
+    const description = newsCard?.text || page?.seoDescription || site.seo.description;
+    const canonical = normalizedPost
+      ? `${window.location.origin}/news/${normalizedPost}`
+      : `${window.location.origin}${normalized ? `/${normalized}` : '/'}`;
 
     document.title = title;
     upsertMeta('meta[name="description"]', 'name', 'description', description);
@@ -100,16 +113,16 @@ export function TenantWebsitePage() {
     upsertMeta('meta[property="og:title"]', 'property', 'og:title', title);
     upsertMeta('meta[property="og:description"]', 'property', 'og:description', description);
     upsertMeta('meta[property="og:url"]', 'property', 'og:url', canonical);
-    upsertMeta('meta[property="og:type"]', 'property', 'og:type', 'website');
-    if (site.seo.ogImage) upsertMeta('meta[property="og:image"]', 'property', 'og:image', site.seo.ogImage);
+    upsertMeta('meta[property="og:type"]', 'property', 'og:type', normalizedPost ? 'article' : 'website');
+    if (newsCard?.imageUrl || site.seo.ogImage) upsertMeta('meta[property="og:image"]', 'property', 'og:image', newsCard?.imageUrl || site.seo.ogImage);
     upsertMeta('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
     upsertCanonical(canonical);
-  }, [payload, pageSlug]);
+  }, [payload, pageSlug, postSlug]);
 
   useEffect(() => {
     const site = payload?.site;
     if (!site || site.settings?.analyticsEnabled === false) return;
-    const page = pageSlug ? `/${pageSlug}` : '/';
+    const page = postSlug ? `/news/${postSlug}` : pageSlug ? `/${pageSlug}` : '/';
     const key = `${tenant?.slug || 'tenant'}:${page}`;
     if (trackedRef.current === key) return;
     trackedRef.current = key;
@@ -118,7 +131,7 @@ export function TenantWebsitePage() {
       page,
       sessionId,
     }).catch(() => undefined);
-  }, [payload, pageSlug, sessionId, tenant?.slug]);
+  }, [payload, pageSlug, postSlug, sessionId, tenant?.slug]);
 
   const track = (event: 'cta', page: string) => {
     if (payload?.site?.settings?.analyticsEnabled === false) return;
@@ -149,7 +162,7 @@ export function TenantWebsitePage() {
     );
   }
 
-  return <WebsiteRenderer site={payload.site} organization={payload.school} pageSlug={pageSlug} sessionId={sessionId} onTrack={track} />;
+  return <WebsiteRenderer site={payload.site} organization={payload.school} pageSlug={pageSlug} newsSlug={postSlug} sessionId={sessionId} onTrack={track} />;
 }
 
 export default TenantWebsitePage;

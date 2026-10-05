@@ -69,7 +69,7 @@ const THEME_PRESETS = [
 
 const SECTION_COLORS: Partial<Record<WebsiteSectionType, string>> = {
   hero: '#2563eb', stats: '#0d9488', programs: '#f59e0b', about: '#8b5cf6', services: '#ec4899',
-  gallery: '#16a34a', news: '#ea580c', testimonials: '#7c3aed', faq: '#0891b2', contact: '#0f172a',
+  gallery: '#16a34a', news: '#ea580c', latest_news: '#1d4ed8', testimonials: '#7c3aed', faq: '#0891b2', contact: '#0f172a',
 };
 
 const SECTION_PRESETS: Array<{ type: WebsiteSectionType; label: string; description: string }> = [
@@ -77,7 +77,8 @@ const SECTION_PRESETS: Array<{ type: WebsiteSectionType; label: string; descript
   { type: 'about', label: 'About', description: 'Institution story and supporting image' },
   { type: 'services', label: 'Services', description: 'Service cards with icons and links' },
   { type: 'programs', label: 'Programs', description: 'Courses, programmes or departments' },
-  { type: 'news', label: 'News & Events', description: 'Dated updates, announcements and events' },
+  { type: 'news', label: 'News & Events', description: 'Simple dated update cards' },
+  { type: 'latest_news', label: 'Latest News', description: 'Full posts with category, date, cover image, article and gallery' },
   { type: 'staff', label: 'Staff', description: 'People, photos, roles and biographies' },
   { type: 'partners', label: 'Partners', description: 'Partner names and logos' },
   { type: 'stats', label: 'Statistics', description: 'Numbers and impact indicators' },
@@ -111,6 +112,18 @@ function newLink(label = 'New Link', href = '#'): WebsiteLink {
 }
 
 function defaultCard(type: WebsiteSectionType): WebsiteCard {
+  if (type === 'latest_news') return {
+    id: makeId('post'),
+    title: 'New News Post',
+    text: '',
+    category: 'News',
+    date: new Date().toISOString().slice(0, 10),
+    time: '',
+    slug: '',
+    content: '',
+    imageUrl: '',
+    gallery: [],
+  };
   if (type === 'faq') return { id: makeId('faq'), title: '', text: '', question: 'New question', answer: 'Answer goes here.' };
   if (type === 'stats') return { id: makeId('stat'), title: 'Students', text: '', value: '100+', icon: 'Users' };
   if (type === 'gallery') return { id: makeId('image'), title: 'Gallery image', text: '', imageUrl: '' };
@@ -131,7 +144,7 @@ function defaultSection(type: WebsiteSectionType): WebsiteSection {
     faq: 'Frequently Asked Questions',
     contact: 'Contact Us',
     custom: 'New Section',
-    news: 'News & Events', staff: 'Our Team', partners: 'Our Partners',
+    news: 'News & Events', latest_news: 'Latest News', staff: 'Our Team', partners: 'Our Partners',
   };
   const section: WebsiteSection = {
     id: makeId(type),
@@ -152,7 +165,7 @@ function defaultSection(type: WebsiteSectionType): WebsiteSection {
   if (['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'partners'].includes(type)) {
     section.cards = [defaultCard(type), defaultCard(type), defaultCard(type)];
   }
-  if (type === 'staff') section.cards = [];
+  if (type === 'latest_news' || type === 'staff') section.cards = [];
   return section;
 }
 
@@ -321,6 +334,78 @@ function CardEditor({
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const update = (index: number, patch: Partial<WebsiteCard>) => onChange(section.cards.map((card, i) => i === index ? { ...card, ...patch } : card));
   const add = () => onChange([...section.cards, defaultCard(section.type)]);
+
+  if (section.type === 'latest_news') {
+    const addPost = () => onChange([...section.cards, defaultCard('latest_news')]);
+    const slugify = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return (
+      <div className="mt-5 border-t border-[var(--color-border-subtle)] pt-5">
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/50 dark:bg-blue-950/15 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-extrabold text-blue-800 dark:text-blue-300">Latest News posts</p>
+            <p className="mt-1 text-xs leading-5 text-blue-700/80 dark:text-blue-300/80">Add full news posts with cover image, category, publish date/time, short summary, article content and an optional photo gallery. Each post automatically opens on its own /news/... page.</p>
+          </div>
+          <button type="button" onClick={addPost} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm"><Plus className="h-4 w-4" />Add News Post</button>
+        </div>
+
+        <div className="space-y-4">
+          {section.cards.map((card, index) => {
+            const editing = editingCardId === card.id;
+            const slug = card.slug || slugify(card.title || '');
+            return (
+              <div key={card.id} className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)]">
+                <div className="flex items-center gap-3 p-3 sm:p-4">
+                  <div className="flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
+                    {card.imageUrl ? <img src={card.imageUrl} alt={card.title || 'News'} className="h-full w-full object-cover" /> : <ImageIcon className="h-6 w-6 text-[var(--color-text-tertiary)]" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">{card.category || 'News'}</span>
+                      {card.date && <span className="text-[10px] text-[var(--color-text-tertiary)]">{card.date}{card.time ? ` · ${card.time}` : ''}</span>}
+                    </div>
+                    <p className="mt-1 truncate text-sm font-extrabold text-[var(--color-text-primary)]">{card.title || 'Untitled post'}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-[var(--color-text-tertiary)]">/news/{slug || 'post-slug'}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <button type="button" onClick={() => setEditingCardId(editing ? null : card.id)} className={`inline-flex h-9 items-center gap-1 rounded-lg border px-2.5 text-xs font-semibold transition ${editing ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)]'}`}><Pencil className="h-3.5 w-3.5" /><span className="hidden sm:inline">{editing ? 'Close' : 'Edit'}</span></button>
+                    <button type="button" onClick={() => onChange(section.cards.filter((_, i) => i !== index))} className="inline-flex h-9 items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:bg-transparent dark:hover:bg-red-950/20"><Trash2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Delete</span></button>
+                  </div>
+                </div>
+
+                {editing && (
+                  <div className="border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3 sm:p-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="sm:col-span-2"><label className={labelClass}>Post title</label><input className={fieldClass} value={card.title || ''} onChange={(e) => update(index, { title: e.target.value, slug: card.slug || slugify(e.target.value) })} placeholder="News headline" /></div>
+                      <div><label className={labelClass}>Category</label><input className={fieldClass} value={card.category || ''} onChange={(e) => update(index, { category: e.target.value })} placeholder="News, Events, Announcement..." /></div>
+                      <div><label className={labelClass}>URL slug</label><input className={fieldClass} value={slug} onChange={(e) => update(index, { slug: slugify(e.target.value) })} placeholder="news-post-slug" /></div>
+                      <div><label className={labelClass}>Date</label><input type="date" className={fieldClass} value={card.date || ''} onChange={(e) => update(index, { date: e.target.value })} /></div>
+                      <div><label className={labelClass}>Time</label><input type="time" className={fieldClass} value={card.time || ''} onChange={(e) => update(index, { time: e.target.value })} /></div>
+                      <div className="sm:col-span-2"><label className={labelClass}>Short summary</label><textarea className={fieldClass} rows={3} value={card.text || ''} onChange={(e) => update(index, { text: e.target.value })} placeholder="Short description shown under the headline or in previews." /></div>
+                      <div className="sm:col-span-2"><label className={labelClass}>Full article</label><textarea className={fieldClass} rows={10} value={card.content || ''} onChange={(e) => update(index, { content: e.target.value })} placeholder="Write the full news article here. Paragraph breaks are preserved." /></div>
+                      <div className="sm:col-span-2"><label className={labelClass}>Cover image</label><ImageField value={card.imageUrl || ''} onChange={(imageUrl) => update(index, { imageUrl })} media={media} onUpload={onUploadImage} uploading={uploading} /></div>
+                    </div>
+
+                    <div className="mt-4 border-t border-[var(--color-border-subtle)] pt-4">
+                      <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-[var(--color-text-secondary)]">Post gallery</p><p className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">Optional extra photos shown below the article.</p></div><button type="button" onClick={() => update(index, { gallery: [...(card.gallery || []), ''] })} className="inline-flex items-center gap-1 rounded-lg border border-[var(--color-border-default)] px-2.5 py-1.5 text-xs font-semibold"><Plus className="h-3.5 w-3.5" />Add photo</button></div>
+                      <div className="space-y-3">
+                        {(card.gallery || []).map((url, galleryIndex) => (
+                          <div key={galleryIndex} className="rounded-xl border border-[var(--color-border-subtle)] p-3">
+                            <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-semibold text-[var(--color-text-tertiary)]">Gallery photo {galleryIndex + 1}</span><button type="button" onClick={() => update(index, { gallery: (card.gallery || []).filter((_, i) => i !== galleryIndex) })} className="p-1 text-red-500"><Trash2 className="h-3.5 w-3.5" /></button></div>
+                            <ImageField value={url} onChange={(imageUrl) => update(index, { gallery: (card.gallery || []).map((item, i) => i === galleryIndex ? imageUrl : item) })} media={media} onUpload={onUploadImage} uploading={uploading} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {!section.cards.length && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] p-7 text-center"><p className="text-sm font-bold text-[var(--color-text-primary)]">No news posts yet</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Press “Add News Post” to publish your first story.</p></div>}
+        </div>
+      </div>
+    );
+  }
 
   if (section.type === 'staff') {
     const removeTeamMember = (card: WebsiteCard) => {
@@ -990,8 +1075,8 @@ export function WebsiteManagement() {
                 <div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><span className="rounded-lg bg-primary-50 px-2 py-1 text-[11px] font-bold uppercase text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{activeSection.type}</span><h2 className="text-lg font-bold">{activeSection.title || 'Untitled section'}</h2></div><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Edit content, media, layout and visibility.</p></div><div className="flex gap-1"><button type="button" onClick={() => moveSection(-1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowUp className="h-4 w-4" /></button><button type="button" onClick={() => moveSection(1)} className="rounded-lg border border-[var(--color-border-default)] p-2"><ArrowDown className="h-4 w-4" /></button><button type="button" onClick={() => toggleSectionVisibility(activeSection.id, activeSection.visible)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${activeSection.visible ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/50 dark:bg-green-950/20 dark:text-green-300' : 'border-[var(--color-border-default)] text-[var(--color-text-tertiary)]'}`}>{activeSection.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}{activeSection.visible ? 'Shown' : 'Hidden'}</button><button type="button" onClick={removeSection} className="rounded-lg border border-red-200 p-2 text-red-500"><Trash2 className="h-4 w-4" /></button></div></div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="md:col-span-2"><label className={labelClass}>Title</label><input className={fieldClass} value={activeSection.title} onChange={(e) => updateSection({ title: e.target.value })} /></div>
-                  {activeSection.type !== 'staff' && <div className="md:col-span-2"><label className={labelClass}>Subtitle</label><input className={fieldClass} value={activeSection.subtitle} onChange={(e) => updateSection({ subtitle: e.target.value })} /></div>}
-                  {activeSection.type !== 'staff' && <div className="md:col-span-2"><label className={labelClass}>Body text</label><textarea className={fieldClass} rows={5} value={activeSection.body} onChange={(e) => updateSection({ body: e.target.value })} /></div>}
+                  {activeSection.type !== 'staff' && <div className="md:col-span-2"><label className={labelClass}>Subtitle</label><input className={fieldClass} value={activeSection.subtitle} onChange={(e) => updateSection({ subtitle: e.target.value })} placeholder={activeSection.type === 'latest_news' ? 'Optional small label above Latest News' : undefined} /></div>}
+                  {activeSection.type !== 'staff' && <div className="md:col-span-2"><label className={labelClass}>Body text</label><textarea className={fieldClass} rows={activeSection.type === 'latest_news' ? 3 : 5} value={activeSection.body} onChange={(e) => updateSection({ body: e.target.value })} placeholder={activeSection.type === 'latest_news' ? 'Optional short introduction for the news section.' : undefined} /></div>}
                   {activeSection.type === 'hero' && (
                     <div className="md:col-span-2 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1013,13 +1098,13 @@ export function WebsiteManagement() {
                       </div>
                     </div>
                   )}
-                  {activeSection.type !== 'contact' && activeSection.type !== 'hero' && activeSection.type !== 'video' && activeSection.type !== 'staff' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} onUpload={uploadImage} uploading={uploading} /></div>}
+                  {activeSection.type !== 'contact' && activeSection.type !== 'hero' && activeSection.type !== 'video' && activeSection.type !== 'staff' && activeSection.type !== 'latest_news' && <div><label className={labelClass}>Image URL</label><ImageField value={activeSection.imageUrl} onChange={(imageUrl) => updateSection({ imageUrl })} media={site.media} onUpload={uploadImage} uploading={uploading} /></div>}
                   {activeSection.type === 'video' && <div className="md:col-span-2"><label className={labelClass}>Video</label><VideoField value={activeSection.videoUrl} onChange={(videoUrl) => updateSection({ videoUrl })} media={site.media} /></div>}
                   <div><label className={labelClass}>Background</label><select className={fieldClass} value={activeSection.background} onChange={(e) => updateSection({ background: e.target.value as WebsiteSection['background'] })}><option value="default">White</option><option value="muted">Soft gray</option><option value="primary">Primary color</option><option value="dark">Dark</option></select></div>
                   <div><label className={labelClass}>Alignment</label><select className={fieldClass} value={activeSection.alignment} onChange={(e) => updateSection({ alignment: e.target.value as WebsiteSection['alignment'] })}><option value="left">Left</option><option value="center">Center</option></select></div>
                   {['hero', 'about', 'custom'].includes(activeSection.type) && <><div><label className={labelClass}>Button text</label><input className={fieldClass} value={activeSection.buttonText} onChange={(e) => updateSection({ buttonText: e.target.value })} /></div><div><label className={labelClass}>Button URL</label><input className={fieldClass} value={activeSection.buttonUrl} onChange={(e) => updateSection({ buttonUrl: e.target.value })} /></div></>}
                 </div>
-                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} onUploadImage={uploadImage} uploading={uploading} onSyncTeam={syncTeam} syncingTeam={syncingTeam} teamSyncFeedback={teamSyncFeedback} />}
+                {['services', 'programs', 'stats', 'gallery', 'testimonials', 'faq', 'news', 'latest_news', 'staff', 'partners'].includes(activeSection.type) && <CardEditor media={site.media} section={activeSection} onChange={(cards) => updateSection({ cards })} onUploadImage={uploadImage} uploading={uploading} onSyncTeam={syncTeam} syncingTeam={syncingTeam} teamSyncFeedback={teamSyncFeedback} />}
               </div> : <div className={`${panelClass} flex min-h-[300px] items-center justify-center p-8 text-center text-sm text-[var(--color-text-tertiary)]`}>Add or select a section to edit it.</div>}
             </div>
           )}

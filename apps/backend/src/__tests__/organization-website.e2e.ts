@@ -93,7 +93,40 @@ async function main() {
     site.header.displayName = 'Balcad Learning Community';
     site.pages[0].sections.find((s: any) => s.type === 'news').visible = true;
     site.pages[0].sections.find((s: any) => s.type === 'news').cards = [{ id: 'event', title: 'Open Day', text: 'Visit us', date: '2026-10-04' }];
+    site.pages[0].sections.push({
+      id: 'latest-news',
+      type: 'latest_news',
+      title: 'Latest News',
+      subtitle: '',
+      body: '',
+      imageUrl: '',
+      videoUrl: '',
+      icon: 'CalendarDays',
+      buttonText: '',
+      buttonUrl: '',
+      background: 'dark',
+      alignment: 'left',
+      visible: true,
+      cards: [{
+        id: 'aden-fellowship',
+        title: 'Aden Adde Fellowship',
+        text: 'Short summary',
+        category: 'Events',
+        date: '2026-09-28',
+        time: '10:00',
+        slug: 'Aden Adde Fellowship',
+        content: 'Full article content\nSecond paragraph.',
+        imageUrl: '/cover.jpg',
+        gallery: ['/gallery-1.jpg', '/gallery-2.jpg'],
+      }],
+    });
     const savedDraft = (await request(app).put('/website').set('Authorization', auth).send({ site }).expect(200)).body.data.draft;
+    const latestPost = savedDraft.pages[0].sections.find((s: any) => s.type === 'latest_news').cards[0];
+    assert.equal(latestPost.category, 'Events');
+    assert.equal(latestPost.time, '10:00');
+    assert.equal(latestPost.slug, 'aden-adde-fellowship');
+    assert.equal(latestPost.content, 'Full article content\nSecond paragraph.');
+    assert.deepEqual(latestPost.gallery, ['/gallery-1.jpg', '/gallery-2.jpg']);
     const staffCards = savedDraft.pages[0].sections.find((s: any) => s.type === 'staff').cards;
     assert.equal(staffCards.length, 0, 'Saving alone must not auto-create team cards');
 
@@ -157,7 +190,7 @@ async function main() {
     for (const origin of ['https://unknown.sahaledu.com', 'https://balcad.attacker.example', 'http://balcad.sahaledu.com', 'https://school.example.edu:444', 'null']) assert.equal(await isAllowedOrigin(origin), false);
     await request(app).post('/website/unpublish').set('Authorization', auth).send({}).expect(200);
     assert.equal((await publicSite('balcad.sahaledu.com')).body.data.site, null);
-    console.log('PASS: organization authorization, tenant domains, explicit team creation from current draft, legacy teacher ownership, per-card delete persistence, legacy cleanup, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
+    console.log('PASS: organization authorization, tenant domains, Latest News post normalization, explicit team creation from current draft, legacy teacher ownership, per-card delete persistence, legacy cleanup, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
   } finally {
     fs.rmSync(`uploads/organization-websites/${a}`, { recursive: true, force: true });
     await mongoose.disconnect();
