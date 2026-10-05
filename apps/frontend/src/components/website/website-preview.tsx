@@ -36,9 +36,16 @@ export function WebsitePreview({ site, organization, initialPageSlug = '' }: {
       </div>
     </div>
     <div className="p-2 sm:p-4">
-      <iframe ref={frame} title="Organization website draft preview" sandbox="allow-same-origin" onLoad={ready}
+      <iframe
+        ref={frame}
+        title="Organization website draft preview"
+        sandbox="allow-same-origin allow-scripts allow-presentation"
+        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+        onLoad={ready}
         srcDoc={'<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0}</style></head><body><div id="preview"></div></body></html>'}
-        style={{ width: device === 'mobile' ? 390 : '100%', maxWidth: '100%', height: '72vh' }} className="mx-auto block rounded-xl border bg-white shadow-sm" />
+        style={{ width: device === 'mobile' ? 390 : '100%', maxWidth: '100%', height: '72vh' }}
+        className="mx-auto block rounded-xl border bg-white shadow-sm"
+      />
       {mount && createPortal(<div onClickCapture={(event) => {
         const anchor = (event.target as HTMLElement).closest('a');
         if (!anchor) return;
