@@ -802,7 +802,6 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', preview = f
   const phone = site.footer.phone || organization.phone || '';
   const email = site.footer.email || organization.email || '';
   const address = site.footer.address || organization.address || '';
-  const socials = site.footer.socials.filter((item) => item.visible);
   const languagePicker = (className: string) => enabledLanguages.length > 1 && (
     <select aria-label="Website language" value={currentLanguage.code} onChange={(e) => setLanguage(e.target.value)} className={className}>
       {enabledLanguages.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
