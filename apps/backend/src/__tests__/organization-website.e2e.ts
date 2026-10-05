@@ -7,6 +7,10 @@ import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import School from '../models/school.model';
 import WebsiteConfig from '../models/website-config.model';
+import User from '../models/user.model';
+import Profile from '../models/profile.model';
+import Teacher from '../models/teacher.model';
+import Course from '../models/course.model';
 import { isAllowedOrigin } from '../utils/cors-origins';
 import { normalizeSite } from '../controllers/website-management.controller';
 import { errorHandler } from '../middleware/error.middleware';
@@ -46,13 +50,42 @@ async function main() {
     await request(app).post('/website/publish').set('Authorization', auth).send({ schoolId: b }).expect(403);
     const publicSite = (host: string) => request(app).get('/website/public/current').set('Host', host);
     assert.equal((await publicSite('balcad.sahaledu.com').expect(200)).body.data.site, null);
+    const principalUserId = new mongoose.Types.ObjectId();
+    const principalProfileId = new mongoose.Types.ObjectId();
+    const principalTeacherId = new mongoose.Types.ObjectId();
+    await User.collection.insertOne({
+      _id: principalUserId, email: 'principal@balcad.test', password: 'not-used',
+      role: 'teacher', title: 'Principal', organizationId: a, isActive: true, isVerified: true,
+    } as any);
+    await Profile.collection.insertOne({
+      _id: principalProfileId, user: principalUserId, firstName: 'Abas', lastName: 'Abdulle', avatar: '',
+    } as any);
+    await Teacher.collection.insertOne({
+      _id: principalTeacherId, user: principalUserId, profile: principalProfileId, school: a,
+      teacherId: 'TCH-2026-0001', status: 'active', courses: [],
+    } as any);
+    await Course.collection.insertMany([
+      { _id: new mongoose.Types.ObjectId(), school: a, teacher: principalTeacherId, title: { en: 'Mathematics' }, slug: 'math-grade-1', status: 'published' },
+      { _id: new mongoose.Types.ObjectId(), school: a, teacher: principalTeacherId, title: { en: 'Mathematics' }, slug: 'math-grade-2', status: 'draft' },
+      { _id: new mongoose.Types.ObjectId(), school: a, teacher: principalTeacherId, title: { en: 'Science' }, slug: 'science-grade-3', status: 'published' },
+    ] as any[]);
+
     site.header.displayName = 'Balcad Learning Community';
     site.pages[0].sections.find((s: any) => s.type === 'news').visible = true;
     site.pages[0].sections.find((s: any) => s.type === 'news').cards = [{ id: 'event', title: 'Open Day', text: 'Visit us', date: '2026-10-04' }];
-    await request(app).put('/website').set('Authorization', auth).send({ site }).expect(200);
+    const savedDraft = (await request(app).put('/website').set('Authorization', auth).send({ site }).expect(200)).body.data.draft;
+    const staffCards = savedDraft.pages[0].sections.find((s: any) => s.type === 'staff').cards;
+    assert.equal(staffCards.length, 1);
+    assert.equal(staffCards[0].title, 'Abas Abdulle');
+    assert.equal(staffCards[0].role, 'Principal');
+    assert.equal(staffCards[0].text, 'Mathematics · Science');
+    assert.equal(staffCards[0].imageUrl, '');
     const firstPublish = (await request(app).post('/website/publish').set('Authorization', auth).send({}).expect(200)).body.data.version;
     const live = (await publicSite('balcad.sahaledu.com').expect(200)).body.data.site;
     assert.equal(live.header.displayName, site.header.displayName);
+    const livePrincipal = live.pages[0].sections.find((s: any) => s.type === 'staff').cards[0];
+    assert.equal(livePrincipal.role, 'Principal');
+    assert.equal(livePrincipal.text, 'Mathematics · Science');
     assert.deepEqual((await publicSite('school.example.edu').expect(200)).body.data.site, live);
     assert.equal((await publicSite('second.sahaledu.com').expect(200)).body.data.site, null);
     site.pages[0].sections[0].title = 'Private new draft';
@@ -69,7 +102,7 @@ async function main() {
     for (const origin of ['https://unknown.sahaledu.com', 'https://balcad.attacker.example', 'http://balcad.sahaledu.com', 'https://school.example.edu:444', 'null']) assert.equal(await isAllowedOrigin(origin), false);
     await request(app).post('/website/unpublish').set('Authorization', auth).send({}).expect(200);
     assert.equal((await publicSite('balcad.sahaledu.com')).body.data.site, null);
-    console.log('PASS: organization authorization, tenant domains, draft isolation, publish, rollback, media persistence and CORS');
+    console.log('PASS: organization authorization, tenant domains, automatic teacher/team sync, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
   } finally {
     fs.rmSync(`uploads/organization-websites/${a}`, { recursive: true, force: true });
     await mongoose.disconnect();

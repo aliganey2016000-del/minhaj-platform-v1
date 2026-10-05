@@ -483,6 +483,7 @@ function StatsBlock({ ctx, section, overlap }: { ctx: RenderContext; section: We
 function StaffCompactCard({ ctx, card, index }: { ctx: RenderContext; card: WebsiteCard; index: number }) {
   const color = paletteAt(index + 1);
   const title = cardTitle(ctx, card);
+  const courses = cardText(ctx, card);
   return (
     <article className="group relative w-[44vw] min-w-[150px] max-w-[180px] shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_16px_38px_-28px_rgba(15,23,42,.5)] ring-1 ring-slate-200/80 transition duration-300 hover:-translate-y-1 hover:shadow-xl sm:w-[210px] sm:max-w-[210px] lg:w-[250px] lg:max-w-[250px]">
       {card.imageUrl ? (
@@ -494,9 +495,10 @@ function StaffCompactCard({ ctx, card, index }: { ctx: RenderContext; card: Webs
           <Users style={{ color }} className="h-12 w-12" />
         </div>
       )}
-      <div className="min-h-[92px] px-3.5 py-3.5 text-center sm:px-4">
-        <h3 className="line-clamp-2 text-sm font-extrabold leading-5 tracking-tight text-slate-950 sm:text-[15px]">{title}</h3>
-        {card.role && <p style={{ color }} className="mt-1 line-clamp-1 text-xs font-bold">{ctx.tr(`card.${card.id}.role`, card.role)}</p>}
+      <div className="min-h-[112px] px-3.5 py-3.5 text-center sm:px-4">
+        <h3 className="line-clamp-1 text-sm font-extrabold leading-5 tracking-tight text-slate-950 sm:text-[15px]">{title}</h3>
+        <p style={{ color }} className="mt-1 line-clamp-1 text-xs font-bold">{card.role ? ctx.tr(`card.${card.id}.role`, card.role) : 'Teacher'}</p>
+        <p className="mt-1.5 line-clamp-2 text-[11px] font-medium leading-4 text-slate-500">{courses || ctx.tr('staff.noCourse', 'No course assigned')}</p>
       </div>
     </article>
   );
@@ -545,7 +547,7 @@ function StaffTeamBlock({ ctx, section }: { ctx: RenderContext; section: Website
             <span style={{ color: principalColor, backgroundColor: tint(principalColor, 12) }} className="mx-auto inline-flex w-fit rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[.16em] sm:mx-0">{ctx.tr('staff.leadership', 'School Leadership')}</span>
             <h3 className="mt-4 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{principalTitle}</h3>
             <p style={{ color: principalColor }} className="mt-1.5 text-sm font-extrabold sm:text-base">{principalRole}</p>
-            {principalBody && <p className="mt-4 line-clamp-3 whitespace-pre-line text-sm leading-6 text-slate-600 sm:text-[15px]">{principalBody}</p>}
+            <p className="mt-4 line-clamp-3 whitespace-pre-line text-sm font-medium leading-6 text-slate-600 sm:text-[15px]">{principalBody || ctx.tr('staff.noCourse', 'No course assigned')}</p>
           </div>
         </article>
       </div>
