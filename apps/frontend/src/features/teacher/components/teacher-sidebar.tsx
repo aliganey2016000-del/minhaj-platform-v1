@@ -20,7 +20,6 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     { path: '/teacher/assignments', label: 'Assignments', icon: '📝' },
     { key: 'group:teacher-exams', label: 'Exam Workspace', icon: '🧪', children: [
       { path: '/teacher/exams', label: 'Exam Schedule & Workspace', icon: '🗓️' },
-      { path: '/teacher/exam-attendance', label: 'Exam Attendance', icon: '✅' },
       { path: '/teacher/exam-papers', label: 'Exam Papers', icon: '📄' },
       { path: '/teacher/exam-incidents', label: 'Exam Incidents', icon: '⚠️' },
     ] },
