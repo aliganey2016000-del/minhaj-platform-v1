@@ -75,13 +75,9 @@ async function main() {
     site.pages[0].sections.find((s: any) => s.type === 'news').cards = [{ id: 'event', title: 'Open Day', text: 'Visit us', date: '2026-10-04' }];
     const savedDraft = (await request(app).put('/website').set('Authorization', auth).send({ site }).expect(200)).body.data.draft;
     const staffCards = savedDraft.pages[0].sections.find((s: any) => s.type === 'staff').cards;
-    assert.equal(staffCards.length, 1);
-    assert.equal(staffCards[0].title, 'Abas Abdulle');
-    assert.equal(staffCards[0].role, 'Principal');
-    assert.equal(staffCards[0].text, 'Mathematics · Science');
-    assert.equal(staffCards[0].imageUrl, '');
+    assert.equal(staffCards.length, 0, 'Saving alone must not auto-create team cards');
 
-    // Explicit "Sync All Teachers" must purge legacy/manual Team rows while
+    // Explicit "Create Team from Teachers" must purge legacy/manual Team rows while
     // preserving a matching website photo. Text/title/role come only from
     // Teacher Management + course assignments, never old manual content.
     const legacyDraft = JSON.parse(JSON.stringify(savedDraft));
@@ -107,10 +103,20 @@ async function main() {
     assert.equal(livePrincipal.text, 'Mathematics · Science');
     assert.deepEqual((await publicSite('school.example.edu').expect(200)).body.data.site, live);
     assert.equal((await publicSite('second.sahaledu.com').expect(200)).body.data.site, null);
-    site.pages[0].sections[0].title = 'Private new draft';
-    await request(app).put('/website').set('Authorization', auth).send({ site }).expect(200);
+
+    // Per-card delete is a website-only choice. Saving, reopening and publishing
+    // must not silently re-add the teacher; only the explicit create/sync button may.
+    const deletionDraft = JSON.parse(JSON.stringify(syncResult.draft));
+    deletionDraft.pages[0].sections[0].title = 'Private new draft';
+    deletionDraft.pages[0].sections.find((s: any) => s.type === 'staff').cards = [];
+    await request(app).put('/website').set('Authorization', auth).send({ site: deletionDraft }).expect(200);
+    const reopenedDraft = (await request(app).get('/website').set('Authorization', auth).expect(200)).body.data.draft;
+    assert.equal(reopenedDraft.pages[0].sections.find((s: any) => s.type === 'staff').cards.length, 0);
     assert.equal((await publicSite('balcad.sahaledu.com').expect(200)).body.data.site.pages[0].sections[0].title, 'Balcad School');
     await request(app).post('/website/publish').set('Authorization', auth).send({}).expect(200);
+    const afterDeletePublish = (await publicSite('balcad.sahaledu.com').expect(200)).body.data.site;
+    assert.equal(afterDeletePublish.pages[0].sections.find((s: any) => s.type === 'staff').cards.length, 0);
+
     await request(app).post(`/website/versions/${firstPublish}/rollback`).set('Authorization', token('org_admin', String(b))).send({}).expect(404);
     await request(app).post(`/website/versions/${firstPublish}/rollback`).set('Authorization', auth).send({}).expect(200);
     assert.equal((await publicSite('balcad.sahaledu.com')).body.data.site.pages[0].sections[0].title, 'Balcad School');
@@ -121,7 +127,7 @@ async function main() {
     for (const origin of ['https://unknown.sahaledu.com', 'https://balcad.attacker.example', 'http://balcad.sahaledu.com', 'https://school.example.edu:444', 'null']) assert.equal(await isAllowedOrigin(origin), false);
     await request(app).post('/website/unpublish').set('Authorization', auth).send({}).expect(200);
     assert.equal((await publicSite('balcad.sahaledu.com')).body.data.site, null);
-    console.log('PASS: organization authorization, tenant domains, explicit teacher/team sync, legacy cleanup, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
+    console.log('PASS: organization authorization, tenant domains, explicit team creation, per-card delete persistence, legacy cleanup, course dedupe, draft isolation, publish, rollback, media persistence and CORS');
   } finally {
     fs.rmSync(`uploads/organization-websites/${a}`, { recursive: true, force: true });
     await mongoose.disconnect();

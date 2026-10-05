@@ -379,13 +379,9 @@ export async function getWebsiteConfig(req: Request, res: Response): Promise<Res
 
   const currentConfig = config!;
   const normalizedDraft = normalizeSite(currentConfig.draft, school);
-  const syncedDraft = await syncStaffSectionsFromTeachers(normalizedDraft, school._id);
-  if (JSON.stringify(syncedDraft.pages) !== JSON.stringify(normalizedDraft.pages)) {
-    await WebsiteConfig.updateOne({ _id: currentConfig._id }, { $set: { draft: syncedDraft } });
-  }
   return ApiResponse.success(res, {
     school: schoolSummary(school),
-    draft: syncedDraft,
+    draft: normalizedDraft,
     isPublished: currentConfig.isPublished,
     publishedAt: currentConfig.publishedAt || null,
     version: currentConfig.version || 1,
@@ -397,12 +393,11 @@ export async function getWebsiteConfig(req: Request, res: Response): Promise<Res
 export async function saveWebsiteDraft(req: Request, res: Response): Promise<Response> {
   const school = await getManagedSchool(req, req.body?.schoolId || req.query.schoolId);
   const normalized = normalizeSite(req.body?.site, school);
-  const synced = await syncStaffSectionsFromTeachers(normalized, school._id);
 
   const config = await WebsiteConfig.findOneAndUpdate(
     { school: school._id },
     {
-      $set: { draft: synced, updatedBy: req.user!.userId },
+      $set: { draft: normalized, updatedBy: req.user!.userId },
       $inc: { version: 1 },
       $setOnInsert: { isPublished: false },
     },
@@ -442,7 +437,7 @@ export async function syncWebsiteTeam(req: Request, res: Response): Promise<Resp
     draft: synced,
     version: config.version,
     syncedTeachers,
-  }, 'Our Team synced from Teacher Management.');
+  }, 'Our Team created from Teacher Management.');
 }
 
 export async function publishWebsite(req: Request, res: Response): Promise<Response> {
@@ -451,9 +446,8 @@ export async function publishWebsite(req: Request, res: Response): Promise<Respo
   if (!config) throw new BadRequestError('Save the website draft before publishing.');
 
   const normalized = normalizeSite(config.draft, school);
-  const synced = await syncStaffSectionsFromTeachers(normalized, school._id);
-  config.draft = synced;
-  config.published = JSON.parse(JSON.stringify(synced));
+  config.draft = normalized;
+  config.published = JSON.parse(JSON.stringify(normalized));
   config.isPublished = true;
   config.publishedAt = new Date();
   config.updatedBy = new mongoose.Types.ObjectId(req.user!.userId);
