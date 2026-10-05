@@ -316,11 +316,11 @@ function CardEditor({
   onSyncTeam?: () => Promise<void>;
   syncingTeam?: boolean;
 }) {
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const update = (index: number, patch: Partial<WebsiteCard>) => onChange(section.cards.map((card, i) => i === index ? { ...card, ...patch } : card));
   const add = () => onChange([...section.cards, defaultCard(section.type)]);
 
   if (section.type === 'staff') {
-    const [editingCardId, setEditingCardId] = useState<string | null>(null);
     const removeTeamMember = (card: WebsiteCard) => {
       if (!window.confirm(`Remove ${card.title || 'this team member'} from the website team? This does not delete the teacher from Teacher Management.`)) return;
       onChange(section.cards.filter((item) => item.id !== card.id));
