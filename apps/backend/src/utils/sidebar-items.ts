@@ -8,6 +8,7 @@ export interface SidebarItemDef {
 export type SidebarPortal = 'student' | 'teacher' | 'admin';
 
 export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
+  { key: 'student/global-courses', label: 'Global Courses', section: 'Learning & Performance' },
   { key: 'student', label: 'Dashboard', section: 'Learning & Performance' },
   { key: 'student/courses', label: 'My Courses', section: 'Learning & Performance' },
   { key: 'student/available', label: 'Browse Courses', section: 'Learning & Performance' },
@@ -31,6 +32,7 @@ export const STUDENT_SIDEBAR_ITEMS: SidebarItemDef[] = [
 ];
 
 export const TEACHER_SIDEBAR_ITEMS: SidebarItemDef[] = [
+  { key: 'teacher/global-courses', label: 'Global Courses', section: 'Teaching' },
   { key: 'teacher', label: 'Dashboard', section: 'Teaching' },
   { key: 'teacher/courses', label: 'My Courses', section: 'Teaching' },
   { key: 'teacher/schedule', label: 'Teaching Schedule', section: 'Teaching' },
@@ -58,6 +60,7 @@ export const TEACHER_SIDEBAR_ITEMS: SidebarItemDef[] = [
 ];
 
 export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
+  { key: 'admin/global-courses', label: 'Global Courses', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/students', label: 'Manage Students', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/students/report', label: 'Student Reports', section: 'INSTITUTION MANAGEMENT' },
   { key: 'admin/activity', label: 'Student Activity', section: 'INSTITUTION MANAGEMENT' },

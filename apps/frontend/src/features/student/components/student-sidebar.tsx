@@ -38,6 +38,7 @@ export function StudentSidebar() {
   const navSections: NavSection[] = [
     { title: 'LEARNING', icon: '📚', items: [
       { path: '/student/courses', label: 'Courses', icon: '📚' },
+      { path: '/student/global-courses', label: 'Global Courses', icon: '🌍' },
       { path: '/student/available', label: 'Browse Courses', icon: '🆕' },
       { path: '/student/schedule', label: 'Schedule', icon: '🕐' },
       { path: '/student/attendance', label: 'Attendance', icon: '📅' },

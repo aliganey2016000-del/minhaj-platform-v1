@@ -14,6 +14,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   { title: 'Teaching', items: [
     { path: '/teacher', label: 'Dashboard', icon: '🏠' },
     { path: '/teacher/courses', label: 'My Courses', icon: '📚' },
+      { path: '/teacher/global-courses', label: 'Global Courses', icon: '🌍' },
     { path: '/teacher/schedule', label: 'My Schedule', icon: '🕐' },
     { path: '/teacher/attendance', label: 'Student Attendance', icon: '🗓️' },
     { path: '/teacher/my-attendance', label: 'My Attendance', icon: '📍' },

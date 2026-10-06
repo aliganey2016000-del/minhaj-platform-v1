@@ -28,6 +28,9 @@ try {
   };
 
   assert(isTeacherRouteAllowed('/teacher', {}), 'default config allows teacher dashboard');
+  assert(isTeacherRouteAllowed('/teacher/global-courses', {}), 'global courses route is available by default');
+  assert(!isTeacherRouteAllowed('/teacher/global-courses', { 'teacher/global-courses': false }), 'hidden global courses blocks direct route');
+  assert(isTeacherRouteAllowed('/teacher/courses', { 'teacher/global-courses': false }), 'global courses visibility does not block school courses');
   assert(isTeacherRouteAllowed('/teacher/courses/abc/builder', {}), 'default config allows mapped course detail tools');
 
   assert(!isTeacherRouteAllowed('/teacher', { teacher: false }), 'disabled dashboard cannot be opened directly');
