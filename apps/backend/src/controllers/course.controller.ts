@@ -53,7 +53,7 @@ export const getAllPublic = async (req: Request, res: Response): Promise<Respons
   const level = req.query.level as string | undefined;
   const search = req.query.search as string | undefined;
 
-  const filter: Record<string, unknown> = { status: 'published' };
+  const filter: Record<string, unknown> = { status: 'published', scope: { $ne: 'global' } };
   // A school's own website lists only that school's courses; the platform
   // domain keeps the full catalog.
   const tenant = await requestTenantSchool(req);
@@ -108,6 +108,11 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
   const school = req.query.school as string | undefined;
   if (school) (filter as any).school = school;
 
+  if (req.query.scope === 'global') {
+    if (req.user?.role !== 'admin') throw new ForbiddenError('Use the global catalog to browse published courses.');
+    delete filter.school;
+    filter.scope = 'global';
+  }
   const scopedFilter = applyOrgFilter(req, filter, 'school');
 
   // Teacher: assigned-only access — only courses directly assigned to them,
@@ -174,7 +179,7 @@ export const getAllAdmin = async (req: Request, res: Response): Promise<Response
 
 export const getBySlug = async (req: Request, res: Response): Promise<Response> => {
   const tenant = await requestTenantSchool(req);
-  const course = await Course.findOne({ slug: req.params.slug, status: 'published', ...(tenant ? { school: tenant._id } : {}) })
+  const course = await Course.findOne({ slug: req.params.slug, status: 'published', scope: { $ne: 'global' }, ...(tenant ? { school: tenant._id } : {}) })
     .populate({
       path: 'teacher',
       select: 'teacherId profile',
@@ -226,6 +231,11 @@ export const getByIdAdmin = async (req: Request, res: Response): Promise<Respons
 export const create = async (req: Request, res: Response): Promise<Response> => {
   const { title, courseCode, description, category, level, duration, fee, teacher, school, class: classId, maxStudents, syllabus, prerequisites } = req.body;
 
+  const scope = req.body.scope ?? 'school';
+  if (!['school', 'global'].includes(scope)) throw new BadRequestError('Invalid course scope');
+  if (scope === 'global' && req.user?.role !== 'admin') throw new ForbiddenError('Only Super Admin can create global courses');
+  if (scope === 'global' && ![8, 12].includes(req.body.globalGrade)) throw new BadRequestError('Choose Grade 8 or Grade 12');
+
   // Generate slug from English title
   const slug = slugify(title.en);
 
@@ -235,7 +245,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     throw new ConflictError('A course with this title already exists');
   }
 
-  const resolvedSchool = resolveOrgIdForCreate(req, school) || null;
+  const resolvedSchool = scope === 'global' ? null : resolveOrgIdForCreate(req, school) || null;
   if (category && resolvedSchool) {
     const categoryExists = await CourseCategory.exists({ school: resolvedSchool, slug: String(category).toLowerCase() });
     if (!categoryExists) throw new BadRequestError(`Category "${category}" does not exist for this organization`);
@@ -247,17 +257,19 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const isSchool = !!organization && resolveInstitutionType(organization) === 'school';
   const course = await Course.create({
     title,
+    scope,
+    globalGrade: scope === 'global' ? req.body.globalGrade : undefined,
     courseCode,
     slug,
     description,
     category,
     level,
-    duration: duration ?? (isSchool ? 8 : undefined),
+    duration: duration ?? (isSchool || scope === 'global' ? 8 : undefined),
     fee: fee || 0,
-    teacher: teacher || null,
+    teacher: scope === 'global' ? null : teacher || null,
     school: resolvedSchool,
-    class: classId || null,
-    maxStudents: maxStudents ?? (isSchool ? 50 : undefined),
+    class: scope === 'global' ? null : classId || null,
+    maxStudents: maxStudents ?? (isSchool || scope === 'global' ? 50 : undefined),
     syllabus: syllabus || [],
     prerequisites: prerequisites || [],
     status: 'draft',
@@ -325,6 +337,9 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   const existing = await Course.findById(req.params.id);
   if (!existing) throw new NotFoundError('Course');
   assertOwnsOrg(req, existing, 'school');
+
+  if (req.body.scope !== undefined && req.body.scope !== (existing.scope || 'school')) throw new BadRequestError('Course scope cannot be changed after creation');
+  if (existing.scope === 'global' && (req.body.school || req.body.teacher || req.body.class)) throw new BadRequestError('Global courses cannot be assigned to a school, teacher or class');
 
   const allowedUpdates = [
     'title', 'courseCode', 'description', 'category', 'level', 'duration',
@@ -1166,4 +1181,10 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
     failed: errors.length,
     errors,
   }, `Imported ${inserted} new and updated ${updated} existing course(s) of ${rows.length} rows`);
+};
+
+export const getGlobalCatalog = async (req: Request, res: Response): Promise<Response> => {
+  if (!['admin', 'org_admin', 'teacher', 'student'].includes(req.user?.role || '')) throw new ForbiddenError('Access denied');
+  const courses = await Course.find({ scope: 'global', status: 'published' }).select('title description thumbnail globalGrade courseCode').sort({ globalGrade: 1, 'title.en': 1 }).limit(300).lean();
+  return ApiResponse.success(res, courses);
 };

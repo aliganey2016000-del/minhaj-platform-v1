@@ -35,6 +35,8 @@ export interface ICourse extends Document {
   };
   slug: string;
   courseCode?: string;
+  scope: 'school' | 'global';
+  globalGrade?: number;
   description: {
     en: string;
     so: string;
@@ -124,6 +126,8 @@ const courseSchema = new Schema<ICourse>(
       so: { type: String, default: '', trim: true, maxlength: 200 },
       ar: { type: String, default: '', trim: true, maxlength: 200 },
     },
+    scope: { type: String, enum: ['school', 'global'], default: 'school', index: true },
+    globalGrade: { type: Number, enum: [8, 12] },
     courseCode: { type: String, trim: true, maxlength: 50, default: '' },
     slug: {
       type: String,

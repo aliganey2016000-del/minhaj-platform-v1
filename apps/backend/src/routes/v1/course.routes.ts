@@ -33,6 +33,7 @@ import { roleMiddleware, adminOnly, adminOrTeacher, requireModulePermission } fr
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
+router.get('/global', authMiddleware, asyncHandler(courseController.getGlobalCatalog));
 
 // ---------------------------------------------------------------------------
 // IMPORTANT: Fixed-route paths MUST come BEFORE wildcard /:slug routes

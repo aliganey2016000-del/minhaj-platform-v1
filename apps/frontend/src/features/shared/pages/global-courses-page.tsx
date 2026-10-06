@@ -1,31 +1,32 @@
-import { Globe2, BookOpen } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../../store/auth-context';
+import api from '../../../lib/axios';
+import CoursesManage from '../../admin/pages/courses-manage';
 
-/** Navigation foundation only: no paid content or subscription actions yet. */
+type GlobalCourse = { _id: string; title: { en: string }; description?: { en?: string }; globalGrade: number };
 export function GlobalCoursesPage() {
   const { user } = useAuth();
-  const description = user?.role === 'admin'
-    ? 'A central library for Grade 8 and Grade 12 certificate exam preparation, managed by Super Admin.'
-    : 'Explore centrally managed Grade 8 and Grade 12 certificate exam preparation for your school.';
-
-  return (
-    <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
-      <header className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-6 sm:p-8">
-        <Globe2 className="mb-4 h-9 w-9 text-primary-600" aria-hidden="true" />
-        <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">Global Courses</h1>
-        <p className="mt-2 text-[var(--color-text-secondary)]">{description}</p>
-      </header>
-      <section className="grid gap-4 sm:grid-cols-2" aria-label="Certificate exam grades">
-        {[8, 12].map((grade) => (
-          <article key={grade} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-6">
-            <BookOpen className="mb-3 h-6 w-6 text-primary-600" aria-hidden="true" />
-            <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Grade {grade}</h2>
-            <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Lessons, audio, videos and past certificate exams.</p>
-            <p className="mt-4 text-sm font-medium text-[var(--color-text-tertiary)]">Coming soon</p>
-          </article>
-        ))}
-      </section>
-      <p className="text-sm text-[var(--color-text-secondary)]">The global course library is being prepared.</p>
-    </main>
-  );
+  const [courses, setCourses] = useState<GlobalCourse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (user?.role === 'admin') return;
+    let cancelled = false;
+    api.get('/courses/global').then(({ data }) => { if (!cancelled) setCourses(data.data || []); })
+      .catch(() => { if (!cancelled) setError('Unable to load global courses. Please try again.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.role]);
+  if (user?.role === 'admin') return <CoursesManage />;
+  return <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+    <h1 className="text-2xl font-bold">Global Courses</h1>
+    <p>Grade 8 and Grade 12 certificate exam preparation, managed by Super Admin.</p>
+    {loading ? <p>Loading courses...</p> : error ? <p role="alert">{error}</p> : courses.length === 0 ? <p>No global courses have been published yet.</p> :
+      <section className="grid gap-4 sm:grid-cols-2">{courses.map(course => <article key={course._id} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-6">
+        <p className="text-sm text-primary-600">Grade {course.globalGrade}</p>
+        <h2 className="mt-2 text-lg font-semibold">{course.title.en}</h2>
+        <p className="mt-2 text-sm">{course.description?.en}</p>
+        <p className="mt-4 text-sm text-[var(--color-text-tertiary)]">Learning access will open when subscriptions are available.</p>
+      </article>)}</section>}
+  </main>;
 }
