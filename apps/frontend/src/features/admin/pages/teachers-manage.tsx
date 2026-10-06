@@ -66,8 +66,28 @@ function TeacherFormModal({ teacher, organizationId, organization, onClose, onSa
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">First Name *<input className={inputClass} value={form.firstName} onChange={e => set('firstName', e.target.value)} required /></label><label className="text-xs font-semibold">Last Name *<input className={inputClass} value={form.lastName} onChange={e => set('lastName', e.target.value)} required /></label></div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Gender *<select className={inputClass} value={form.gender} onChange={e => set('gender', e.target.value)}><option value="male">Male</option><option value="female">Female</option></select></label><label className="text-xs font-semibold">Joining Date<input className={inputClass} type="date" value={form.joiningDate} onChange={e => set('joiningDate', e.target.value)} /></label></div>
       <div className="rounded-xl border border-[var(--color-border-default)] p-3"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary-600">System Account</p><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Email *<input className={inputClass} type="email" value={form.email} onChange={e => set('email', e.target.value)} required /></label><label className="text-xs font-semibold">Phone<input className={inputClass} value={form.phone} onChange={e => set('phone', e.target.value)} /></label></div><label className="mt-3 block text-xs font-semibold">{edit ? 'New Password (optional)' : 'Password *'}<input className={inputClass} type="password" autoComplete="new-password" minLength={8} value={form.password} onChange={e => set('password', e.target.value)} required={!edit} /></label></div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Position / Title<input className={inputClass} value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Principal, Head Teacher, Mathematics Teacher" /></label><label className="text-xs font-semibold">Qualification<input className={inputClass} value={form.qualification} onChange={e => set('qualification', e.target.value)} placeholder="e.g. Bachelor's / Master's" /></label></div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Experience (years)<input className={inputClass} type="number" min={0} value={form.experience} onChange={e => set('experience', Number(e.target.value))} /></label><div className="rounded-xl border border-dashed border-[var(--color-border-default)] px-3 py-2.5 text-xs leading-5 text-[var(--color-text-tertiary)]">Position is also used automatically by Website Management → Our Team.</div></div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="text-xs font-semibold">
+          Position / Title
+          <input
+            className={inputClass}
+            list="teacher-position-title-options"
+            value={form.title}
+            onChange={e => set('title', e.target.value)}
+            placeholder="e.g. Principal, Head Teacher, Mathematics Teacher"
+          />
+          <datalist id="teacher-position-title-options">
+            <option value="Principal" />
+            <option value="Head Teacher" />
+            <option value="Deputy Principal" />
+            <option value="Deputy Head Teacher" />
+            <option value="Teacher" />
+          </datalist>
+          <span className="mt-1 block text-[11px] font-normal leading-4 text-[var(--color-text-tertiary)]">For the school head, use <strong>Principal</strong>. Custom titles are also allowed.</span>
+        </label>
+        <label className="text-xs font-semibold">Qualification<input className={inputClass} value={form.qualification} onChange={e => set('qualification', e.target.value)} placeholder="e.g. Bachelor's / Master's" /></label>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Experience (years)<input className={inputClass} type="number" min={0} value={form.experience} onChange={e => set('experience', Number(e.target.value))} /></label><div className="rounded-xl border border-dashed border-[var(--color-border-default)] px-3 py-2.5 text-xs leading-5 text-[var(--color-text-tertiary)]">Position is saved with the teacher account and is used automatically by Website Management → Our Team.</div></div>
       <label className="text-xs font-semibold">Specialization (comma separated)<input className={inputClass} value={form.specialization} onChange={e => set('specialization', e.target.value)} placeholder="Tajweed, Fiqh, Mathematics" /></label>
       <label className="text-xs font-semibold">Bio<textarea className={inputClass} rows={3} value={form.bio} onChange={e => set('bio', e.target.value)} /></label>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="text-xs font-semibold">Profile Photo<input className={inputClass} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={e => setPhoto(e.target.files?.[0] || null)} /></label><label className="text-xs font-semibold">Document Attachment<input className={inputClass} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={e => setDocument(e.target.files?.[0] || null)} /></label></div>

@@ -207,12 +207,12 @@ async function main() {
   const teacherUserId = addRes.body?.data?.user?._id || addRes.body?.data?.user;
   const beforeAccountEdit = await User.findById(teacherUserId).select('+tokenVersion');
   const accountRes = await request(app).patch(`/api/v1/teachers/${newTeacherId}`).set('Authorization', `Bearer ${orgAdminToken}`).send({
-    email: '  UPDATED-TEACHER@test.local  ', phone: '+252699000099', title: 'Senior Teacher', password: 'UpdatedPassword123!',
+    email: '  UPDATED-TEACHER@test.local  ', phone: '+252699000099', title: 'Principal', password: 'UpdatedPassword123!',
   });
   assert(accountRes.status === 200, `Account edit succeeds (status ${accountRes.status})`);
   assert(accountRes.body?.data?.user?.email === 'updated-teacher@test.local', 'account edit normalizes and returns email');
   assert(accountRes.body?.data?.user?.phone === '+252699000099', 'account edit returns phone');
-  assert(accountRes.body?.data?.user?.title === 'Senior Teacher', 'account edit returns title alongside phone');
+  assert(accountRes.body?.data?.user?.title === 'Principal', 'Position / Title saves Principal exactly for Website Management → Our Team');
   const afterAccountEdit = await User.findById(teacherUserId).select('+password +tokenVersion');
   assert(!!afterAccountEdit && await afterAccountEdit.comparePassword('UpdatedPassword123!'), 'updated password authenticates');
   assert(afterAccountEdit?.tokenVersion === Number(beforeAccountEdit?.tokenVersion || 0) + 1, 'password change revokes existing tokens');
