@@ -461,20 +461,86 @@ function StaffCompactCard({ ctx, card, index }: { ctx: RenderContext; card: Webs
 }
 
 function StaffTeamBlock({ ctx, section }: { ctx: RenderContext; section: WebsiteSection }) {
+  const [showAll, setShowAll] = useState(false);
   const leadershipPattern = /\b(principal|head\s*teacher|headteacher|head\s*master|headmaster|director|rector)\b/i;
   const principal = section.cards.find((card) => leadershipPattern.test(`${card.role || ''} ${card.title || ''}`));
   const teachers = section.cards.filter((card) => card !== principal);
+  const visibleTeachers = showAll ? teachers : teachers.slice(0, 8);
+  const shouldAnimate = visibleTeachers.length > 1;
+
   if (!section.cards.length && !ctx.preview) return null;
+
+  const teacherCards = (copy = false) => visibleTeachers.map((card, index) => (
+    <div key={`${card.id}${copy ? '-copy' : ''}`} className="w-[148px] shrink-0 sm:w-[176px] lg:w-[198px]">
+      <StaffCompactCard ctx={ctx} card={card} index={index} />
+    </div>
+  ));
+
   return (
     <Shell section={section} ctx={ctx}>
       <Heading ctx={ctx} section={section} dark={isDark(section)} center={false} />
-      {principal && <article className="mx-auto mt-7 flex max-w-xl items-center gap-5 overflow-hidden rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-        {principal.imageUrl ? <img loading="lazy" src={principal.imageUrl} alt={cardTitle(ctx, principal)} className="h-32 w-28 shrink-0 rounded-xl object-cover object-top sm:h-40 sm:w-36" /> : <Users style={{ color: ctx.primary }} className="h-24 w-24 shrink-0" />}
-        <div className="min-w-0"><h3 className="text-lg font-bold text-slate-900 sm:text-xl">{cardTitle(ctx, principal)}</h3><p style={{ color: ctx.primary }} className="mt-1 text-sm font-semibold">{principal.role ? ctx.tr(`card.${principal.id}.role`, principal.role) : ctx.tr('staff.principal', 'Principal / Head Teacher')}</p><p className="mt-2 whitespace-pre-line text-xs leading-5 text-slate-600 sm:text-sm">{cardText(ctx, principal)}</p></div>
-      </article>}
-      <div className="mt-7 grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
-        {teachers.map((card, index) => <StaffCompactCard key={card.id} ctx={ctx} card={card} index={index} />)}
-      </div>
+
+      {principal && (
+        <article className="mx-auto mt-7 flex max-w-xl items-center gap-5 overflow-hidden rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          {principal.imageUrl
+            ? <img loading="lazy" src={principal.imageUrl} alt={cardTitle(ctx, principal)} className="h-32 w-28 shrink-0 rounded-xl object-cover object-top sm:h-40 sm:w-36" />
+            : <Users style={{ color: ctx.primary }} className="h-24 w-24 shrink-0" />}
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-slate-900 sm:text-xl">{cardTitle(ctx, principal)}</h3>
+            <p style={{ color: ctx.primary }} className="mt-1 text-sm font-semibold">{principal.role ? ctx.tr(`card.${principal.id}.role`, principal.role) : ctx.tr('staff.principal', 'Principal / Head Teacher')}</p>
+            <p className="mt-2 whitespace-pre-line text-xs leading-5 text-slate-600 sm:text-sm">{cardText(ctx, principal)}</p>
+          </div>
+        </article>
+      )}
+
+      {!!visibleTeachers.length && (
+        <div className="mt-7 overflow-hidden py-2">
+          <div className={`website-team-marquee-track flex w-max items-stretch ${shouldAnimate ? 'website-team-marquee-active' : ''}`}>
+            <div className="flex shrink-0 gap-3 pe-3 sm:gap-5 sm:pe-5">
+              {teacherCards()}
+            </div>
+            {shouldAnimate && (
+              <div aria-hidden="true" className="flex shrink-0 gap-3 pe-3 sm:gap-5 sm:pe-5">
+                {teacherCards(true)}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {teachers.length > 8 && (
+        <div className="mt-5 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setShowAll((value) => !value)}
+            style={{ color: ctx.primary, borderColor: `${ctx.primary}33`, backgroundColor: `${ctx.primary}0d` }}
+            className="rounded-full border px-5 py-2.5 text-sm font-bold transition hover:-translate-y-0.5 hover:shadow-sm"
+          >
+            {showAll ? ctx.tr('staff.showLess', 'Show Less') : ctx.tr('staff.showMore', 'Show More')}
+          </button>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes websiteTeamMarqueeRtl {
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
+        }
+        .website-team-marquee-active {
+          animation: websiteTeamMarqueeRtl 32s linear infinite;
+          will-change: transform;
+        }
+        .website-team-marquee-active:hover {
+          animation-play-state: paused;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .website-team-marquee-active {
+            animation: none;
+            transform: none;
+          }
+        }
+      `}</style>
+
       {!section.cards.length && <PreviewHint ctx={ctx}>Add the principal and teachers in Content.</PreviewHint>}
     </Shell>
   );
