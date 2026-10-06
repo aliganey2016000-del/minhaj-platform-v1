@@ -36,6 +36,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/students', label: 'Manage Students', icon: GraduationCap },
       { path: '/admin/parents', label: 'Manage Parents', icon: Users },
       { path: '/admin/courses', label: 'Manage Courses', icon: BookOpen },
+      { path: '/admin/global-courses', label: 'Global Courses', icon: Globe2 },
       { path: '/admin/classes', label: 'Manage Classes', icon: School },
       { path: '/admin/activity', label: 'Student Activity', icon: Activity },
     ],
@@ -232,6 +233,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
         });
         return children.length ? { ...item, children } : null;
       }
+      if (item.path === '/admin/global-courses' && !['admin', 'org_admin'].includes(user?.role || '')) return null;
       if (item.path === '/admin/website' && !['admin', 'org_admin'].includes(user?.role || '')) return null;
       if (user?.role === 'staff' && ['/admin/roles', '/admin/settings/sidebar', '/admin/hr/access'].includes(item.path)) return null;
       const key = keyForPath(item.path);
