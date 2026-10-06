@@ -247,6 +247,41 @@ const text = (ctx: RenderContext, section: WebsiteSection, field: 'title' | 'sub
 const cardTitle = (ctx: RenderContext, card: WebsiteCard) => ctx.tr(`card.${card.id}.title`, card.title || '');
 const cardText = (ctx: RenderContext, card: WebsiteCard) => ctx.tr(`card.${card.id}.text`, card.text || '');
 
+function navItemTargetsVisibleContent(site: WebsiteSiteDocument, item: WebsiteLink): boolean {
+  if (!item.visible) return false;
+
+  const href = (item.href || '').trim();
+  if (!href) return true;
+
+  // Only section-anchor links are controlled by section visibility. External
+  // URLs, auth links and ordinary page links keep their own nav visibility.
+  const hashIndex = href.indexOf('#');
+  if (hashIndex < 0) return true;
+
+  const rawTarget = href.slice(hashIndex + 1).trim();
+  if (!rawTarget) return true;
+
+  let targetId = rawTarget;
+  try {
+    targetId = decodeURIComponent(rawTarget);
+  } catch {
+    // Keep the raw fragment if a legacy value contains invalid URL encoding.
+  }
+
+  const pathPart = href.slice(0, hashIndex).trim();
+  const normalizedPath = pathPart.replace(/^\/+|\/+$/g, '').toLowerCase();
+  const targetPage = normalizedPath
+    ? site.pages.find((page) => page.slug.replace(/^\/+|\/+$/g, '').toLowerCase() === normalizedPath)
+    : site.pages.find((page) => page.slug === '') || site.pages[0];
+
+  if (!targetPage) return false;
+
+  const targetSection = targetPage.sections.find((section) => section.id === targetId);
+  // Internal anchor links should never remain in the navbar when their target
+  // section is hidden or no longer exists.
+  return targetSection?.visible === true;
+}
+
 function formatDate(value: string | undefined, locale: string) {
   if (!value) return '';
   const date = new Date(`${value}T00:00:00`);
@@ -953,7 +988,7 @@ export function WebsiteRenderer({ site, organization, pageSlug = '', newsSlug: r
   const displayName = site.header.displayName || organization.name;
   const ctx: RenderContext = { site, organization, tr, preview, sessionId, pageSlug, onTrack, primary, secondary, accent, radius, displayName, logo };
 
-  const navItems = site.header.navItems.filter((item) => item.visible);
+  const navItems = site.header.navItems.filter((item) => navItemTargetsVisibleContent(site, item));
   const homeAbout = site.pages.find((item) => item.slug === '')?.sections.find((section) => section.type === 'about' && section.visible);
   const exploreHref = homeAbout ? `/#${homeAbout.id}` : (site.header.ctaUrl || '/auth/login');
   const languagePicker = (className: string) => enabledLanguages.length > 1 && (
