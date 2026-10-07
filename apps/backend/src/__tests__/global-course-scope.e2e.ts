@@ -30,6 +30,11 @@ async function main() {
     const id = created.body.data._id;
     assert.equal(created.body.data.school, null);
     assert.equal(created.body.data.scope, 'global');
+    assert.equal(created.body.data.enrollmentCapacity, null);
+    await Course.updateOne({ _id: id }, { $set: { enrolledStudents: 50000 } });
+    const unlimited = await Course.findById(id);
+    assert.equal(unlimited!.toObject().isFull, false);
+    assert.equal(unlimited!.toObject().availableSeats, null);
     const unpublishedCatalog = await request(app).get('/api/v1/courses/global').set(headers(student));
     assert.equal(unpublishedCatalog.status, 200, JSON.stringify(unpublishedCatalog.body));
     assert.deepEqual(unpublishedCatalog.body.data, []);

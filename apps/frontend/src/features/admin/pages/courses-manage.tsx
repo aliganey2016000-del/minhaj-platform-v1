@@ -29,7 +29,7 @@ function CourseModal({ course, org, onClose, onSaved }: { course?: Course; org: 
 
   useEffect(() => { (async () => { try { const [t, c] = await Promise.all([api.get('/teachers', { params: { school: org._id, status: 'active', limit: 200 } }), api.get('/classes', { params: { schoolId: org._id, status: 'active', limit: 300 } })]); setTeachers(t.data.data || []); setClasses(c.data.data || []); } catch { setTeachers([]); setClasses([]); } })(); }, [org._id]);
 
-  const submit = async (e: React.FormEvent) => { e.preventDefault(); setSaving(true); setError(''); try { const payload = { title: { en: form.title, so: course?.title?.so || '', ar: course?.title?.ar || '' }, description: { en: form.description, so: course?.description?.so || '', ar: course?.description?.ar || '' }, courseCode: form.courseCode.trim(), ...(type === 'school' ? {} : { duration: Number(form.duration), fee: Number(form.fee), maxStudents: Number(form.maxStudents) }), scope: form.scope, globalGrade: form.scope === 'global' ? form.globalGrade : undefined, teacher: form.scope === 'global' ? null : form.teacher || undefined, school: form.scope === 'global' ? null : org._id, class: form.scope === 'global' ? null : form.classId || undefined, status: form.status }; if (course) await api.patch(`/courses/${course._id}`, payload); else await api.post('/courses', payload); onSaved(); onClose(); } catch (err: any) { setError(err.response?.data?.message || 'Failed to save course'); } finally { setSaving(false); } };
+  const submit = async (e: React.FormEvent) => { e.preventDefault(); setSaving(true); setError(''); try { const payload = { title: { en: form.title, so: course?.title?.so || '', ar: course?.title?.ar || '' }, description: { en: form.description, so: course?.description?.so || '', ar: course?.description?.ar || '' }, courseCode: form.courseCode.trim(), ...(type === 'school' ? {} : { duration: Number(form.duration), fee: Number(form.fee), ...(form.scope === 'global' ? {} : { maxStudents: Number(form.maxStudents) }) }), scope: form.scope, globalGrade: form.scope === 'global' ? form.globalGrade : undefined, teacher: form.scope === 'global' ? null : form.teacher || undefined, school: form.scope === 'global' ? null : org._id, class: form.scope === 'global' ? null : form.classId || undefined, status: form.status }; if (course) await api.patch(`/courses/${course._id}`, payload); else await api.post('/courses', payload); onSaved(); onClose(); } catch (err: any) { setError(err.response?.data?.message || 'Failed to save course'); } finally { setSaving(false); } };
 
   const placement = type === 'school' ? 'Class / Section' : type === 'training_center' ? 'Batch / Cohort' : 'Class / Cohort';
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}><div className="w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -43,7 +43,7 @@ function CourseModal({ course, org, onClose, onSaved }: { course?: Course; org: 
       {form.scope === 'school' && <label className="block text-xs font-semibold">{placement}<select value={form.classId} onChange={e => setForm({ ...form, classId: e.target.value })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm"><option value="">No class/cohort</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title || c.name}{c.section ? ` — ${c.section}` : ''}</option>)}</select></label>}
       {form.scope === 'school' && <label className="block text-xs font-semibold">Teacher / Instructor<select value={form.teacher} onChange={e => setForm({ ...form, teacher: e.target.value })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm"><option value="">Unassigned</option>{teachers.map(t => <option key={t._id} value={t._id}>{teacherName(t)}</option>)}</select></label>}
       <label className="block text-xs font-semibold">Description<textarea rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label>
-      {type !== 'school' && <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><label className="text-xs font-semibold">Duration<input type="number" min="1" value={form.duration} onChange={e => setForm({ ...form, duration: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label><label className="text-xs font-semibold">Fee<input type="number" min="0" value={form.fee} onChange={e => setForm({ ...form, fee: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label><label className="text-xs font-semibold">Capacity<input type="number" min="1" value={form.maxStudents} onChange={e => setForm({ ...form, maxStudents: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label></div>}
+      {type !== 'school' && <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><label className="text-xs font-semibold">Duration<input type="number" min="1" value={form.duration} onChange={e => setForm({ ...form, duration: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label><label className="text-xs font-semibold">Fee<input type="number" min="0" value={form.fee} onChange={e => setForm({ ...form, fee: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label>{form.scope !== 'global' && <label className="text-xs font-semibold">Capacity<input type="number" min="1" value={form.maxStudents} onChange={e => setForm({ ...form, maxStudents: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label>}</div>}
       {course && <label className="block text-xs font-semibold">Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value as Status })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm"><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option></select></label>}
       <div className="flex gap-2 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl border px-4 py-2.5 text-sm">Cancel</button><button disabled={saving} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : course ? 'Update Course' : 'Create Course'}</button></div>
     </form>
@@ -275,7 +275,7 @@ function CourseCard({ course: c, teachers, selected, onToggleSelect, onChangeTea
 
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-lg bg-[var(--color-surface-tertiary)] p-2"><span className="text-[var(--color-text-tertiary)]">Teacher</span><div className="mt-0.5"><InlineTeacherSelect course={c} teachers={teachers} onChange={onChangeTeacher} /></div></div>
-          <div className="rounded-lg bg-[var(--color-surface-tertiary)] p-2"><span className="text-[var(--color-text-tertiary)]">Students</span><p className="mt-0.5 font-medium">{c.enrolledStudents || 0} / {c.maxStudents || '∞'}</p></div>
+          <div className="rounded-lg bg-[var(--color-surface-tertiary)] p-2"><span className="text-[var(--color-text-tertiary)]">Students</span><p className="mt-0.5 font-medium">{c.scope === 'global' ? `${c.enrolledStudents || 0} students · Unlimited` : `${c.enrolledStudents || 0} / ${c.maxStudents || '∞'}`}</p></div>
         </div>
 
         <div className="rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs">
@@ -283,10 +283,10 @@ function CourseCard({ course: c, teachers, selected, onToggleSelect, onChangeTea
           <p className="mt-0.5 truncate font-medium">{className}</p>
         </div>
 
-        <div className="mt-1">
+        {c.scope !== 'global' && (<div className="mt-1">
           <div className="flex justify-between text-xs text-[var(--color-text-tertiary)] mb-1"><span>Enrollment</span><span>{c.enrolledStudents}/{c.maxStudents}</span></div>
           <div className="w-full h-1.5 bg-[var(--color-surface-tertiary)] rounded-full overflow-hidden"><div className="h-full bg-primary-500 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, ((c.enrolledStudents || 0) / (c.maxStudents || 1)) * 100)}%` }} /></div>
-        </div>
+        </div>)}
       </div>
     </article>
   );
@@ -311,7 +311,7 @@ function CourseTableRow({ course: c, teachers, selected, onToggleSelect, onChang
       <td className="px-3 py-2.5 text-[var(--color-text-tertiary)]">{c.courseCode || '—'}</td>
       <td className="px-3 py-2.5"><InlineTeacherSelect course={c} teachers={teachers} onChange={onChangeTeacher} /></td>
       <td className="px-3 py-2.5 truncate">{className}</td>
-      <td className="px-3 py-2.5 whitespace-nowrap">{c.enrolledStudents || 0} / {c.maxStudents || '∞'}</td>
+      <td className="px-3 py-2.5 whitespace-nowrap">{c.scope === 'global' ? `${c.enrolledStudents || 0} students · Unlimited` : `${c.enrolledStudents || 0} / ${c.maxStudents || '∞'}`}</td>
       <td className="px-3 py-2.5"><InlineStatusSelect course={c} onChange={onChangeStatus} compact /></td>
       <td className="px-3 py-2.5 text-right"><CourseActionsButton course={c} {...actions} /></td>
     </tr>
@@ -408,7 +408,7 @@ export default function CoursesManage() {
   const handleBuildContent = (course: Course) => navigate(`/admin/courses/${course._id}/builder`);
   const handleGateReport = (course: Course) => navigate(`/admin/courses/${course._id}/gate-report`);
   const handlePreview = (course: Course) => navigate(`/admin/courses/${course._id}/preview`);
-  const handleViewStudents = (course: Course) => { window.alert(`View Enrolled Students for: ${course.title.en}\nEnrolled: ${course.enrolledStudents}/${course.maxStudents}`); };
+  const handleViewStudents = (course: Course) => { window.alert(`View Enrolled Students for: ${course.title.en}\nEnrolled: ${course.scope === 'global' ? `${course.enrolledStudents} · Unlimited` : `${course.enrolledStudents}/${course.maxStudents}`}`); };
   const handleSaveAccessMode = async (id: string, accessMode: 'open' | 'restricted') => { await api.patch(`/courses/${id}`, { accessMode }); setCourses(prev => prev.map(c => c._id === id ? { ...c, accessMode } : c)); };
   const handleTeacherPermission = (course: Course) => { if (!course.teacher?._id) { window.alert('This course has no teacher assigned. Please assign a teacher first.'); return; } setPermCourse(course); };
 
