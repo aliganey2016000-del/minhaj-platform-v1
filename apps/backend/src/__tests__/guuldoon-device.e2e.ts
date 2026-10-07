@@ -75,7 +75,36 @@ async function main() {
     (email as any).sendGuuldoonOtp = async () => { throw new Error('SMTP unavailable'); };
     assert.equal((await request(app).post(`${root}/request`).set(headers(student))).status, 503);
     assert.equal((await Device.findOne({ user: student._id }))!.otpHash, undefined);
-    console.log('Guuldoon OTP expiry, replay, race, transfer, lockout and school independence passed.');
+
+    // Schools often provision student accounts without a deliverable mailbox.
+    // The student can verify the current browser using the password of the
+    // already authenticated account; the account identifier never comes from
+    // the request body.
+    const passwordStudent = await User.create({ email: 'school-user-002@balcad.com', password: 'SchoolPassword123!', role: 'student', organizationId: school._id });
+    const passwordProfile = await Profile.create({ user: passwordStudent._id, firstName: 'School', lastName: 'User', gender: 'male' });
+    await Student.create({ user: passwordStudent._id, profile: passwordProfile._id, studentId: 'GLOBAL-002', school: school._id, approvalStatus: 'approved' });
+
+    const passwordVerify = (password: string, deviceCookie?: string) => {
+      const call = request(app).post(`${root}/verify-password`).set(headers(passwordStudent));
+      if (deviceCookie) call.set('Cookie', deviceCookie);
+      return call.send({ password });
+    };
+    assert.equal((await passwordVerify('WrongPassword!')).status, 400);
+    const passwordFirst = await passwordVerify('SchoolPassword123!');
+    assert.equal(passwordFirst.status, 200, JSON.stringify(passwordFirst.body));
+    const passwordFirstCookies = passwordFirst.headers['set-cookie'] as unknown as string[];
+    assert.ok(passwordFirstCookies?.[0]?.includes('HttpOnly'));
+    const passwordFirstCookie = passwordFirstCookies[0].split(';')[0];
+    assert.equal((await request(app).get(`${root}/access`).set(headers(passwordStudent)).set('Cookie', passwordFirstCookie)).status, 200);
+
+    const passwordSecond = await passwordVerify('SchoolPassword123!');
+    assert.equal(passwordSecond.status, 200, JSON.stringify(passwordSecond.body));
+    const passwordSecondCookies = passwordSecond.headers['set-cookie'] as unknown as string[];
+    const passwordSecondCookie = passwordSecondCookies[0].split(';')[0];
+    assert.equal((await request(app).get(`${root}/access`).set(headers(passwordStudent)).set('Cookie', passwordFirstCookie)).status, 403);
+    assert.equal((await request(app).get(`${root}/access`).set(headers(passwordStudent)).set('Cookie', passwordSecondCookie)).status, 200);
+
+    console.log('Guuldoon OTP and account-password device verification, transfer, lockout and school independence passed.');
   } finally { await db.stop(); }
 }
 main().then(() => process.exit(0)).catch(error => { console.error(error); process.exit(1); });
