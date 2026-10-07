@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowRight,
   CircleAlert,
@@ -52,13 +52,19 @@ export function GuuldoonDevice() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const device = useMemo(() => currentDeviceInfo(), []);
+  const loadSequence = useRef(0);
+  const submittingRef = useRef(false);
 
   const load = async () => {
+    const sequence = ++loadSequence.current;
     try {
-      const { data } = await api.get('/guuldoon/devices');
-      setState(data.data);
+      const { data } = await api.get('/guuldoon/devices', {
+        params: { _state: Date.now() },
+        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+      });
+      if (sequence === loadSequence.current) setState(data.data);
     } catch {
-      setError('Xogta qalabka lama soo rari karin.');
+      if (sequence === loadSequence.current) setError('Xogta qalabka lama soo rari karin.');
     }
   };
 
@@ -66,17 +72,32 @@ export function GuuldoonDevice() {
 
   const verifyCurrentBrowser = async (event: FormEvent) => {
     event.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setBusy(true);
     setError('');
     setMessage('');
     try {
       await api.post('/guuldoon/devices/verify-password', { password });
+      // Invalidate any older state request before showing the successful state.
+      loadSequence.current += 1;
+      setState(current => ({
+        verified: true,
+        registered: true,
+        activatedAt: new Date().toISOString(),
+        blockedUntil: undefined,
+        ...current,
+        verified: true,
+        registered: true,
+      }));
       setPassword('');
       setMessage('Qalabkan waa la xaqiijiyey. Qalabkii hore Guuldoon waa laga joojiyey.');
+      await load();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Xaqiijintu ma dhammaan. Mar kale isku day.');
-    } finally {
       await load();
+    } finally {
+      submittingRef.current = false;
       setBusy(false);
     }
   };
