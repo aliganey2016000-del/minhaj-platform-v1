@@ -13,5 +13,7 @@ const schema = new Schema({
   sentAt: Date,
   sendWindow: Date,
   sends: { type: Number, default: 0 },
+  passwordAttempts: { type: Number, default: 0 },
+  passwordAttemptWindow: Date,
 }, { timestamps: true });
 export default model('GuuldoonDevice', schema);
