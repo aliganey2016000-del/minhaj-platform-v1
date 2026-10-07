@@ -23,6 +23,8 @@ router.post('/requests', asyncHandler(async (req, res) => {
   if (!student?.school || String(student.school) !== req.user.organizationId) throw new ForbiddenError('An active approved school student account is required');
   const active = await Subscription.exists({ user: req.user.userId, grade, status: 'approved', startsAt: { $lte: new Date() }, expiresAt: { $gt: new Date() } });
   if (active) throw new ConflictError('This grade already has an active subscription');
+  const pending = await Subscription.exists({ user: req.user.userId, grade, status: 'pending' });
+  if (pending) throw new ConflictError('A subscription request is already pending for this grade');
   try {
     return ApiResponse.created(res, await Subscription.create({ user: req.user.userId, school: student.school, grade, paymentReference }), 'Payment reference submitted for verification');
   } catch (error: any) {
@@ -55,6 +57,13 @@ router.post('/:id/review', asyncHandler(async (req, res) => {
   const updates: Record<string, unknown> = { status: action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'revoked', reviewedBy: req.user.userId, reviewedAt: now };
   if (action === 'approve') {
     if (req.body.paymentReceived !== true) throw new BadRequestError('Confirm that the $5 USD payment has been received');
+    const referenceAlreadyVerified = await Subscription.exists({
+      _id: { $ne: row._id },
+      verifiedReference: row.paymentReference,
+    });
+    if (referenceAlreadyVerified) {
+      throw new ConflictError('This payment reference was already verified for another subscription');
+    }
     updates.startsAt = now;
     updates.expiresAt = subscriptionExpiry(now);
     updates.verifiedReference = row.paymentReference;
