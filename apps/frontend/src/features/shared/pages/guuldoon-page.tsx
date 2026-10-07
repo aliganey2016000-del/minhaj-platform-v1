@@ -38,6 +38,7 @@ export function GuuldoonPage({ page }: { page: Page }) {
   if (!user) return <Navigate to="/auth/login" replace />;
   if (access === 'denied') return <p role="alert" className="p-6">You do not have access to this Guuldoon page.</p>;
   if (access === 'error') return <p role="alert" className="p-6">Unable to verify Guuldoon access. Please reload to try again.</p>;
+  if (page === 'subscriptions' && role === 'student') return <GlobalSubscriptions />;
   if (page === 'courses') return <GlobalCoursesPage />;
   const title = page === 'overview' ? 'Overview' : page === 'performance' ? role === 'student' ? 'My Progress' : role === 'teacher' ? 'My Students’ Performance' : 'Student Performance' : page === 'subscriptions' ? role === 'student' ? 'My Subscription' : role === 'org_admin' ? 'Subscriptions' : 'Subscriptions & Payments' : page === 'devices' ? role === 'student' ? 'My Device' : 'Devices & Access' : 'Settings';
   return <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
