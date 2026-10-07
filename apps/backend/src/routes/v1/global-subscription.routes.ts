@@ -57,6 +57,13 @@ router.post('/:id/review', asyncHandler(async (req, res) => {
   const updates: Record<string, unknown> = { status: action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'revoked', reviewedBy: req.user.userId, reviewedAt: now };
   if (action === 'approve') {
     if (req.body.paymentReceived !== true) throw new BadRequestError('Confirm that the $5 USD payment has been received');
+    const referenceAlreadyVerified = await Subscription.exists({
+      _id: { $ne: row._id },
+      verifiedReference: row.paymentReference,
+    });
+    if (referenceAlreadyVerified) {
+      throw new ConflictError('This payment reference was already verified for another subscription');
+    }
     updates.startsAt = now;
     updates.expiresAt = subscriptionExpiry(now);
     updates.verifiedReference = row.paymentReference;
