@@ -174,3 +174,13 @@ export async function sendPasswordResetEmail(to: string, firstName: string, toke
     text,
   });
 }
+
+/** Guuldoon security codes fail closed without SMTP and are never logged. */
+export async function sendGuuldoonOtp(to: string, code: string): Promise<void> {
+  const mailer = getTransporter();
+  if (!mailer) throw new Error('Guuldoon OTP email delivery is unavailable');
+  await mailer.sendMail({ from: process.env.SMTP_FROM || `"${BRAND_NAME}" <${process.env.SMTP_USER}>`, to,
+    subject: 'Guuldoon device verification',
+    text: `Your Guuldoon code is ${code}. Expires in 10 minutes. Confirming a new device disconnects your previous Guuldoon device. Do not share this code.`,
+    html: `<p>Your Guuldoon code is <strong>${code}</strong>.</p><p>Expires in 10 minutes. Confirming a new device disconnects your previous Guuldoon device. Do not share this code.</p>` });
+}
