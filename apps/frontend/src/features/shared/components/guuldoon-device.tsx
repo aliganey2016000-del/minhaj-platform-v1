@@ -82,13 +82,11 @@ export function GuuldoonDevice() {
       // Invalidate any older state request before showing the successful state.
       loadSequence.current += 1;
       setState(current => ({
+        ...(current || { verified: false, registered: false }),
         verified: true,
         registered: true,
         activatedAt: new Date().toISOString(),
         blockedUntil: undefined,
-        ...current,
-        verified: true,
-        registered: true,
       }));
       setPassword('');
       setMessage('Qalabkan waa la xaqiijiyey. Qalabkii hore Guuldoon waa laga joojiyey.');
