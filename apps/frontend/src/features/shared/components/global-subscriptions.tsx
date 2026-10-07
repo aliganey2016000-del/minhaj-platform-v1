@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { StudentSubscription } from './student-subscription';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -25,6 +26,7 @@ export function GlobalSubscriptions() {
     finally { setLoading(false); }
   }, [isStudent, page]);
   useEffect(() => { if (isStudent || isAdmin || user?.role === 'org_admin') void load(); }, [load, isStudent, isAdmin, user?.role]);
+  if (isStudent) return <StudentSubscription />;
   if (!isStudent && !isAdmin && user?.role !== 'org_admin') return null;
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError('');
