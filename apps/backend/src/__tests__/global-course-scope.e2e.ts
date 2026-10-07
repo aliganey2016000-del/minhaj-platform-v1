@@ -15,6 +15,7 @@ async function main() {
     const { default: Profile } = await import('../models/profile.model');
     const { default: ClassModel } = await import('../models/class.model');
     const { default: Course } = await import('../models/course.model');
+    const { default: Subscription } = await import('../models/global-subscription.model');
     const { generateAccessToken } = await import('../utils/jwt');
     const admin = await User.create({ email: 'global-admin@test.local', password: 'Password123!', role: 'admin' });
     const school = await School.create({ name: 'Global Test', organizationType: 'private', country: 'Somalia', city: 'Mogadishu', address: 'Test', phone: '+252000000000', email: 'global-school@test.local', principalName: 'Principal', establishedYear: 2020, createdBy: admin._id });
@@ -48,6 +49,57 @@ async function main() {
     assert.equal(catalog.body.data[0]._id, id);
     assert.equal(catalog.body.meta.grade, 12);
     assert.equal(catalog.body.data.length, 1);
+
+    // A published catalog card is not enough: learning opens only when the
+    // matching-grade subscription is active and this browser is verified.
+    assert.equal(
+      (await request(app).post(`/api/v1/guuldoon/courses/${id}/open`).set(headers(student))).status,
+      403,
+    );
+    const now = new Date();
+    await Subscription.create({
+      user: student._id,
+      school: school._id,
+      grade: 12,
+      paymentReference: 'GLOBAL-ACCESS-001',
+      verifiedReference: 'GLOBAL-ACCESS-001',
+      status: 'approved',
+      startsAt: new Date(now.getTime() - 60000),
+      expiresAt: new Date(now.getTime() + 365 * 86400000),
+    });
+    assert.equal(
+      (await request(app).post(`/api/v1/guuldoon/courses/${id}/open`).set(headers(student))).status,
+      403,
+    );
+
+    const verifiedDevice = await request(app)
+      .post('/api/v1/guuldoon/devices/verify-password')
+      .set(headers(student))
+      .send({ password: 'Password123!' });
+    assert.equal(verifiedDevice.status, 200, JSON.stringify(verifiedDevice.body));
+    const deviceCookies = verifiedDevice.headers['set-cookie'] as unknown as string[];
+    assert.ok(deviceCookies?.[0]?.includes('Path=/api/v1'));
+    const deviceCookie = deviceCookies[0].split(';')[0];
+
+    const opened = await request(app)
+      .post(`/api/v1/guuldoon/courses/${id}/open`)
+      .set(headers(student))
+      .set('Cookie', deviceCookie);
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    assert.equal(opened.body.data.access, 'granted');
+    const enrolledStudent = await Student.findById(studentRecord._id).select('enrolledCourses').lean();
+    assert.ok((enrolledStudent?.enrolledCourses || []).some((courseId: any) => String(courseId) === String(id)));
+
+    // The same verified browser can read the course; another browser cannot.
+    assert.equal(
+      (await request(app).get(`/api/v1/courses/${id}/content`).set(headers(student)).set('Cookie', deviceCookie)).status,
+      200,
+    );
+    assert.equal(
+      (await request(app).get(`/api/v1/courses/${id}/content`).set(headers(student))).status,
+      403,
+    );
+
     await ClassModel.updateOne({ _id: classroom._id }, { $set: { gradeLevel: 8 } });
     const grade8Catalog = await request(app).get('/api/v1/courses/global?grade=12').set(headers(student));
     assert.equal(grade8Catalog.body.meta.grade, 8);
