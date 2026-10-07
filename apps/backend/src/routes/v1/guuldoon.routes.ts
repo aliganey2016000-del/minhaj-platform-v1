@@ -1,3 +1,4 @@
+import deviceRoutes from './guuldoon-device.routes';
 import { Router, Request } from 'express';
 import mongoose from 'mongoose';
 import Profile from '../../models/profile.model';
@@ -18,6 +19,8 @@ router.use((req, _res, next) => {
   if (req.user?.role !== 'admin' && !req.user?.organizationId) return next(new ForbiddenError('Organization required'));
   next();
 });
+
+router.use('/devices', deviceRoutes);
 
 /** All scope derives from authentication, never client school or student IDs. */
 async function studentScope(req: Request): Promise<Record<string, unknown>> {
