@@ -13,6 +13,7 @@ async function main() {
     const { default: School } = await import('../models/school.model');
     const { default: Student } = await import('../models/student.model');
     const { default: Profile } = await import('../models/profile.model');
+    const { default: ClassModel } = await import('../models/class.model');
     const { default: Course } = await import('../models/course.model');
     const { generateAccessToken } = await import('../utils/jwt');
     const admin = await User.create({ email: 'global-admin@test.local', password: 'Password123!', role: 'admin' });
@@ -22,7 +23,8 @@ async function main() {
     const student = await User.create({ email: 'global-student@test.local', password: 'Password123!', role: 'student', organizationId: school._id });
     const profile = await Profile.create({ user: student._id, firstName: 'Global', lastName: 'Student', gender: 'male' });
     // Student auth resolves the effective tenant from the approved Student record.
-    await Student.create({ user: student._id, profile: profile._id, studentId: 'GLOBAL-001', school: school._id, approvalStatus: 'approved' });
+    const classroom = await ClassModel.create({ school: school._id, title: 'Grade 12', room: '12', gradeLevel: 12 });
+    const studentRecord = await Student.create({ user: student._id, profile: profile._id, studentId: 'GLOBAL-001', class: classroom._id, school: school._id, approvalStatus: 'approved' });
     const payload = { title: { en: 'Global Physics' }, scope: 'global', globalGrade: 12, school: String(school._id) };
     assert.equal((await request(app).post('/api/v1/courses').set(headers(org)).send(payload)).status, 403);
     const created = await request(app).post('/api/v1/courses').set(headers(admin)).send(payload);
@@ -40,9 +42,18 @@ async function main() {
     assert.deepEqual(unpublishedCatalog.body.data, []);
     assert.equal((await request(app).patch(`/api/v1/courses/${id}`).set(headers(org)).send({ status: 'published' })).status, 403);
     assert.equal((await request(app).patch(`/api/v1/courses/${id}`).set(headers(admin)).send({ status: 'published' })).status, 200);
+    const grade8 = await Course.create({ title: { en: 'Grade 8 Physics' }, scope: 'global', globalGrade: 8, slug: 'grade-8-physics', status: 'published', duration: 8 });
     const catalog = await request(app).get('/api/v1/courses/global').set(headers(student));
     assert.equal(catalog.status, 200);
     assert.equal(catalog.body.data[0]._id, id);
+    assert.equal(catalog.body.meta.grade, 12);
+    assert.equal(catalog.body.data.length, 1);
+    await ClassModel.updateOne({ _id: classroom._id }, { $set: { gradeLevel: 8 } });
+    const grade8Catalog = await request(app).get('/api/v1/courses/global?grade=12').set(headers(student));
+    assert.equal(grade8Catalog.body.meta.grade, 8);
+    assert.deepEqual(grade8Catalog.body.data.map((c: any) => c._id), [String(grade8._id)]);
+    await Student.updateOne({ _id: studentRecord._id }, { $unset: { class: 1 } });
+    assert.deepEqual((await request(app).get('/api/v1/courses/global').set(headers(student))).body.data, []);
     assert.equal(catalog.body.data[0].syllabus, undefined);
     assert.equal((await request(app).get('/api/v1/courses/global')).status, 401);
     assert.equal((await request(app).get('/api/v1/courses/global-physics')).status, 404);
