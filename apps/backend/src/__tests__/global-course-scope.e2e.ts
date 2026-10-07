@@ -42,7 +42,7 @@ async function main() {
     assert.deepEqual(unpublishedCatalog.body.data, []);
     assert.equal((await request(app).patch(`/api/v1/courses/${id}`).set(headers(org)).send({ status: 'published' })).status, 403);
     assert.equal((await request(app).patch(`/api/v1/courses/${id}`).set(headers(admin)).send({ status: 'published' })).status, 200);
-    const grade8 = await Course.create({ title: { en: 'Grade 8 Physics' }, scope: 'global', globalGrade: 8, slug: 'grade-8-physics', status: 'published', duration: 8 });
+    const grade8 = await Course.create({ title: { en: 'Grade 8 Physics' }, scope: 'global', globalGrade: 8, slug: 'grade-8-physics', status: 'published', duration: 8, maxStudents: 50 });
     const catalog = await request(app).get('/api/v1/courses/global').set(headers(student));
     assert.equal(catalog.status, 200);
     assert.equal(catalog.body.data[0]._id, id);
