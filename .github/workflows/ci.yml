@@ -114,6 +114,9 @@ jobs:
       - name: Tenant sidebar and Staff/Admin access security regression
         run: npx ts-node src/__tests__/tenant-sidebar-staff-access.e2e.ts
 
+      - name: Global course scope and access regression
+        run: npx ts-node --files src/__tests__/global-course-scope.e2e.ts
+
       - name: Activity Logs org-admin tenant isolation regression
         run: npx ts-node src/__tests__/activity-logs-tenant-scope.e2e.ts
 

@@ -43,6 +43,9 @@ export function applyOrgFilter<T extends Record<string, unknown>>(
 }
 
 export function assertOwnsOrg(req: Request, doc: any, field = 'school'): void {
+  if (doc?.scope === 'global' && req.user?.role !== 'admin') {
+    throw new ForbiddenError('Global courses are managed exclusively by Super Admin.');
+  }
   if (!doc || !isTenantScoped(req)) return;
   if (!req.user?.organizationId) {
     throw new ForbiddenError('Your account is not assigned to an organization.');
