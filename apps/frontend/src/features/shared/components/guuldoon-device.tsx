@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
+import './guuldoon-device.css';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -84,22 +85,22 @@ export function GuuldoonDevice() {
   const blocked = !!state?.blockedUntil;
 
   return (
-    <section className="space-y-5">
-      <div className="grid gap-5 xl:grid-cols-[1.06fr_.94fr]">
-        <div className="relative overflow-hidden rounded-[28px] border border-emerald-500/20 bg-gradient-to-br from-emerald-950/35 via-[var(--color-surface-primary)] to-[var(--color-surface-primary)] p-5 shadow-[0_24px_70px_-45px_rgba(16,185,129,.55)] sm:p-7">
+    <section className="guuldoon-device space-y-5">
+      <div className="grid items-start gap-5 xl:grid-cols-[1.06fr_.94fr]">
+        <div className="relative overflow-hidden rounded-[28px] border border-emerald-500/20 gd-verification-card p-5 shadow-[0_24px_70px_-45px_rgba(16,185,129,.55)] sm:p-7">
           <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-emerald-500/10 blur-3xl" />
           <div className="relative">
             <div className="mb-6 flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-500/10 text-emerald-400">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-500/10 text-[var(--gd-success)]">
                 <ShieldCheck size={27} strokeWidth={1.8} />
               </div>
               <div>
-                <span className="inline-flex rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[.16em] text-emerald-400">
+                <span className="inline-flex rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[.16em] text-[var(--gd-success)]">
                   Tallaabo muhiim ah
                 </span>
-                <h2 className="mt-3 text-2xl font-extrabold tracking-tight">Xaqiiji qalabkan</h2>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--color-text-secondary)]">
-                  Si aad u isticmaasho Guuldoon, geli password-ka account-kaaga si browser-kan loogu aqoonsado qalabkaaga rasmiga ah.
+                <h2 className="mt-3 text-2xl font-extrabold tracking-tight">{state?.verified ? 'Qalabkaaga Guuldoon' : 'Xaqiiji qalabkan'}</h2>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--gd-muted)]">
+                  {state?.verified ? 'Browser-kan waa qalabkaaga la xaqiijiyey. Adeegyada school-kaaga way sii shaqaynayaan.' : 'Geli password-ka account-kaaga si browser-kan loogu aqoonsado qalabkaaga Guuldoon.'}
                 </p>
               </div>
             </div>
@@ -107,10 +108,10 @@ export function GuuldoonDevice() {
             {blocked ? (
               <div role="alert" className="rounded-2xl border border-red-500/25 bg-red-500/10 p-5">
                 <div className="flex gap-3">
-                  <CircleAlert className="mt-0.5 shrink-0 text-red-400" size={22} />
+                  <CircleAlert className="mt-0.5 shrink-0 text-[var(--gd-danger)]" size={22} />
                   <div>
-                    <p className="font-bold text-red-300">Guuldoon si ku-meel-gaar ah ayaa loo xannibay</p>
-                    <p className="mt-1 text-sm leading-6 text-red-200/80">
+                    <p className="font-bold text-[var(--gd-danger)]">Guuldoon si ku-meel-gaar ah ayaa loo xannibay</p>
+                    <p className="mt-1 text-sm leading-6 text-[var(--gd-danger)]">
                       Saddex browser ayaa la xaqiijiyey 24 saac gudahood. Xannibaaddu waxay dhammaanaysaa {new Date(state!.blockedUntil!).toLocaleString()}.
                     </p>
                   </div>
@@ -119,10 +120,10 @@ export function GuuldoonDevice() {
             ) : state?.verified ? (
               <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-5">
                 <div className="flex items-center gap-3">
-                  <CircleCheck className="shrink-0 text-emerald-400" size={25} />
+                  <CircleCheck className="shrink-0 text-[var(--gd-success)]" size={25} />
                   <div>
-                    <p className="font-extrabold text-emerald-300">Qalabkan waa la xaqiijiyey</p>
-                    <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Waxaad hadda browser-kan uga isticmaali kartaa Guuldoon.</p>
+                    <p className="font-extrabold text-[var(--gd-success)]">Qalabkan waa la xaqiijiyey</p>
+                    <p className="mt-1 text-sm text-[var(--gd-muted)]">Waxaad hadda browser-kan uga isticmaali kartaa Guuldoon.</p>
                   </div>
                 </div>
               </div>
@@ -130,7 +131,7 @@ export function GuuldoonDevice() {
               <form className="space-y-4" onSubmit={verifyCurrentBrowser}>
                 <label className="block">
                   <span className="mb-2 flex items-center gap-2 text-sm font-semibold">
-                    <UserRound size={16} className="text-[var(--color-text-tertiary)]" />
+                    <UserRound size={16} className="text-[var(--gd-muted)]" />
                     Username / User ID
                   </span>
                   <div className="relative">
@@ -139,15 +140,15 @@ export function GuuldoonDevice() {
                       readOnly
                       aria-readonly="true"
                       autoComplete="username"
-                      className="block w-full rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3.5 pr-11 text-sm text-[var(--color-text-secondary)] outline-none"
+                      className="block w-full rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3.5 pr-11 text-sm text-[var(--gd-muted)] outline-none"
                     />
-                    <LockKeyhole size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+                    <LockKeyhole size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--gd-muted)]" />
                   </div>
                 </label>
 
                 <label className="block">
                   <span className="mb-2 flex items-center gap-2 text-sm font-semibold">
-                    <LockKeyhole size={16} className="text-[var(--color-text-tertiary)]" />
+                    <LockKeyhole size={16} className="text-[var(--gd-muted)]" />
                     Password
                   </span>
                   <div className="relative">
@@ -165,7 +166,7 @@ export function GuuldoonDevice() {
                       type="button"
                       onClick={() => setShowPassword(value => !value)}
                       aria-label={showPassword ? 'Qari password-ka' : 'Muuji password-ka'}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[var(--color-text-tertiary)] transition hover:bg-white/5 hover:text-[var(--color-text-primary)]"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[var(--gd-muted)] transition hover:bg-white/5 hover:text-[var(--color-text-primary)]"
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -174,51 +175,51 @@ export function GuuldoonDevice() {
 
                 <button
                   disabled={busy || !state || !password}
-                  className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-3.5 text-sm font-extrabold text-slate-950 shadow-[0_16px_40px_-24px_rgba(16,185,129,.9)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_45px_-22px_rgba(16,185,129,.95)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                  className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-700 hover:bg-emerald-800 px-5 py-3.5 text-sm font-extrabold text-white shadow-[0_16px_40px_-24px_rgba(16,185,129,.9)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_45px_-22px_rgba(16,185,129,.95)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
                 >
                   {busy ? <RefreshCw className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
                   {busy ? 'Waa la xaqiijinayaa...' : 'Xaqiiji qalabkan'}
                   {!busy && <ArrowRight className="transition-transform group-hover:translate-x-1" size={17} />}
                 </button>
 
-                <p className="flex items-center justify-center gap-2 text-center text-xs text-[var(--color-text-tertiary)]">
+                <p className="flex items-center justify-center gap-2 text-center text-xs text-[var(--gd-muted)]">
                   <LockKeyhole size={13} />
                   Password-kaaga lama kaydinayo page-kan.
                 </p>
               </form>
             )}
 
-            {message && <p role="status" className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{message}</p>}
-            {error && <p role="alert" className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p>}
+            {message && !state?.verified && <p role="status" className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-[var(--gd-success)]">{message}</p>}
+            {error && <p role="alert" className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-[var(--gd-danger)]">{error}</p>}
           </div>
         </div>
 
         <div className="space-y-5">
           <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-[var(--gd-success)]">
                 <HelpCircle size={20} />
               </div>
               <div>
                 <h3 className="font-bold">U baahan tahay caawimaad?</h3>
-                <p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">Haddii aad dhibaato qabto, la xiriir maamulka school-kaaga.</p>
+                <p className="mt-1 text-xs leading-5 text-[var(--gd-muted)]">Haddii aad dhibaato qabto, la xiriir maamulka school-kaaga.</p>
               </div>
             </div>
           </div>
 
           <div className="relative overflow-hidden rounded-[28px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5 sm:p-7">
             <div className="pointer-events-none absolute inset-x-8 top-12 h-36 rounded-full bg-emerald-500/10 blur-3xl" />
-            <div className="relative mx-auto mb-7 flex h-40 max-w-sm items-center justify-center">
+            <div className="relative mx-auto mb-5 flex h-28 max-w-sm items-center justify-center">
               <div className="absolute h-28 w-56 rounded-[50%] border border-emerald-500/20" />
               <div className="absolute h-20 w-40 rounded-[50%] border border-blue-500/15" />
               <div className="relative flex h-24 w-36 items-center justify-center rounded-2xl border border-blue-400/30 bg-gradient-to-br from-slate-800 to-slate-950 shadow-[0_0_45px_rgba(34,197,94,.18)]">
                 <Laptop className="text-blue-300" size={72} strokeWidth={1.2} />
-                <ShieldCheck className="absolute text-emerald-400" size={31} />
+                <ShieldCheck className="absolute text-[var(--gd-success)]" size={31} />
               </div>
-              <div className="absolute left-[12%] top-[18%] flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/20">
+              <div className="absolute left-[12%] top-[18%] flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/20 text-[var(--gd-success)] ring-1 ring-emerald-400/20">
                 <LockKeyhole size={19} />
               </div>
-              <div className="absolute right-[9%] top-[24%] flex h-11 w-11 items-center justify-center rounded-full bg-blue-500/20 text-blue-300 ring-1 ring-blue-400/20">
+              <div className="absolute right-[9%] top-[24%] flex h-11 w-11 items-center justify-center rounded-full bg-blue-500/20 text-[var(--gd-blue)] ring-1 ring-blue-400/20">
                 <Laptop size={19} />
               </div>
             </div>
@@ -234,16 +235,16 @@ export function GuuldoonDevice() {
                 <div key={kind} className="flex items-start gap-3">
                   <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                     kind === 'success'
-                      ? 'bg-emerald-500/15 text-emerald-400'
+                      ? 'bg-emerald-500/15 text-[var(--gd-success)]'
                       : kind === 'transfer'
-                        ? 'bg-blue-500/15 text-blue-400'
+                        ? 'bg-blue-500/15 text-[var(--gd-blue)]'
                         : kind === 'warning'
-                          ? 'bg-amber-500/15 text-amber-400'
-                          : 'bg-red-500/15 text-red-400'
+                          ? 'bg-amber-500/15 text-[var(--gd-warning)]'
+                          : 'bg-red-500/15 text-[var(--gd-danger)]'
                   }`}>
                     {kind === 'success' ? <CircleCheck size={16} /> : kind === 'transfer' ? <RefreshCw size={15} /> : kind === 'warning' ? <ShieldCheck size={15} /> : <LockKeyhole size={15} />}
                   </span>
-                  <p className="text-sm leading-6 text-[var(--color-text-secondary)]">{text}</p>
+                  <p className="text-sm leading-6 text-[var(--gd-muted)]">{text}</p>
                 </div>
               ))}
             </div>
@@ -253,32 +254,32 @@ export function GuuldoonDevice() {
 
       <div className="rounded-[28px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5 sm:p-6">
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-[var(--gd-success)]">
             <Laptop size={21} />
           </div>
           <div>
             <h3 className="font-extrabold">Qalabka hadda la isticmaalo</h3>
-            <p className="text-xs text-[var(--color-text-secondary)]">Macluumaad ku saabsan browser-ka aad hadda ku jirto.</p>
+            <p className="text-xs text-[var(--gd-muted)]">Macluumaad ku saabsan browser-ka aad hadda ku jirto.</p>
           </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
           <div className="grid gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] p-4 sm:grid-cols-3">
             <div>
-              <p className="text-xs text-[var(--color-text-tertiary)]">Browser</p>
+              <p className="text-xs text-[var(--gd-muted)]">Browser</p>
               <p className="mt-1 text-sm font-bold">{device.browser}</p>
             </div>
             <div>
-              <p className="text-xs text-[var(--color-text-tertiary)]">Qalab</p>
+              <p className="text-xs text-[var(--gd-muted)]">Qalab</p>
               <p className="mt-1 text-sm font-bold">{device.system}</p>
             </div>
             <div>
-              <p className="text-xs text-[var(--color-text-tertiary)]">Xaqiijinta</p>
-              <p className={`mt-1 text-sm font-bold ${state?.verified ? 'text-emerald-400' : state?.registered ? 'text-amber-400' : 'text-red-400'}`}>
+              <p className="text-xs text-[var(--gd-muted)]">Xaqiijinta</p>
+              <p className={`mt-1 text-sm font-bold ${state?.verified ? 'text-[var(--gd-success)]' : state?.registered ? 'text-[var(--gd-warning)]' : 'text-[var(--gd-danger)]'}`}>
                 {state?.verified ? 'La xaqiijiyey' : state?.registered ? 'Qalab kale ayaa la xaqiijiyey' : 'Wali lama xaqiijin'}
               </p>
               {state?.verified && state.activatedAt && (
-                <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">{new Date(state.activatedAt).toLocaleString()}</p>
+                <p className="mt-1 text-[11px] text-[var(--gd-muted)]">{new Date(state.activatedAt).toLocaleString()}</p>
               )}
             </div>
           </div>
@@ -294,13 +295,13 @@ export function GuuldoonDevice() {
           }`}>
             <div className="flex items-start gap-3">
               {state?.verified
-                ? <CircleCheck className="mt-0.5 shrink-0 text-emerald-400" size={22} />
-                : <CircleAlert className="mt-0.5 shrink-0 text-red-400" size={22} />}
+                ? <CircleCheck className="mt-0.5 shrink-0 text-[var(--gd-success)]" size={22} />
+                : <CircleAlert className="mt-0.5 shrink-0 text-[var(--gd-danger)]" size={22} />}
               <div>
-                <p className={`font-bold ${state?.verified ? 'text-emerald-300' : 'text-red-300'}`}>
+                <p className={`font-bold ${state?.verified ? 'text-[var(--gd-success)]' : 'text-[var(--gd-danger)]'}`}>
                   {state?.verified ? 'Qalabkan waa diyaar' : blocked ? 'Guuldoon waa xanniban yahay' : 'Qalabkan wali lama xaqiijin'}
                 </p>
-                <p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">
+                <p className="mt-1 text-xs leading-5 text-[var(--gd-muted)]">
                   {state?.verified
                     ? 'Browser-kan ayaa hadda loo oggol yahay inuu isticmaalo Guuldoon.'
                     : blocked

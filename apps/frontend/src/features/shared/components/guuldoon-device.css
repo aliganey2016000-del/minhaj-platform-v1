@@ -1,0 +1,30 @@
+/* Device-page palette: readable in both themes without changing portal colours. */
+.guuldoon-device {
+  --gd-success: #047857;
+  --gd-danger: #b91c1c;
+  --gd-warning: #92400e;
+  --gd-blue: #1d4ed8;
+  --gd-muted: #475569;
+  color: #0f172a;
+  font-size: 16px;
+}
+.guuldoon-device .gd-verification-card {
+  background: linear-gradient(135deg, #ecfdf5, #ffffff 65%);
+  border-color: #a7f3d0;
+}
+.guuldoon-device h2, .guuldoon-device h3 { color: #0f172a; }
+.guuldoon-device p.text-xs { font-size: 0.875rem; line-height: 1.6; }
+.guuldoon-device p.text-sm { font-size: 1rem; line-height: 1.65; }
+.dark .guuldoon-device {
+  --gd-success: #6ee7b7;
+  --gd-danger: #fca5a5;
+  --gd-warning: #fcd34d;
+  --gd-blue: #93c5fd;
+  --gd-muted: #cbd5e1;
+  color: #f1f5f9;
+}
+.dark .guuldoon-device .gd-verification-card {
+  background: linear-gradient(135deg, #0c302a, #111827 65%);
+  border-color: #256453;
+}
+.dark .guuldoon-device h2, .dark .guuldoon-device h3 { color: #f8fafc; }
