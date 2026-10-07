@@ -25,6 +25,8 @@ function getMarked(): Promise<typeof import('marked')> {
 import CourseContent, { computeContentTotals } from '../models/course-content.model';
 import Course from '../models/course.model';
 import Student from '../models/student.model';
+import ClassModel from '../models/class.model';
+import Subscription from '../models/global-subscription.model';
 import Parent from '../models/parent.model';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
@@ -34,6 +36,7 @@ import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { sanitizeQuestionForStudent } from '../utils/question-engine';
 import { parseBlockRows, getField, looksLikeContentBlockHeaderRow } from '../utils/content-blocks-parser';
 import { appendAiPromptSheets } from './content-blocks-import.controller';
+import { requireGuuldoonDevice } from '../routes/v1/guuldoon-device.routes';
 
 /**
  * SHA-256 of a gate answer, salted per-question by lesson id + scope + index.
@@ -142,11 +145,36 @@ export const getByCourse = async (req: Request, res: Response): Promise<Response
       throw new ForbiddenError('You can only view content for your own courses');
     }
   } else if (role === 'student') {
-    const student = await Student.findOne({ user: req.user!.userId }).select('enrolledCourses school').lean();
+    const student = await Student.findOne({ user: req.user!.userId })
+      .select('enrolledCourses school class approvalStatus status')
+      .lean();
     const enrolledIds = (student?.enrolledCourses || []).map((id: any) => id.toString());
-    const sameSchool = student && (course as any).school?.toString() === (student as any).school?.toString();
-    if (!sameSchool || !enrolledIds.includes(courseId)) {
-      throw new ForbiddenError('You can only view content for your enrolled courses');
+
+    if ((course as any).scope === 'global') {
+      if (!student || student.approvalStatus !== 'approved' || student.status !== 'active' || !student.class || !enrolledIds.includes(courseId)) {
+        throw new ForbiddenError('Open this Guuldoon course from the Guuldoon Courses page first');
+      }
+      const classroom = await ClassModel.findById(student.class).select('gradeLevel').lean();
+      const grade = classroom?.gradeLevel ?? null;
+      if (grade !== (course as any).globalGrade) {
+        throw new ForbiddenError('This Guuldoon course is not available for your grade');
+      }
+      const now = new Date();
+      const activeSubscription = await Subscription.exists({
+        user: req.user!.userId,
+        school: student.school,
+        grade,
+        status: 'approved',
+        startsAt: { $lte: now },
+        expiresAt: { $gt: now },
+      });
+      if (!activeSubscription) throw new ForbiddenError('Active Guuldoon subscription required for this grade');
+      await requireGuuldoonDevice(req);
+    } else {
+      const sameSchool = student && (course as any).school?.toString() === (student as any).school?.toString();
+      if (!sameSchool || !enrolledIds.includes(courseId)) {
+        throw new ForbiddenError('You can only view content for your enrolled courses');
+      }
     }
   } else if (role === 'parent') {
     const parent = await Parent.findOne({ user: req.user!.userId }).select('children').lean();

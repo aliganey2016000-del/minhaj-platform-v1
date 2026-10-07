@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../../store/auth-context';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, BookOpen, Crown, GraduationCap, Search, TrendingUp } from 'lucide-react';
 import api from '../../../lib/axios';
 import CoursesManage from '../../admin/pages/courses-manage';
@@ -8,12 +8,15 @@ import CoursesManage from '../../admin/pages/courses-manage';
 type GlobalCourse = { _id: string; title: { en: string }; description?: { en?: string }; thumbnail?: string; globalGrade: number };
 export function GlobalCoursesPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [courses, setCourses] = useState<GlobalCourse[]>([]);
   const [grade, setGrade] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<GlobalCourse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [openingCourseId, setOpeningCourseId] = useState<string | null>(null);
+  const [accessError, setAccessError] = useState('');
   useEffect(() => {
     if (user?.role === 'admin') return;
     let cancelled = false;
@@ -22,6 +25,20 @@ export function GlobalCoursesPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [user?.role]);
+
+  const openGuuldoonCourse = async (course: GlobalCourse) => {
+    if (openingCourseId) return;
+    setOpeningCourseId(course._id);
+    setAccessError('');
+    try {
+      await api.post(`/guuldoon/courses/${course._id}/open`);
+      navigate(`/student/courses/${course._id}`);
+    } catch (err: any) {
+      setAccessError(err.response?.data?.message || 'Koorsada lama furi karin. Hubi rukumashada iyo xaqiijinta qalabka.');
+    } finally {
+      setOpeningCourseId(null);
+    }
+  };
   if (user?.role === 'admin') return <CoursesManage />;
   if (user?.role === 'student') return <main className="mx-auto max-w-5xl space-y-5 p-4 sm:p-6">
     <header className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-800 via-emerald-700 to-emerald-950 p-6 text-white sm:p-9">
@@ -33,7 +50,29 @@ export function GlobalCoursesPage() {
     <section aria-labelledby="subjects-title"><h2 id="subjects-title" className="mb-4 text-2xl font-bold">Maaddooyinkaaga</h2><label className="mb-5 flex items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] px-4 py-3"><Search size={20} className="shrink-0 text-slate-400" /><input aria-label="Raadi maaddo" placeholder="Raadi maaddo..." value={search} onChange={event => setSearch(event.target.value)} className="w-full bg-transparent text-sm outline-none" /></label>
     {loading ? <p role="status">Koorsooyinka waa la soo rarayaa...</p> : error ? <p role="alert">{error}</p> : !grade ? <p className="rounded-2xl border p-5">Koorsooyinka Guuldoon waxaa la soo bandhigayaa marka fasalkaaga la xaqiijiyo.</p> : courses.filter(c => c.globalGrade === grade && c.title.en.toLowerCase().includes(search.toLowerCase())).length === 0 ? <p className="rounded-2xl border p-5">Maaddooyin lama helin.</p> : <div className="grid gap-4 lg:grid-cols-2">{courses.filter(c => c.globalGrade === grade && c.title.en.toLowerCase().includes(search.toLowerCase())).map((course, index) => <article key={course._id} className="flex overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] shadow-sm"><div className={`flex w-24 shrink-0 items-center justify-center sm:w-32 ${index % 2 ? 'bg-gradient-to-br from-slate-700 to-emerald-950 text-amber-200' : 'bg-gradient-to-br from-amber-100 to-amber-200 text-amber-800'}`}>{course.thumbnail ? <img src={course.thumbnail} alt="" className="h-full w-full object-cover" /> : <BookOpen size={44} strokeWidth={1.3} aria-hidden="true" />}</div><div className="min-w-0 flex-1 p-4"><span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">Grade {grade}</span><h3 className="mt-2 break-words text-xl font-bold">{course.title.en}</h3><p className="mt-2 text-xs text-[var(--color-text-secondary)]">Cashirro · Maqal · Muuqaal</p><p className="mt-3 text-xs text-amber-700">Diyaarinta imtixaanka</p><button onClick={() => setSelected(course)} className="mt-3 flex items-center gap-2 text-sm font-semibold text-emerald-700">Eeg koorsada <ArrowRight size={16} /></button></div></article>)}</div>}</section>
     <nav aria-label="Guuldoon" className="flex justify-around rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 text-xs"><span aria-current="page" className="flex flex-col items-center gap-1 font-semibold text-emerald-700"><BookOpen size={22} />Courses</span><Link to="/student/guuldoon/performance" className="flex flex-col items-center gap-1"><TrendingUp size={22} />Progress</Link><Link to="/student/guuldoon/subscriptions" className="flex flex-col items-center gap-1"><Crown size={22} />Subscription</Link></nav>
-    {selected && <section className="rounded-2xl border border-emerald-200 bg-[var(--color-surface-primary)] p-6" role="region" aria-label="Course preview"><button onClick={() => setSelected(null)} className="float-right text-sm">Xir</button><p className="text-sm text-emerald-700">Grade {grade}</p><h2 className="mt-2 text-xl font-bold">{selected.title.en}</h2><p className="mt-3 text-sm">{selected.description?.en || 'Diyaarinta imtixaanka shahaadiga.'}</p><p className="mt-3 text-sm">Gelitaanka cashirrada wuxuu furmayaa marka xaqiijinta qalabka la hawlgeliyo.</p></section>}
+    {selected && <section className="rounded-2xl border border-emerald-200 bg-[var(--color-surface-primary)] p-6 shadow-sm" role="region" aria-label="Course preview">
+      <button onClick={() => { setSelected(null); setAccessError(''); }} className="float-right text-sm">Xir</button>
+      <p className="text-sm font-semibold text-emerald-700">Grade {grade}</p>
+      <h2 className="mt-2 text-xl font-bold">{selected.title.en}</h2>
+      <p className="mt-3 text-sm">{selected.description?.en || 'Diyaarinta imtixaanka shahaadiga.'}</p>
+      <p className="mt-3 text-sm text-[var(--color-text-secondary)]">Haddii rukumashadaadu shaqaynayso oo qalabkan la xaqiijiyey, koorsada si toos ah ayey kuu furmaysaa.</p>
+      {accessError && <div role="alert" className="mt-4 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+        <p>{accessError}</p>
+        <div className="mt-2 flex flex-wrap gap-3 text-xs font-semibold">
+          <Link to="/student/guuldoon/subscriptions" className="underline">Hubi rukumashada</Link>
+          <Link to="/student/guuldoon/devices" className="underline">Hubi qalabka</Link>
+        </div>
+      </div>}
+      <button
+        type="button"
+        onClick={() => void openGuuldoonCourse(selected)}
+        disabled={openingCourseId === selected._id}
+        className="mt-5 inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60"
+      >
+        {openingCourseId === selected._id ? 'Waa la furayaa...' : 'Fur koorsada'}
+        <ArrowRight size={16} />
+      </button>
+    </section>}
   </main>;
   return <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
     <h1 className="text-2xl font-bold">Guuldoon Courses</h1>

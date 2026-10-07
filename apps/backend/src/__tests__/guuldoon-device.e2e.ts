@@ -98,6 +98,7 @@ async function main() {
     assert.equal(firstResponse.status, 200, JSON.stringify(firstResponse.body));
     const firstSetCookies = firstResponse.headers['set-cookie'] as unknown as string[];
     assert.ok(firstSetCookies?.[0]?.includes('HttpOnly'));
+    assert.ok(firstSetCookies?.[0]?.includes('Path=/api/v1'));
     const firstCookie = firstSetCookies[0].split(';')[0];
     assert.equal((await access(firstCookie)).status, 200);
 
