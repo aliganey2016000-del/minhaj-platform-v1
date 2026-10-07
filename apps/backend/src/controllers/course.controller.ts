@@ -1186,6 +1186,15 @@ export const bulkImport = async (req: Request, res: Response): Promise<Response>
 
 export const getGlobalCatalog = async (req: Request, res: Response): Promise<Response> => {
   if (!['admin', 'org_admin', 'teacher', 'student'].includes(req.user?.role || '')) throw new ForbiddenError('Access denied');
-  const courses = await Course.find({ scope: 'global', status: 'published' }).select('title description thumbnail globalGrade courseCode').sort({ globalGrade: 1, 'title.en': 1 }).limit(300).lean();
-  return ApiResponse.success(res, courses);
+  const filter: Record<string, unknown> = { scope: 'global', status: 'published' };
+  let grade: number | null = null;
+  if (req.user?.role === 'student') {
+    const student = await Student.findOne({ user: req.user.userId, school: req.user.organizationId, approvalStatus: 'approved' }).select('class').lean();
+    const classroom = student?.class ? await ClassModel.findById(student.class).select('gradeLevel').lean() : null;
+    grade = classroom?.gradeLevel ?? null;
+    if (![8, 12].includes(grade ?? 0)) return ApiResponse.success(res, [], 'Courses loaded', 200, { grade } as any);
+    filter.globalGrade = grade;
+  }
+  const courses = await Course.find(filter).select('title description thumbnail globalGrade courseCode').sort({ globalGrade: 1, 'title.en': 1 }).limit(300).lean();
+  return ApiResponse.success(res, courses, 'Courses loaded', 200, { grade } as any);
 };
