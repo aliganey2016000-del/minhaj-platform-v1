@@ -1,3 +1,4 @@
+import { GlobalSubscriptions } from '../components/global-subscriptions';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../../store/auth-context';
 import api from '../../../lib/axios';
@@ -17,9 +18,10 @@ export function GlobalCoursesPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [user?.role]);
-  if (user?.role === 'admin') return <CoursesManage />;
+  if (user?.role === 'admin') return <><div className="mx-auto max-w-6xl p-4 sm:p-6"><GlobalSubscriptions /></div><CoursesManage /></>;
   return <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
     <h1 className="text-2xl font-bold">Global Courses</h1>
+    <GlobalSubscriptions />
     <p>Grade 8 and Grade 12 certificate exam preparation, managed by Super Admin.</p>
     {loading ? <p>Loading courses...</p> : error ? <p role="alert">{error}</p> : courses.length === 0 ? <p>No global courses have been published yet.</p> :
       <section className="grid gap-4 sm:grid-cols-2">{courses.map(course => <article key={course._id} className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-6">
