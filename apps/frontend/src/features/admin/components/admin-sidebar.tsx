@@ -24,6 +24,14 @@ function isGroup(entry: NavEntry): entry is NavGroup { return 'children' in entr
 function keyForPath(path: string): string { return path.replace(/^\//, ''); }
 
 const navSections: { title: string; items: NavEntry[] }[] = [
+  { title: 'Guuldoon', items: [
+    { path: '/admin/guuldoon', label: 'Overview', icon: LayoutDashboard },
+    { path: '/admin/global-courses', label: 'Courses', icon: BookOpen },
+    { path: '/admin/guuldoon/performance', label: 'Student Performance', icon: TrendingUp },
+    { path: '/admin/guuldoon/subscriptions', label: 'Subscriptions & Payments', icon: CreditCard },
+    { path: '/admin/guuldoon/devices', label: 'Devices & Access', icon: ShieldCheck },
+    { path: '/admin/guuldoon/settings', label: 'Settings', icon: Settings },
+  ] },
   {
     title: 'INSTITUTION MANAGEMENT',
     items: [
@@ -36,7 +44,6 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/students', label: 'Manage Students', icon: GraduationCap },
       { path: '/admin/parents', label: 'Manage Parents', icon: Users },
       { path: '/admin/courses', label: 'Manage Courses', icon: BookOpen },
-      { path: '/admin/global-courses', label: 'Global Courses', icon: Globe2 },
       { path: '/admin/classes', label: 'Manage Classes', icon: School },
       { path: '/admin/activity', label: 'Student Activity', icon: Activity },
     ],
@@ -224,7 +231,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
     return { ...section, items };
   }).map((section) => ({
     ...section,
-    items: section.items.map((item) => {
+    items: (section.title === 'Guuldoon' && (!isVisible('group:guuldoon') || !['admin', 'org_admin'].includes(user?.role || '')) ? [] : section.items).map((item) => {
       if (isGroup(item)) {
         if (item.key && (!isVisible(item.key) || !staffSidebar(item.key))) return null;
         const children = item.children.filter((child) => {
@@ -233,15 +240,17 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
         });
         return children.length ? { ...item, children } : null;
       }
+      if (['/admin/guuldoon/devices', '/admin/guuldoon/settings'].includes(item.path) && !isSuperAdmin) return null;
       if (item.path === '/admin/global-courses' && !['admin', 'org_admin'].includes(user?.role || '')) return null;
       if (item.path === '/admin/website' && !['admin', 'org_admin'].includes(user?.role || '')) return null;
       if (user?.role === 'staff' && ['/admin/roles', '/admin/settings/sidebar', '/admin/hr/access'].includes(item.path)) return null;
       const key = keyForPath(item.path);
-      return isVisible(key) && staffSidebar(key) && staffRead(key) ? item : null;
+      return isVisible(key) && staffSidebar(key) && staffRead(key) ? (item.path === '/admin/guuldoon/subscriptions' && !isSuperAdmin ? { ...item, label: 'Subscriptions' } : item) : null;
     }).filter((item): item is NavEntry => item !== null),
   })).filter((section) => section.items.length > 0);
 
   const isActive = (path: string) => {
+    if (path === '/admin/guuldoon') return location.pathname === path;
     if (path === '/admin') return location.pathname === '/admin';
     if (path === '/admin/exams' || path === '/admin/results') return location.pathname === path;
     if (path.includes('?')) return `${location.pathname}${location.search}` === path;

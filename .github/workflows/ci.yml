@@ -114,6 +114,9 @@ jobs:
       - name: Tenant sidebar and Staff/Admin access security regression
         run: npx ts-node src/__tests__/tenant-sidebar-staff-access.e2e.ts
 
+      - name: Guuldoon portal and tenant isolation regression
+        run: npx ts-node --files src/__tests__/guuldoon-portals.e2e.ts
+
       - name: Global subscription payment and access regression
         run: npx ts-node --files src/__tests__/global-subscriptions.e2e.ts
 

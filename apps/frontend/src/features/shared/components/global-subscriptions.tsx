@@ -40,7 +40,7 @@ export function GlobalSubscriptions() {
     finally { setBusy(false); }
   };
   return <section className="space-y-4 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 sm:p-6">
-    <h2 className="text-lg font-bold">{isStudent ? 'My Global Subscription' : 'Global Subscription Payments'}</h2>
+    <h2 className="text-lg font-bold">{isStudent ? 'My Guuldoon Subscription' : 'Guuldoon Subscription Payments'}</h2>
     <p className="text-sm">$5 USD · 365 days · All global subjects in your selected grade.</p>
     {isStudent && <><p className="text-sm text-[var(--color-text-secondary)]">Ask the platform administrator for payment instructions. Submit your transaction reference after payment. Your year starts after the administrator verifies receipt. School fees and school services are separate.</p>
       <form onSubmit={submit} className="flex flex-col gap-3 sm:flex-row">

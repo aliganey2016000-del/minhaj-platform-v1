@@ -11,10 +11,13 @@ const isGroup = (x: NavEntry): x is NavGroup => 'children' in x;
 const pathKey = (path: string) => path.replace(/^\//, '');
 
 const navSections: { title: string; items: NavEntry[] }[] = [
+  { title: 'Guuldoon', items: [
+    { path: '/teacher/global-courses', label: 'Courses', icon: '📚' },
+    { path: '/teacher/guuldoon/performance', label: "My Students’ Performance", icon: '📈' },
+  ] },
   { title: 'Teaching', items: [
     { path: '/teacher', label: 'Dashboard', icon: '🏠' },
     { path: '/teacher/courses', label: 'My Courses', icon: '📚' },
-      { path: '/teacher/global-courses', label: 'Global Courses', icon: '🌍' },
     { path: '/teacher/schedule', label: 'My Schedule', icon: '🕐' },
     { path: '/teacher/attendance', label: 'Student Attendance', icon: '🗓️' },
     { path: '/teacher/my-attendance', label: 'My Attendance', icon: '📍' },
@@ -78,7 +81,7 @@ export function TeacherSidebar({ visibility }: { visibility: TeacherSidebarVisib
     )
     .sort((a, b) => b.length - a.length)[0];
   const isActive = (path: string) => activePath === path;
-  const filtered = navSections.map((section) => ({ ...section, items: section.items.map((item) => {
+  const filtered = navSections.filter(section => section.title !== 'Guuldoon' || visible('group:guuldoon')).map((section) => ({ ...section, items: section.items.map((item) => {
     if (isGroup(item)) {
       if (!visible(item.key)) return null;
       const children = item.children.filter((child) => visible(pathKey(child.path)));

@@ -1,3 +1,4 @@
+import guuldoonRoutes from './guuldoon.routes';
 import globalSubscriptionRoutes from './global-subscription.routes';
 import { Router } from 'express';
 import authRoutes from './auth.routes';
@@ -65,6 +66,7 @@ import { requireModulePermission } from '../../middleware/role.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
+router.use('/guuldoon', guuldoonRoutes);
 router.use('/global-subscriptions', globalSubscriptionRoutes);
 router.use('/auth', authRoutes);
 router.use('/courses', courseRoutes);

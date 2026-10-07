@@ -36,9 +36,14 @@ export function StudentSidebar() {
     return visibility?.[key] !== false;
   };
   const navSections: NavSection[] = [
+    { title: 'Guuldoon', icon: '🏆', items: [
+      { path: '/student/global-courses', label: 'Courses', icon: '📚' },
+      { path: '/student/guuldoon/performance', label: 'My Progress', icon: '📈' },
+      { path: '/student/guuldoon/subscriptions', label: 'My Subscription', icon: '💳' },
+      { path: '/student/guuldoon/devices', label: 'My Device', icon: '📱' },
+    ]},
     { title: 'LEARNING', icon: '📚', items: [
       { path: '/student/courses', label: 'Courses', icon: '📚' },
-      { path: '/student/global-courses', label: 'Global Courses', icon: '🌍' },
       { path: '/student/available', label: 'Browse Courses', icon: '🆕' },
       { path: '/student/schedule', label: 'Schedule', icon: '🕐' },
       { path: '/student/attendance', label: 'Attendance', icon: '📅' },
@@ -67,7 +72,7 @@ export function StudentSidebar() {
     ]},
   ];
 
-  const visibleSections = navSections.map((section) => ({ ...section, items: section.items.filter((item) => isVisible(item.path)) })).filter((section) => section.items.length > 0);
+  const visibleSections = navSections.filter(section => section.title !== 'Guuldoon' || visibility?.['group:guuldoon'] !== false).map((section) => ({ ...section, items: section.items.filter((item) => isVisible(item.path)) })).filter((section) => section.items.length > 0);
   const isActive = (path: string) => {
     if (path === '/student') return location.pathname === '/student' || location.pathname === '/student/';
     if (path === '/student/exams') return location.pathname === '/student/exams' || location.pathname === '/student/exams/';
