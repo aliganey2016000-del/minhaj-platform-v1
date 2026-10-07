@@ -1,15 +1,16 @@
-import deviceRoutes from './guuldoon-device.routes';
+import deviceRoutes, { promoteGuuldoonDeviceCookie, requireGuuldoonDevice } from './guuldoon-device.routes';
 import { Router, Request } from 'express';
 import mongoose from 'mongoose';
 import Profile from '../../models/profile.model';
 import Course from '../../models/course.model';
 import Student from '../../models/student.model';
+import ClassModel from '../../models/class.model';
 import Teacher from '../../models/teacher.model';
 import Progress from '../../models/progress.model';
 import Subscription from '../../models/global-subscription.model';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
-import { ForbiddenError } from '../../utils/api-error';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../utils/api-error';
 import ApiResponse from '../../utils/api-response';
 
 const router = Router();
@@ -21,6 +22,62 @@ router.use((req, _res, next) => {
 });
 
 router.use('/devices', deviceRoutes);
+
+router.post('/courses/:courseId/open', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'student' || req.user.isStaff) throw new ForbiddenError('Student access required');
+  if (!mongoose.isValidObjectId(req.params.courseId)) throw new BadRequestError('Invalid course ID');
+
+  const course = await Course.findOne({
+    _id: req.params.courseId,
+    scope: 'global',
+    status: 'published',
+  }).select('_id globalGrade scope status').lean();
+  if (!course) throw new NotFoundError('Guuldoon course');
+
+  const student = await Student.findOne({
+    user: req.user.userId,
+    school: req.user.organizationId,
+    approvalStatus: 'approved',
+    status: 'active',
+  }).select('_id class enrolledCourses school').lean();
+  if (!student?.class) throw new ForbiddenError('Your active school class is required for Guuldoon');
+
+  const classroom = await ClassModel.findById(student.class).select('gradeLevel school').lean();
+  const grade = classroom?.gradeLevel ?? null;
+  if (![8, 12].includes(grade || 0) || grade !== course.globalGrade) {
+    throw new ForbiddenError('This Guuldoon course is not available for your grade');
+  }
+
+  const now = new Date();
+  const activeSubscription = await Subscription.exists({
+    user: req.user.userId,
+    school: student.school,
+    grade,
+    status: 'approved',
+    startsAt: { $lte: now },
+    expiresAt: { $gt: now },
+  });
+  if (!activeSubscription) throw new ForbiddenError('Active Guuldoon subscription required for this grade');
+
+  await requireGuuldoonDevice(req);
+
+  const enrolled = (student.enrolledCourses || []).some(id => String(id) === String(course._id));
+  if (!enrolled) {
+    const result = await Student.updateOne(
+      { _id: student._id, enrolledCourses: { $ne: course._id } },
+      { $addToSet: { enrolledCourses: course._id } },
+    );
+    if (result.modifiedCount > 0) {
+      await Course.updateOne({ _id: course._id }, { $inc: { enrolledStudents: 1 } });
+    }
+  }
+
+  // Existing users may still hold the old /api/v1/guuldoon-scoped cookie.
+  // Promote it before navigating so /courses/:id/content can verify the same browser.
+  promoteGuuldoonDeviceCookie(req, res);
+  res.set('Cache-Control', 'no-store, private, max-age=0');
+  return ApiResponse.success(res, { courseId: String(course._id), grade, access: 'granted' }, 'Guuldoon course access granted');
+}));
 
 /** All scope derives from authentication, never client school or student IDs. */
 async function studentScope(req: Request): Promise<Record<string, unknown>> {
