@@ -291,12 +291,17 @@ courseSchema.index({ status: 1, level: 1 });
 // Virtual — Available Seats
 // ---------------------------------------------------------------------------
 
+courseSchema.virtual('enrollmentCapacity').get(function (this: ICourse) {
+  return this.scope === 'global' ? null : this.maxStudents;
+});
+
 courseSchema.virtual('availableSeats').get(function (this: ICourse) {
+  if (this.scope === 'global') return null;
   return Math.max(0, this.maxStudents - this.enrolledStudents);
 });
 
 courseSchema.virtual('isFull').get(function (this: ICourse) {
-  return this.enrolledStudents >= this.maxStudents;
+  return this.scope !== 'global' && this.enrolledStudents >= this.maxStudents;
 });
 
 courseSchema.set('toJSON', { virtuals: true });

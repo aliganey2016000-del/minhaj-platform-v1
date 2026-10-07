@@ -23,6 +23,7 @@ import { applyOrgFilter, assertOwnsOrg, resolveOrgIdForCreate, getOwnTeacherReco
 import { moveToTrash } from '../utils/trash';
 import { requestTenantSchool } from '../utils/request-tenant';
 import { escapeRegex } from '../utils/escape-regex';
+import { courseReservationFilter } from '../utils/course-capacity';
 import { tenantSlug } from '../utils/tenant-slug';
 
 /**
@@ -547,7 +548,7 @@ export const enrollStudent = async (req: Request, res: Response): Promise<Respon
   // one update: the filter re-checks capacity server-side at write time,
   // so only as many concurrent requests as there are open seats succeed.
   const reserved = await Course.findOneAndUpdate(
-    { _id: course._id, enrolledStudents: { $lt: course.maxStudents } },
+    courseReservationFilter(course),
     { $inc: { enrolledStudents: 1 } },
     { new: true },
   );
@@ -650,7 +651,7 @@ export const selfEnroll = async (req: Request, res: Response): Promise<Response>
   // read-modify-write here would oversubscribe the course under
   // concurrent self-enrollments.
   const reserved = await Course.findOneAndUpdate(
-    { _id: course._id, enrolledStudents: { $lt: course.maxStudents } },
+    courseReservationFilter(course),
     { $inc: { enrolledStudents: 1 } },
     { new: true },
   );
