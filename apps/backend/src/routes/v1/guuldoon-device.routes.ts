@@ -37,6 +37,8 @@ async function state(user: string) {
 }
 
 router.get('/', asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store, private, max-age=0');
+  res.set('Pragma', 'no-cache');
   const row = await Device.findOne({ user: req.user!.userId });
   const hash = deviceHash(req);
   const blocked = !!row?.blockedUntil && row.blockedUntil.getTime() > Date.now();
@@ -84,16 +86,10 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
   }
 
   let hash = deviceHash(req);
+  let newCookieValue = '';
   if (!hash) {
-    const value = randomBytes(32).toString('hex');
-    hash = digest(value);
-    res.cookie(cookie, value, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/api/v1/guuldoon',
-      maxAge: 365 * day,
-    });
+    newCookieValue = randomBytes(32).toString('hex');
+    hash = digest(newCookieValue);
   }
 
   const history = row.history
@@ -122,6 +118,17 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
     throw new ApiError(423, 'Three devices verified within 24 hours. Guuldoon is blocked for 24 hours');
   }
 
+  if (newCookieValue) {
+    res.cookie(cookie, newCookieValue, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/api/v1/guuldoon',
+      maxAge: 365 * day,
+    });
+  }
+
+  res.set('Cache-Control', 'no-store, private, max-age=0');
   return ApiResponse.success(
     res,
     { verified: true },

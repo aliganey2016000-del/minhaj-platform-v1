@@ -82,8 +82,10 @@ async function main() {
       403,
     );
 
-    // Wrong password cannot register a browser.
-    assert.equal((await verify('WrongPassword!')).status, 400);
+    // Wrong password cannot register a browser or plant a device cookie.
+    const wrongPassword = await verify('WrongPassword!');
+    assert.equal(wrongPassword.status, 400);
+    assert.equal(wrongPassword.headers['set-cookie'], undefined);
     let row = await Device.findOne({ user: student._id });
     assert.equal(row?.activeHash || '', '');
 
@@ -101,6 +103,7 @@ async function main() {
 
     const firstState = await request(app).get(root).set(headers(student)).set('Cookie', firstCookie);
     assert.equal(firstState.status, 200);
+    assert.match(String(firstState.headers['cache-control'] || ''), /no-store/);
     assert.equal(firstState.body?.data?.verified, true);
     assert.equal(firstState.body?.data?.registered, true);
 
