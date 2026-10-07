@@ -24,14 +24,6 @@ function isGroup(entry: NavEntry): entry is NavGroup { return 'children' in entr
 function keyForPath(path: string): string { return path.replace(/^\//, ''); }
 
 const navSections: { title: string; items: NavEntry[] }[] = [
-  { title: 'Guuldoon', items: [
-    { path: '/admin/guuldoon', label: 'Overview', icon: LayoutDashboard },
-    { path: '/admin/global-courses', label: 'Courses', icon: BookOpen },
-    { path: '/admin/guuldoon/performance', label: 'Student Performance', icon: TrendingUp },
-    { path: '/admin/guuldoon/subscriptions', label: 'Subscriptions & Payments', icon: CreditCard },
-    { path: '/admin/guuldoon/devices', label: 'Devices & Access', icon: ShieldCheck },
-    { path: '/admin/guuldoon/settings', label: 'Settings', icon: Settings },
-  ] },
   {
     title: 'INSTITUTION MANAGEMENT',
     items: [
@@ -77,6 +69,14 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/certificates', label: 'Certificates', icon: Award },
     ],
   },
+  { title: 'Guuldoon', items: [
+    { path: '/admin/guuldoon', label: 'Overview', icon: LayoutDashboard },
+    { path: '/admin/global-courses', label: 'Courses', icon: BookOpen },
+    { path: '/admin/guuldoon/performance', label: 'Student Performance', icon: TrendingUp },
+    { path: '/admin/guuldoon/subscriptions', label: 'Subscriptions & Payments', icon: CreditCard },
+    { path: '/admin/guuldoon/devices', label: 'Devices & Access', icon: ShieldCheck },
+    { path: '/admin/guuldoon/settings', label: 'Settings', icon: Settings },
+  ] },
   {
     title: 'Finance Management',
     items: [
