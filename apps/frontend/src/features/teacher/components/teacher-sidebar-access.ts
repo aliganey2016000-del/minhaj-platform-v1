@@ -9,7 +9,8 @@ const starts = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(`${prefix}/`);
 
 const rules: RouteRule[] = [
-  { matches: (p) => starts(p, '/teacher/global-courses'), keys: ['teacher/global-courses'] },
+  { matches: (p) => starts(p, '/teacher/guuldoon/performance'), keys: ['group:guuldoon', 'teacher/guuldoon/performance'] },
+  { matches: (p) => starts(p, '/teacher/global-courses'), keys: ['group:guuldoon', 'teacher/global-courses'] },
   { matches: (p) => p === '/teacher' || p === '/teacher/', keys: ['teacher'] },
 
   // Course-specific tools inherit the parent course access and, where
@@ -71,7 +72,8 @@ const fallbackCandidates: Array<{ path: string; keys: string[] }> = [
   { path: '/teacher/forum', keys: ['teacher/forum'] },
   { path: '/teacher/profile', keys: ['teacher/profile'] },
   { path: '/teacher/settings', keys: ['teacher/settings'] },
-  { path: '/teacher/global-courses', keys: ['teacher/global-courses'] },
+  { path: '/teacher/guuldoon/performance', keys: ['group:guuldoon', 'teacher/guuldoon/performance'] },
+  { path: '/teacher/global-courses', keys: ['group:guuldoon', 'teacher/global-courses'] },
 ];
 
 export function requiredTeacherSidebarKeys(pathname: string): string[] | null {

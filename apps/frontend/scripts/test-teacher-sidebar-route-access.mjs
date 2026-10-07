@@ -29,6 +29,11 @@ try {
 
   assert(isTeacherRouteAllowed('/teacher', {}), 'default config allows teacher dashboard');
   assert(isTeacherRouteAllowed('/teacher/global-courses', {}), 'global courses route is available by default');
+  assert(isTeacherRouteAllowed('/teacher/guuldoon/performance', {}), 'Guuldoon performance route is mapped');
+  assert(!isTeacherRouteAllowed('/teacher/global-courses', { 'group:guuldoon': false }), 'disabled Guuldoon group blocks course route');
+  assert(!isTeacherRouteAllowed('/teacher/guuldoon/performance', { 'group:guuldoon': false }), 'disabled Guuldoon group blocks performance');
+  assert(!isTeacherRouteAllowed('/teacher/guuldoon/performance', { 'teacher/guuldoon/performance': false }), 'disabled Guuldoon performance blocks direct route');
+  assert(isTeacherRouteAllowed('/teacher/courses', { 'group:guuldoon': false }), 'disabled Guuldoon leaves school courses accessible');
   assert(!isTeacherRouteAllowed('/teacher/global-courses', { 'teacher/global-courses': false }), 'hidden global courses blocks direct route');
   assert(isTeacherRouteAllowed('/teacher/courses', { 'teacher/global-courses': false }), 'global courses visibility does not block school courses');
   assert(isTeacherRouteAllowed('/teacher/courses/abc/builder', {}), 'default config allows mapped course detail tools');

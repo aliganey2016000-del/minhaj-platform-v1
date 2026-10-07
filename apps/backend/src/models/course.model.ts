@@ -52,6 +52,9 @@ export interface ICourse extends Document {
   school?: mongoose.Types.ObjectId;
   class?: mongoose.Types.ObjectId;
   maxStudents: number;
+  readonly availableSeats: number | null;
+  readonly enrollmentCapacity: number | null;
+  readonly isFull: boolean;
   enrolledStudents: number;
   thumbnail?: string;
   syllabus: IModule[];

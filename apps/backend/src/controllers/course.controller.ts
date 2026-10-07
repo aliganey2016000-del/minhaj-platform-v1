@@ -309,9 +309,9 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       populate: { path: 'profile', select: 'firstName lastName' },
     })
     .populate('school', 'name')
-    .populate({ path: 'class', select: 'title section' })
-    .lean();
+    .populate({ path: 'class', select: 'title section' });
 
+  // Keep the document so capacity virtuals are included in the create response.
   return ApiResponse.created(res, populated, 'Course created successfully');
 };
 
