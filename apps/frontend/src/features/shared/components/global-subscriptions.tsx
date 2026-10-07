@@ -47,7 +47,7 @@ export function GlobalSubscriptions() {
         <label className="text-sm">Grade<select value={grade} onChange={e => setGrade(Number(e.target.value))} className="block w-full rounded-lg border bg-transparent p-2"><option value={8}>Grade 8</option><option value={12}>Grade 12</option></select></label>
         <label className="flex-1 text-sm">Payment reference<input required maxLength={120} value={reference} onChange={e => setReference(e.target.value)} className="block w-full rounded-lg border bg-transparent p-2" /></label>
         <button disabled={busy} className="self-end rounded-lg bg-primary-600 px-4 py-2 font-semibold text-white disabled:opacity-50">Submit for verification</button>
-      </form><p className="text-xs text-[var(--color-text-tertiary)]">Secure lesson access will be enabled with device verification in the next phase.</p></>}
+      </form><p className="text-xs text-[var(--color-text-tertiary)]">After your subscription is active, verify your current browser in My Device using the same account password.</p></>}
     {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     {loading ? <p>Loading subscriptions...</p> : rows.length === 0 ? <p className="text-sm">No subscription requests.</p> : <div className="space-y-3">{rows.map(row => {
       const status = row.status === 'approved' && row.expiresAt && new Date(row.expiresAt).getTime() <= Date.now() ? 'expired' : row.status === 'approved' ? 'active' : row.status;
