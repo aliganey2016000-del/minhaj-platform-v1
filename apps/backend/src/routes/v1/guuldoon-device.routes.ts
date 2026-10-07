@@ -1,4 +1,4 @@
-import { Router, Request } from 'express';
+import { Router, Request, Response } from 'express';
 import { createHash, randomBytes } from 'crypto';
 import Device from '../../models/guuldoon-device.model';
 import User from '../../models/user.model';
@@ -12,9 +12,36 @@ const day = 86400000;
 const passwordAttemptWindow = 15 * 60 * 1000;
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
-function deviceHash(req: Request) {
+function rawDeviceCookie(req: Request): string {
   const value = req.cookies?.[cookie];
-  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? digest(value) : '';
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : '';
+}
+
+function deviceHash(req: Request) {
+  const value = rawDeviceCookie(req);
+  return value ? digest(value) : '';
+}
+
+function setDeviceCookie(res: Response, value: string) {
+  res.cookie(cookie, value, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/v1',
+    maxAge: 365 * day,
+  });
+  // Remove the old narrower cookie so two same-name cookies cannot disagree.
+  res.clearCookie(cookie, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/v1/guuldoon',
+  });
+}
+
+export function promoteGuuldoonDeviceCookie(req: Request, res: Response): void {
+  const value = rawDeviceCookie(req);
+  if (value) setDeviceCookie(res, value);
 }
 
 router.use((req, _res, next) =>
@@ -42,8 +69,10 @@ router.get('/', asyncHandler(async (req, res) => {
   const row = await Device.findOne({ user: req.user!.userId });
   const hash = deviceHash(req);
   const blocked = !!row?.blockedUntil && row.blockedUntil.getTime() > Date.now();
+  const verified = !blocked && !!hash && row?.activeHash === hash;
+  if (verified) promoteGuuldoonDeviceCookie(req, res);
   return ApiResponse.success(res, {
-    verified: !blocked && !!hash && row?.activeHash === hash,
+    verified,
     registered: !!row?.activeHash,
     activatedAt: row?.activatedAt,
     blockedUntil: blocked ? row?.blockedUntil : null,
@@ -85,12 +114,9 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
     throw new BadRequestError('Password-ka waa khalad');
   }
 
-  let hash = deviceHash(req);
-  let newCookieValue = '';
-  if (!hash) {
-    newCookieValue = randomBytes(32).toString('hex');
-    hash = digest(newCookieValue);
-  }
+  let deviceValue = rawDeviceCookie(req);
+  if (!deviceValue) deviceValue = randomBytes(32).toString('hex');
+  const hash = digest(deviceValue);
 
   const history = row.history
     .filter(item => item.at && item.at.getTime() > now - day)
@@ -118,15 +144,7 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
     throw new ApiError(423, 'Three devices verified within 24 hours. Guuldoon is blocked for 24 hours');
   }
 
-  if (newCookieValue) {
-    res.cookie(cookie, newCookieValue, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/api/v1/guuldoon',
-      maxAge: 365 * day,
-    });
-  }
+  setDeviceCookie(res, deviceValue);
 
   res.set('Cache-Control', 'no-store, private, max-age=0');
   return ApiResponse.success(
@@ -147,6 +165,7 @@ export async function requireGuuldoonDevice(req: Request): Promise<void> {
 
 router.get('/access', asyncHandler(async (req, res) => {
   await requireGuuldoonDevice(req);
+  promoteGuuldoonDeviceCookie(req, res);
   return ApiResponse.success(res, { verified: true });
 }));
 
