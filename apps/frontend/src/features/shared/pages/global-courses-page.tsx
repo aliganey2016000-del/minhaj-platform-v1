@@ -55,7 +55,7 @@ export function GlobalCoursesPage() {
 
     try {
       await api.post(`/guuldoon/courses/${course._id}/open`);
-      navigate(`/student/courses/${course._id}`);
+      navigate(`/student/guuldoon/courses/${course._id}`);
     } catch (err: any) {
       setAccessError(
         err.response?.data?.message
