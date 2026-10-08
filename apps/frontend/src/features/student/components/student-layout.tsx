@@ -8,7 +8,7 @@
 
 import { Outlet, useLocation } from 'react-router-dom';
 import { StudentSidebar } from './student-sidebar';
-import { DashboardHeader } from '../../shared/components/dashboard-header';
+import { StudentPortalHeader } from './student-portal-header';
 
 /** Regex to match /student/courses/<any-id>/learn */
 const LEARN_ROUTE_RE = /^\/student\/courses\/[^/]+\/learn/;
@@ -19,13 +19,15 @@ export function StudentLayout() {
   const isDashboardRoot = pathname === '/student' || pathname === '/student/';
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-secondary)]">
+    <div className="student-portal-shell relative min-h-screen overflow-x-hidden bg-[var(--color-surface-secondary)]">
+      <div className="student-portal-orb student-portal-orb-one" aria-hidden="true" />
+      <div className="student-portal-orb student-portal-orb-two" aria-hidden="true" />
       {!isLearnPage && <StudentSidebar />}
-      {/* Main content area — offset by sidebar width on desktop (unless on learn page) */}
-      <div className={`${isLearnPage ? '' : 'lg:ms-64'} min-h-screen`}>
-        {/* Hide the shared header on the full-screen course learning page */}
-        <DashboardHeader hidden={isLearnPage} showGreeting={isDashboardRoot} />
-        <Outlet />
+      <div className={`${isLearnPage ? '' : 'lg:ms-72'} relative min-h-screen`}>
+        <StudentPortalHeader hidden={isLearnPage} showGreeting={isDashboardRoot} />
+        <main className="relative z-10">
+          <Outlet />
+        </main>
       </div>
     </div>
   );
