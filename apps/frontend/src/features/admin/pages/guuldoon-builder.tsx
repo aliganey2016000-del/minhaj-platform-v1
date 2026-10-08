@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, BookOpen, FileJson, GraduationCap, Plus, Save, Settings2, Tags } from 'lucide-react';
+import { ArrowLeft, BookOpen, FileJson, GraduationCap, Plus, Save, Settings2, Tags, UploadCloud } from 'lucide-react';
 import api from '../../../lib/axios';
 
 type Chapter = { id: string; title: string; order: number; status: string; lessons: number };
@@ -145,7 +145,10 @@ export function GuuldoonBuilder() {
           <h1 className="mt-1 text-2xl font-black">{course?.title?.en || 'Course'}</h1>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Question-first exam preparation: chapters, historical weights, past papers, answer verification and glossary.</p>
         </div>
-        <button onClick={() => navigate(`/admin/courses/${courseId}/builder`)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-bold"><BookOpen size={17} /> Chapters & Lessons</button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => navigate(`/admin/global-courses/${courseId}/import`)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white"><UploadCloud size={17} /> Import Full Course</button>
+          <button onClick={() => navigate(`/admin/courses/${courseId}/builder`)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-bold"><BookOpen size={17} /> Chapters & Lessons</button>
+        </div>
       </header>
 
       {error && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</div>}

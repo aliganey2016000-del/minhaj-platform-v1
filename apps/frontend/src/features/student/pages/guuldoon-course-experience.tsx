@@ -27,6 +27,13 @@ type LessonItem = {
   duration: number;
   videoSeconds: number;
   hasVideo: boolean;
+  url?: string;
+  contentText?: string;
+  pageFrom?: number | null;
+  pageTo?: number | null;
+  language?: 'so' | 'en' | 'ar';
+  direction?: 'ltr' | 'rtl' | 'auto';
+  offlineAvailable?: boolean;
   notes: { name: string; url: string; type: string }[];
 };
 
@@ -75,11 +82,14 @@ type ExamQuestion = {
   _id: string;
   number: number;
   type: 'mcq' | 'structured' | 'fill' | 'match';
+  language?: 'so' | 'en' | 'ar';
+  direction?: 'ltr' | 'rtl' | 'auto';
   textSo: string;
   textEn?: string;
   options?: string[];
   marks: number;
   figureUrl?: string;
+  figureFiles?: string[];
   chapterId: string;
   topicTags: string[];
   answerStatus: 'verified' | 'pending';
@@ -109,6 +119,17 @@ function formatVideo(seconds: number) {
   return `${minutes}:${String(rest).padStart(2, '0')}`;
 }
 
+function FormulaText({ text }: { text: string }) {
+  const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g).filter(Boolean);
+  return <>
+    {parts.map((part, index) => {
+      const formula = part.startsWith('$') && part.endsWith('$');
+      return formula
+        ? <span key={index} className="mx-0.5 rounded bg-slate-500/10 px-1.5 py-0.5 font-mono text-[.95em]" dir="ltr">{part}</span>
+        : <span key={index}>{part}</span>;
+    })}
+  </>;
+}
 export function GuuldoonCourseExperience() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
@@ -128,6 +149,7 @@ export function GuuldoonCourseExperience() {
   const [mistakes, setMistakes] = useState<any[]>([]);
   const [mistakesLoading, setMistakesLoading] = useState(false);
   const [glossaryTerm, setGlossaryTerm] = useState<Experience['glossary'][number] | null>(null);
+  const [resourcePreview, setResourcePreview] = useState<LessonItem | null>(null);
 
   const loadExperience = useCallback(async () => {
     if (!courseId) return;
@@ -230,6 +252,18 @@ export function GuuldoonCourseExperience() {
     } finally {
       setAnswering(false);
     }
+  };
+
+  const openLearningItem = (item: LessonItem, fallbackIndex = 0) => {
+    if (item.url) {
+      window.open(item.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (item.contentText || item.pageFrom || item.pageTo) {
+      setResourcePreview(item);
+      return;
+    }
+    navigate(`/student/courses/${courseId}/learn`, { state: { startItemIdx: fallbackIndex } });
   };
 
   const loadMistakes = useCallback(async () => {
@@ -348,7 +382,7 @@ export function GuuldoonCourseExperience() {
                   <p className="text-xs text-emerald-600">{data.continueItem.chapterTitle}</p>
                   <p className="mt-1 text-lg font-bold">{data.continueItem.title}</p>
                   <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{data.continueItem.type} {data.continueItem.videoSeconds ? `· ${formatVideo(data.continueItem.videoSeconds)}` : ''}</p>
-                  <button onClick={() => navigate(`/student/courses/${courseId}/learn`)} className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-emerald-600"><PlayCircle size={18} /> Sii wad casharka</button>
+                  <button onClick={() => openLearningItem(data.continueItem!)} className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-emerald-600"><PlayCircle size={18} /> Sii wad casharka</button>
                 </div>
               ) : <p className="mt-3 text-sm text-[var(--color-text-tertiary)]">Cashar la sii wado wali ma jiro.</p>}
             </div>
@@ -390,7 +424,7 @@ export function GuuldoonCourseExperience() {
                   <div className="border-t border-[var(--color-border-subtle)] p-4 sm:p-5">
                     <div className="space-y-2">
                       {chapter.items.map((item, itemIndex) => (
-                        <button key={item.id} onClick={() => navigate(`/student/courses/${courseId}/learn`, { state: { startItemIdx: data.chapters.slice(0, index).reduce((sum, row) => sum + row.items.length, 0) + itemIndex } })} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-[var(--color-surface-tertiary)]">
+                        <button key={item.id} onClick={() => openLearningItem(item, data.chapters.slice(0, index).reduce((sum, row) => sum + row.items.length, 0) + itemIndex)} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-[var(--color-surface-tertiary)]">
                           {itemIndex === 0 ? <PlayCircle className="text-emerald-500" size={20} /> : <Circle className="text-slate-400" size={18} />}
                           <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{item.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{item.hasVideo ? `Muuqaal ${formatVideo(item.videoSeconds)}` : item.type} {item.duration ? `· ${item.duration} daqiiqo` : ''}</p></div>
                         </button>
@@ -433,8 +467,11 @@ export function GuuldoonCourseExperience() {
               {currentQuestion ? (
                 <article className="rounded-[28px] border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5 sm:p-7">
                   <div className="flex flex-wrap items-center gap-2 text-xs"><span className="rounded-full bg-emerald-500/10 px-3 py-1 font-black text-emerald-600">Su'aal {currentQuestion.number}</span><span className="rounded-full bg-slate-500/10 px-3 py-1">{currentQuestion.marks} dhibcood</span>{currentQuestion.topicTags.slice(0, 3).map(tag => <span key={tag} className="rounded-full bg-amber-500/10 px-3 py-1 text-amber-600">{tag}</span>)}</div>
-                  <h3 className="mt-5 text-lg font-black leading-8">{currentQuestion.textSo}</h3>
-                  {currentQuestion.figureUrl && <img src={currentQuestion.figureUrl} alt="" className="mt-4 max-h-72 rounded-xl object-contain" />}
+                  <h3
+                    dir={currentQuestion.direction === 'rtl' || currentQuestion.language === 'ar' ? 'rtl' : currentQuestion.direction === 'ltr' ? 'ltr' : 'auto'}
+                    className="mt-5 text-lg font-black leading-8"
+                  ><FormulaText text={currentQuestion.textSo} /></h3>
+                  {(currentQuestion.figureFiles?.length ? currentQuestion.figureFiles : currentQuestion.figureUrl ? [currentQuestion.figureUrl] : []).map((figure, index) => <img key={figure + index} src={figure} alt="" className="mt-4 max-h-72 rounded-xl object-contain" />)}
                   {questionGlossary.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{questionGlossary.map(term => <button key={term.termEn} type="button" onClick={() => setGlossaryTerm(term)} className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600">{term.termSo} · {term.termEn}</button>)}</div>}
                   {currentQuestion.type === 'mcq' && currentQuestion.options ? (
                     <div className="mt-5 grid gap-3">{currentQuestion.options.map((option, index) => (
@@ -448,12 +485,12 @@ export function GuuldoonCourseExperience() {
                     <button disabled={answering || answers[currentQuestion._id] === undefined || secondsLeft === 0} onClick={() => void submitAnswer(currentQuestion)} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white disabled:opacity-50">{answering ? 'Waa la hubinayaa...' : 'Gudbi jawaabta'}</button>
                   ) : (
                     <div className={`mt-5 rounded-2xl border p-4 ${feedback[currentQuestion._id].marked ? feedback[currentQuestion._id].correct ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-red-500/30 bg-red-500/10' : 'border-amber-500/30 bg-amber-500/10'}`}>
-                      <p className="font-black">{feedback[currentQuestion._id].marked ? feedback[currentQuestion._id].correct ? '✓ Sax' : '✕ Khalad' : 'Jawaab la xaqiijin doonaa'}</p>
+                      <p className="font-black">{feedback[currentQuestion._id].marked ? feedback[currentQuestion._id].correct ? '✓ Sax' : '✕ Khalad' : feedback[currentQuestion._id].message || 'Jawaab la xaqiijin doonaa'}</p>
                       {feedback[currentQuestion._id].explanation && <p className="mt-2 text-sm leading-6">{feedback[currentQuestion._id].explanation}</p>}
                       {feedback[currentQuestion._id].explainerAudioUrl && <audio controls preload="none" className="mt-3 w-full" src={feedback[currentQuestion._id].explainerAudioUrl} />}
                       {feedback[currentQuestion._id].bookRef?.pageFrom && <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Buugga: bogga {feedback[currentQuestion._id].bookRef.pageFrom}{feedback[currentQuestion._id].bookRef.pageTo ? `–${feedback[currentQuestion._id].bookRef.pageTo}` : ''}</p>}
                       {feedback[currentQuestion._id].similar?.length > 0 && <div className="mt-4"><p className="text-xs font-black uppercase tracking-wide text-[var(--color-text-tertiary)]">2 su'aalood oo la mid ah</p><div className="mt-2 space-y-2">{feedback[currentQuestion._id].similar.slice(0, 2).map((similar: any) => <div key={similar._id} className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3 text-sm font-semibold">{similar.textSo}</div>)}</div></div>}
-                      {feedback[currentQuestion._id].marked === false && <p className="mt-2 text-xs text-amber-600">Natiijadan laguma darin Pass Meter-ka ilaa answer key-ga la xaqiijiyo.</p>}
+                      {feedback[currentQuestion._id].marked === false && <p className="mt-2 text-xs text-amber-600">{feedback[currentQuestion._id].answerStatus === 'verified' ? 'Su’aashan auto-marking ma leh; qiimeynta macallinka ayaa loo baahan yahay.' : 'Natiijadan laguma darin Pass Meter-ka ilaa answer key-ga la xaqiijiyo.'}</p>}
                     </div>
                   )}
 
@@ -507,6 +544,19 @@ export function GuuldoonCourseExperience() {
           </button>
         ))}
       </nav>
+
+      {resourcePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setResourcePreview(null)}>
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] p-5 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div><p className="text-xs font-black uppercase tracking-wide text-emerald-600">{resourcePreview.type}</p><h3 className="mt-1 text-xl font-black">{resourcePreview.title}</h3></div>
+              <button onClick={() => setResourcePreview(null)} className="rounded-lg p-2 hover:bg-[var(--color-surface-tertiary)]"><X size={18} /></button>
+            </div>
+            {(resourcePreview.pageFrom || resourcePreview.pageTo) && <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">Buugga: bogga {resourcePreview.pageFrom || '—'}{resourcePreview.pageTo ? `–${resourcePreview.pageTo}` : ''}</p>}
+            {resourcePreview.contentText && <div dir={resourcePreview.direction === 'rtl' || resourcePreview.language === 'ar' ? 'rtl' : resourcePreview.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-4 whitespace-pre-wrap text-sm leading-7"><FormulaText text={resourcePreview.contentText} /></div>}
+          </div>
+        </div>
+      )}
 
       {glossaryTerm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setGlossaryTerm(null)}>
