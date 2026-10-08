@@ -217,7 +217,7 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
       .filter((chapter: any) => chapter.status === 'published' || !chapter.status)
       .sort((a: any, b: any) => a.order - b.order);
 
-  const chapterIds = chapters.map((chapter: any) => String(chapter._id));
+  const chapterIds = chapters.map((chapter: any) => usingUniversalImport ? String(chapter.externalId) : String(chapter._id));
   const [stats, automaticWeights, questionCounts] = await Promise.all([
     chapterStats(req.user!.userId, course._id, chapterIds),
     derivedWeights(course._id, exams.map(exam => exam._id)),
