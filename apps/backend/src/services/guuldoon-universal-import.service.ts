@@ -334,9 +334,18 @@ export async function parseAndValidateGuuldoonImport(
   const zip = inspectFigureZip(figures);
   const issues: ImportIssue[] = [];
   const rowErrors = new Set<string>();
+  const dependencyIssueSheets = new Set<string>();
   const add = (entry: ImportIssue) => {
     issues.push(entry);
-    if (entry.severity === 'error') rowErrors.add(issueKey(entry.sheet, entry.row));
+    if (entry.severity === 'error' && entry.row >= 2) rowErrors.add(issueKey(entry.sheet, entry.row));
+  };
+  const blockRow = (sheet: ImportSheet, row: Row) => {
+    rowErrors.add(issueKey(sheet, row.__row));
+  };
+  const dependencyIssue = (sheet: ImportSheet, message: string) => {
+    if (dependencyIssueSheets.has(sheet)) return;
+    dependencyIssueSheets.add(sheet);
+    issues.push({ sheet, row: 1, field: 'dependency', message, severity: 'error' });
   };
 
   for (const sheet of SHEETS) assertWorkbookHeaders(sheet, rows[sheet], workbook, add);
