@@ -240,7 +240,7 @@ export function GuuldoonLessonReader({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="flex flex-wrap gap-2">
-                  {[...new Set(highlightGroup.map(item => item.relation))].map(relation => (
+                  {Array.from(new Set<GuuldoonRelation>(highlightGroup.map(item => item.relation))).map((relation: GuuldoonRelation) => (
                     <span key={relation} className={'rounded-full px-2.5 py-1 text-[10px] font-black ' + relationMeta[relation].className}>{relationMeta[relation].label}</span>
                   ))}
                 </div>
