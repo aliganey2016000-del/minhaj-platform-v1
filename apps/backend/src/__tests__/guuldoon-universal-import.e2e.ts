@@ -8,6 +8,13 @@ import ExcelJS from 'exceljs';
 import AdmZip from 'adm-zip';
 import { startTestDb } from './support/test-db';
 
+const binaryParser = (res: any, callback: (error: Error | null, body?: Buffer) => void) => {
+  const chunks: Buffer[] = [];
+  res.on('data', (chunk: Buffer | Uint8Array | string) => chunks.push(Buffer.from(chunk)));
+  res.on('end', () => callback(null, Buffer.concat(chunks)));
+  res.on('error', (error: Error) => callback(error));
+};
+
 const LIST_ROWS = [
   ['mcq','video','so','ltr','verified','draft'],
   ['structured','audio','en','rtl','pending','published'],
@@ -164,10 +171,14 @@ async function main() {
     const studentHeaders = { Authorization: `Bearer ${token(studentUser)}` };
 
     // Template is universal and contains exactly the required named sheets.
-    const template = await request(app).get('/api/v1/guuldoon/admin/import/template').set(adminHeaders);
+    const template = await request(app)
+      .get('/api/v1/guuldoon/admin/import/template')
+      .set(adminHeaders)
+      .buffer(true)
+      .parse(binaryParser);
     assert.equal(template.status, 200);
     const templateWb = new ExcelJS.Workbook();
-    await templateWb.xlsx.load(Buffer.from(template.body as Uint8Array) as any);
+    await templateWb.xlsx.load(template.body as any);
     for (const name of ['Subjects','Chapters','Exams','Resources','Questions','Glossary','Lists']) {
       assert.ok(templateWb.getWorksheet(name), `template contains ${name}`);
     }
