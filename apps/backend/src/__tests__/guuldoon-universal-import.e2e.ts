@@ -16,16 +16,24 @@ const binaryParser = (res: any, callback: (error: Error | null, body?: Buffer) =
 };
 
 const LIST_ROWS = [
-  ['mcq','video','so','ltr','verified','draft'],
-  ['structured','audio','en','rtl','pending','published'],
-  ['fill','pdf','ar','auto','',''],
-  ['match','book','','','',''],
-  ['','image','','','',''],
-  ['','note','','','',''],
-  ['','link','','','',''],
+  ['mcq','video','so','ltr','verified','draft','direct'],
+  ['structured','audio','en','rtl','pending','published','indirect'],
+  ['fill','pdf','ar','auto','','','similar'],
+  ['match','book','','','','','derived'],
+  ['','image','','','','',''],
+  ['','note','','','','',''],
+  ['','link','','','','',''],
 ];
 
-async function workbookBuffer(options: { duplicate?: boolean; invalidReference?: boolean; missingFigure?: boolean } = {}) {
+async function workbookBuffer(options: {
+  duplicate?: boolean;
+  duplicateNumber?: boolean;
+  invalidReference?: boolean;
+  missingFigure?: boolean;
+  missingAnchor?: boolean;
+  omitHighlightColumns?: boolean;
+  invalidSubject?: boolean;
+} = {}) {
   const wb = new ExcelJS.Workbook();
   const add = (name: string, headers: string[], rows: any[][]) => {
     const sheet = wb.addWorksheet(name);
@@ -34,14 +42,14 @@ async function workbookBuffer(options: { duplicate?: boolean; invalidReference?:
   };
 
   add('Subjects',
-    ['row_status','subject_id','grade','name_so','name_en','name_ar','description_so','description_en','status'],
-    [['','PHY12',12,'Fiisigis','Physics','الفيزياء','Diyaarinta','Exam preparation','published']],
+    ['row_status','subject_id','grade','language','name_so','name_en','name_ar','description_so','description_en','status'],
+    [['','PHY12',options.invalidSubject ? 11 : 12,'en','','Physics','الفيزياء','','Exam preparation','published']],
   );
   add('Chapters',
     ['row_status','chapter_id','subject_id','order','title_so','title_en','title_ar','exam_weight','status'],
     [
-      ['','PHY12_CH01','PHY12',1,'Koronto','Electricity','الكهرباء',60,'published'],
-      ['','PHY12_CH02','PHY12',2,'Mowjado','Waves','الموجات',40,'published'],
+      ['','PHY12_CH01','PHY12',1,'','Electricity','الكهرباء',60,'published'],
+      ['','PHY12_CH02','PHY12',2,'','Waves','الموجات',40,'published'],
     ],
   );
   add('Exams',
@@ -50,32 +58,32 @@ async function workbookBuffer(options: { duplicate?: boolean; invalidReference?:
   );
   add('Resources',
     ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text'],
-    [['','PHY12_RES001','PHY12','PHY12_CH01','note','Ohm Law','','',10,12,'so','ltr',true,'$V = IR$']],
+    [['','PHY12_RES001','PHY12','PHY12_CH01','note','Ohm Law','','',10,12,'en','ltr',true,'Ohm law states that voltage follows $V = IR$ for a conductor.']],
   );
 
-  const questions = [
-    ['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','ar','rtl','إذا كانت $R = 5\\Omega$ والتيار $I = 2A$، احسب الجهد.','If $R = 5\\Omega$ and $I = 2A$, find V.',2,'2V','10V','20V','5V','B','verified','ohms-law;resistance','circuit.png','PHY12_RES001','Isticmaal $V = IR$.','',10,12,'','',''],
-    ['', 'PHY12_2021_Q02','PHY12_EX2021','PHY12_CH02','PHY12_2021_Q01',2,'structured','so','ltr','Sharax mowjadda.','Explain the wave.',4,'','','','','Draft answer','pending','waves','','','Sharaxaad qabyada ah','','','','','',''],
+  const modernQuestionHeaders = ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'];
+  const legacyQuestionHeaders = ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','similar_question_1','similar_question_2','notes'];
+  const modernQuestions = [
+    ['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','ar','rtl','إذا كانت $R = 5\\Omega$ والتيار $I = 2A$، احسب الجهد.','If $R = 5\\Omega$ and $I = 2A$, find V.',2,'2V','10V','20V','5V','B','verified','ohms-law;resistance','circuit.png','PHY12_RES001','Isticmaal $V = IR$.','',10,12,options.missingAnchor ? 'This anchor is not in the lesson.' : '$V = IR$','derived','','',''],
+    ['', 'PHY12_2021_Q02','PHY12_EX2021','PHY12_CH02','PHY12_2021_Q01',2,'structured','so','ltr','Sharax mowjadda.','Explain the wave.',4,'','','','','Draft answer','pending','waves','','','Sharaxaad qabyada ah','','','','','','',''],
   ];
-  if (options.invalidReference) {
-    questions.push(['', 'PHY12_BAD_REF','PHY12_EX2021','PHY12_MISSING','',3,'mcq','so','ltr','Su’aal khaldan','Bad ref',1,'A','B','C','D','A','verified','bad','','','','','','','','','','']);
+  if (options.invalidReference) modernQuestions.push(['', 'PHY12_BAD_REF','PHY12_EX2021','PHY12_MISSING','',3,'mcq','so','ltr','Su’aal khaldan','Bad ref',1,'A','B','C','D','A','verified','bad','','','','','','','','','','','']);
+  if (options.missingFigure) modernQuestions.push(['', 'PHY12_BAD_FIG','PHY12_EX2021','PHY12_CH01','',4,'mcq','so','ltr','Sawir maqan','Missing figure',1,'A','B','C','D','A','verified','figure','missing.png','','','','','','','','','','']);
+  if (options.duplicate) modernQuestions.push(['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',5,'mcq','so','ltr','Duplicate','Duplicate',1,'A','B','C','D','A','verified','duplicate','','','','','','','','','','']);
+  if (options.duplicateNumber) modernQuestions.push(['', 'PHY12_DUP_NUMBER','PHY12_EX2021','PHY12_CH01','',1,'mcq','en','ltr','Duplicate number','Duplicate number',1,'A','B','C','D','A','verified','duplicate-number','','','','','','','','','','']);
+
+  if (options.omitHighlightColumns) {
+    const legacyQuestions = modernQuestions.map(row => [...row.slice(0, 25), ...row.slice(27)]);
+    add('Questions', legacyQuestionHeaders, legacyQuestions);
+  } else {
+    add('Questions', modernQuestionHeaders, modernQuestions);
   }
-  if (options.missingFigure) {
-    questions.push(['', 'PHY12_BAD_FIG','PHY12_EX2021','PHY12_CH01','',4,'mcq','so','ltr','Sawir maqan','Missing figure',1,'A','B','C','D','A','verified','figure','missing.png','','','','','','','','','']);
-  }
-  if (options.duplicate) {
-    questions.push(['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',5,'mcq','so','ltr','Duplicate','Duplicate',1,'A','B','C','D','A','verified','duplicate','','','','','','','','','','']);
-  }
-  add('Questions',
-    ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','similar_question_1','similar_question_2','notes'],
-    questions,
-  );
   add('Glossary',
     ['row_status','glossary_id','subject_id','term_so','term_en','term_ar'],
     [['','PHY12_G001','PHY12','Iska-caabin','Resistance','المقاومة']],
   );
   add('Lists',
-    ['question_type','resource_type','language','direction','answer_status','status'],
+    ['question_type','resource_type','language','direction','answer_status','status','book_relation'],
     LIST_ROWS,
   );
 
