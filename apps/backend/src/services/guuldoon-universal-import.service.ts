@@ -376,7 +376,7 @@ export async function parseAndValidateGuuldoonImport(
       if (!id) continue;
       const first = seen.get(id);
       if (first) {
-        add({ sheet, row: first.__row, id, field: Object.keys(REQUIRED_HEADERS[sheet])[0], message: `Duplicate ID "${id}" in workbook`, severity: 'error' });
+        add({ sheet, row: first.__row, id, field: REQUIRED_HEADERS[sheet][0], message: `Duplicate ID "${id}" in workbook`, severity: 'error' });
         add({ sheet, row: row.__row, id, message: `Duplicate ID "${id}". First occurrence is row ${first.__row}`, severity: 'error' });
       } else seen.set(id, row);
     }
@@ -444,6 +444,24 @@ export async function parseAndValidateGuuldoonImport(
     if (figureFiles.length && !zip) add({ sheet: 'Questions', row: row.__row, id, field: 'figure_files', message: 'figure_files are listed but no figures ZIP was uploaded', severity: 'error' });
     for (const filename of figureFiles) {
       if (zip && !zip.files.has(path.basename(filename).toLowerCase())) add({ sheet: 'Questions', row: row.__row, id, field: 'figure_files', message: `Figure file "${filename}" was not found in ZIP`, severity: 'error' });
+    }
+  }
+
+  // A parent/similar question that became invalid because of its own dependencies
+  // must not remain a valid target for another row.
+  validQuestions = validIds('Questions');
+  for (const row of rows.Questions) {
+    if (rowErrors.has(issueKey('Questions', row.__row))) continue;
+    const id = str(row.question_id);
+    const parentId = str(row.parent_id);
+    if (parentId && !hasRef(parentId, validQuestions, existing.questions)) {
+      add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: `parent_id "${parentId}" points to an invalid question row`, severity: 'error' });
+    }
+    for (const field of ['similar_question_1', 'similar_question_2']) {
+      const similar = str(row[field]);
+      if (similar && !hasRef(similar, validQuestions, existing.questions)) {
+        add({ sheet: 'Questions', row: row.__row, id, field, message: `${field} "${similar}" points to an invalid question row`, severity: 'error' });
+      }
     }
   }
 
@@ -541,8 +559,9 @@ async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): P
     const entry = parsed.zip.files.get(key);
     if (!entry) continue;
     validateFigureBuffer(entry.name, entry.data);
-    const filename = `${crypto.randomUUID()}${entry.extension}`;
-    await fs.promises.writeFile(path.join(directory, filename), entry.data);
+    const filename = `${crypto.createHash('sha256').update(entry.data).digest('hex').slice(0, 32)}${entry.extension}`;
+    const destination = path.join(directory, filename);
+    if (!fs.existsSync(destination)) await fs.promises.writeFile(destination, entry.data);
     urls.set(key, `/uploads/guuldoon/${courseId}/${filename}`);
   }
   return urls;
