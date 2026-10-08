@@ -16,6 +16,7 @@ export interface IGuuldoonImportBatch extends Document {
   zipFilename?: string;
   excelHash: string;
   zipHash?: string;
+  dataFingerprint: string;
   status: 'validated' | 'committed' | 'expired';
   summary: Record<string, unknown>;
   preview: Record<string, unknown>;
@@ -43,6 +44,7 @@ const schema = new Schema<IGuuldoonImportBatch>({
   zipFilename: { type: String, default: '' },
   excelHash: { type: String, required: true },
   zipHash: { type: String, default: '' },
+  dataFingerprint: { type: String, required: true },
   status: { type: String, enum: ['validated', 'committed', 'expired'], default: 'validated', index: true },
   summary: { type: Schema.Types.Mixed, default: {} },
   preview: { type: Schema.Types.Mixed, default: {} },
