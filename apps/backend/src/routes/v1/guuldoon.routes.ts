@@ -306,7 +306,7 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
       questionCount: countMap.get(id) || 0,
       yearCount: yearCounts.length,
       yearCounts,
-      outsideBook: usingUniversalImport && (!items.some((item: any) => !!item.contentText) || /other topics|outside the book/i.test(localizedTitle || '')),
+      outsideBook: usingUniversalImport && /other topics|outside the book/i.test(localizedTitle || ''),
       items,
     };
   });
