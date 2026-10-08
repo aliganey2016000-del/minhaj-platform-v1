@@ -51,15 +51,15 @@ export function GuuldoonBuilder() {
       setConfig(nextConfig);
       setWeights(Object.fromEntries((nextConfig.chapterWeights || []).map((row: any) => [row.chapterId, Number(row.examWeight)])));
       setGlossaryText(JSON.stringify(nextConfig.glossary || [], null, 2));
-      if (!selectedExam && payload.exams?.[0]?._id) setSelectedExam(payload.exams[0]._id);
+      if (payload.exams?.[0]?._id) setSelectedExam(current => current || payload.exams[0]._id);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Guuldoon Builder lama soo rari karin.');
     } finally {
       setLoading(false);
     }
-  }, [courseId, selectedExam]);
+  }, [courseId]);
 
-  useEffect(() => { void load(); }, [courseId]);
+  useEffect(() => { void load(); }, [load]);
 
   const totalWeight = useMemo(() => chapters.reduce((sum, chapter) => sum + Number(weights[chapter.id] || 0), 0), [chapters, weights]);
 
