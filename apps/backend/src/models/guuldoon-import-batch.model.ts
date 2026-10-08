@@ -49,7 +49,7 @@ const schema = new Schema<IGuuldoonImportBatch>({
   issues: { type: [issueSchema], default: [] },
   result: { type: Schema.Types.Mixed, default: null },
   committedAt: { type: Date, default: null },
-  expiresAt: { type: Date, required: true, index: { expires: 0 } },
+  expiresAt: { type: Date, required: true, index: true },
 }, { timestamps: true });
 
 schema.index({ course: 1, createdAt: -1 });
