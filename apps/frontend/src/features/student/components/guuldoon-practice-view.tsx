@@ -97,6 +97,7 @@ export function GuuldoonPracticeView({
   return (
     <section className="space-y-4">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-xs font-bold text-[var(--color-text-tertiary)] hover:text-emerald-500"><ArrowLeft size={15} /> Cutubyada</button>
+      <div><p className="text-[10px] font-black uppercase tracking-[.14em] text-emerald-500">Tababar</p><h2 className="mt-1 text-lg font-black">{chapter.title}</h2></div>
       {loading ? (
         <p className="py-16 text-center text-sm text-[var(--color-text-tertiary)]">Tababarka waa la soo rarayaa...</p>
       ) : !question ? (
