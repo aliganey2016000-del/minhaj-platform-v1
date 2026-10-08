@@ -25,7 +25,7 @@ const LIST_ROWS = [
   ['','link','','','',''],
 ];
 
-async function workbookBuffer(options: { duplicate?: boolean; invalidReference?: boolean; missingFigure?: boolean } = {}) {
+async function workbookBuffer(options: { duplicate?: boolean; invalidReference?: boolean; missingFigure?: boolean; missingAnchor?: boolean; duplicateNumber?: boolean; rootCause?: boolean } = {}) {
   const wb = new ExcelJS.Workbook();
   const add = (name: string, headers: string[], rows: any[][]) => {
     const sheet = wb.addWorksheet(name);
@@ -34,14 +34,15 @@ async function workbookBuffer(options: { duplicate?: boolean; invalidReference?:
   };
 
   add('Subjects',
-    ['row_status','subject_id','grade','name_so','name_en','name_ar','description_so','description_en','status'],
-    [['','PHY12',12,'Fiisigis','Physics','الفيزياء','Diyaarinta','Exam preparation','published']],
+    ['row_status','subject_id','grade','language','name_so','name_en','name_ar','description_so','description_en','status'],
+    [['','PHY12',12,'en','','Physics','الفيزياء','','Exam preparation','published']],
   );
   add('Chapters',
     ['row_status','chapter_id','subject_id','order','title_so','title_en','title_ar','exam_weight','status'],
     [
-      ['','PHY12_CH01','PHY12',1,'Koronto','Electricity','الكهرباء',60,'published'],
-      ['','PHY12_CH02','PHY12',2,'Mowjado','Waves','الموجات',40,'published'],
+      ['','PHY12_CH01','PHY12',1,'','Electricity','الكهرباء',60,'published'],
+      ['','PHY12_CH02','PHY12',2,'','Waves','الموجات',40,'published'],
+      ...(options.rootCause ? [['','PHY12_BAD_CH','PHY12',0,'','Invalid chapter','',0,'published']] : []),
     ],
   );
   add('Exams',
@@ -50,24 +51,35 @@ async function workbookBuffer(options: { duplicate?: boolean; invalidReference?:
   );
   add('Resources',
     ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text'],
-    [['','PHY12_RES001','PHY12','PHY12_CH01','note','Ohm Law','','',10,12,'so','ltr',true,'$V = IR$']],
+    [['','PHY12_RES001','PHY12','PHY12_CH01','note','1.1 Ohm Law','','',10,12,'en','ltr',true,'Ohm law states that voltage equals current multiplied by resistance. $V = IR$.']],
   );
 
+  const anchor = options.missingAnchor
+    ? 'This sentence does not exist in the lesson.'
+    : 'Ohm law states that voltage equals current multiplied by resistance.';
   const questions = [
-    ['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','ar','rtl','إذا كانت $R = 5\\Omega$ والتيار $I = 2A$، احسب الجهد.','If $R = 5\\Omega$ and $I = 2A$, find V.',2,'2V','10V','20V','5V','B','verified','ohms-law;resistance','circuit.png','PHY12_RES001','Isticmaal $V = IR$.','',10,12,'','',''],
-    ['', 'PHY12_2021_Q02','PHY12_EX2021','PHY12_CH02','PHY12_2021_Q01',2,'structured','so','ltr','Sharax mowjadda.','Explain the wave.',4,'','','','','Draft answer','pending','waves','','','Sharaxaad qabyada ah','','','','','',''],
+    ['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','ar','rtl','إذا كانت $R = 5\\Omega$ والتيار $I = 2A$، احسب الجهد.','If $R = 5\\Omega$ and $I = 2A$, find V.',2,'2V','10V','20V','5V','B','verified','ohms-law;resistance','circuit.png','PHY12_RES001','Isticmaal $V = IR$.','',10,12,anchor,'direct','','',''],
+    ['', 'PHY12_2021_Q02','PHY12_EX2021','PHY12_CH02','PHY12_2021_Q01',2,'structured','so','ltr','Sharax mowjadda.','Explain the wave.',4,'','','','','Draft answer','pending','waves','','','Sharaxaad qabyada ah','','','','','','','',''],
   ];
   if (options.invalidReference) {
-    questions.push(['', 'PHY12_BAD_REF','PHY12_EX2021','PHY12_MISSING','',3,'mcq','so','ltr','Su’aal khaldan','Bad ref',1,'A','B','C','D','A','verified','bad','','','','','','','','','','']);
+    questions.push(['', 'PHY12_BAD_REF','PHY12_EX2021','PHY12_MISSING','',3,'mcq','so','ltr','Su’aal khaldan','Bad ref',1,'A','B','C','D','A','verified','bad','','','','','','','','','','','','']);
   }
   if (options.missingFigure) {
-    questions.push(['', 'PHY12_BAD_FIG','PHY12_EX2021','PHY12_CH01','',4,'mcq','so','ltr','Sawir maqan','Missing figure',1,'A','B','C','D','A','verified','figure','missing.png','','','','','','','','','']);
+    questions.push(['', 'PHY12_BAD_FIG','PHY12_EX2021','PHY12_CH01','',4,'mcq','so','ltr','Sawir maqan','Missing figure',1,'A','B','C','D','A','verified','figure','missing.png','','','','','','','','','','','','']);
   }
   if (options.duplicate) {
-    questions.push(['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',5,'mcq','so','ltr','Duplicate','Duplicate',1,'A','B','C','D','A','verified','duplicate','','','','','','','','','','']);
+    questions.push(['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',5,'mcq','so','ltr','Duplicate','Duplicate',1,'A','B','C','D','A','verified','duplicate','','','','','','','','','','','','']);
+  }
+  if (options.duplicateNumber) {
+    questions.push(['', 'PHY12_DUP_NUMBER','PHY12_EX2021','PHY12_CH01','',1,'mcq','en','ltr','Duplicate number','',1,'A','B','C','D','A','verified','duplicate-number','','','','','','','','','','','','']);
+  }
+  if (options.rootCause) {
+    for (let index = 0; index < 5; index += 1) {
+      questions.push(['', 'PHY12_BLOCKED_' + index,'PHY12_EX2021','PHY12_BAD_CH','',10 + index,'mcq','en','ltr','Blocked dependent question','',1,'A','B','C','D','A','verified','blocked','','','','','','','','','','','','']);
+    }
   }
   add('Questions',
-    ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','similar_question_1','similar_question_2','notes'],
+    ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'],
     questions,
   );
   add('Glossary',
@@ -193,6 +205,11 @@ async function main() {
     for (const name of ['Subjects','Chapters','Exams','Resources','Questions','Glossary','Lists']) {
       assert.ok(templateWb.getWorksheet(name), `template contains ${name}`);
     }
+    const templateQuestionHeaders = (templateWb.getWorksheet('Questions')!.getRow(1).values as any[]).map(String);
+    assert.ok(templateQuestionHeaders.includes('book_anchor_text'));
+    assert.ok(templateQuestionHeaders.includes('book_relation'));
+    const templateSubjectHeaders = (templateWb.getWorksheet('Subjects')!.getRow(1).values as any[]).map(String);
+    assert.ok(templateSubjectHeaders.includes('language'));
 
     // Duplicate question_id is a row-level validation error with row details.
     const duplicate = await request(app)
@@ -202,6 +219,35 @@ async function main() {
       .attach('figures', figuresZip(), { filename: 'figures.zip' });
     assert.equal(duplicate.status, 200, JSON.stringify(duplicate.body));
     assert.ok(duplicate.body.data.errors.some((item: any) => item.field === 'question_id' && /Duplicate/.test(item.message)));
+
+    // number must be unique inside one exam before commit.
+    const duplicateNumber = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/validate`)
+      .set(adminHeaders)
+      .attach('excel', await workbookBuffer({ duplicateNumber: true }), { filename: 'Guuldoon_Universal_Import_Template.xlsx' })
+      .attach('figures', figuresZip(), { filename: 'figures.zip' });
+    assert.equal(duplicateNumber.status, 200, JSON.stringify(duplicateNumber.body));
+    assert.ok(duplicateNumber.body.data.errors.some((item: any) => item.id === 'PHY12_DUP_NUMBER' && item.field === 'number'));
+
+    // Missing anchors are warnings, not import failures.
+    const missingAnchor = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/validate`)
+      .set(adminHeaders)
+      .attach('excel', await workbookBuffer({ missingAnchor: true }), { filename: 'Guuldoon_Universal_Import_Template.xlsx' })
+      .attach('figures', figuresZip(), { filename: 'figures.zip' });
+    assert.equal(missingAnchor.status, 200, JSON.stringify(missingAnchor.body));
+    assert.ok(missingAnchor.body.data.warnings.some((item: any) => item.field === 'book_anchor_text' && /not found/.test(item.message)));
+
+    // Invalid parent rows block dependants without emitting one cascading error per question.
+    const rootCause = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/validate`)
+      .set(adminHeaders)
+      .attach('excel', await workbookBuffer({ rootCause: true }), { filename: 'Guuldoon_Universal_Import_Template.xlsx' })
+      .attach('figures', figuresZip(), { filename: 'figures.zip' });
+    assert.equal(rootCause.status, 200, JSON.stringify(rootCause.body));
+    assert.ok(rootCause.body.data.errors.some((item: any) => item.id === 'PHY12_BAD_CH' && item.field === 'order'));
+    assert.equal(rootCause.body.data.errors.filter((item: any) => /^PHY12_BLOCKED_/.test(item.id || '') && item.field === 'chapter_id').length, 0);
+    assert.ok(rootCause.body.data.warnings.some((item: any) => item.sheet === 'Questions' && item.field === 'dependency'));
 
     // Unsafe ZIP paths are rejected before extraction.
     const unsafeZip = await request(app)
@@ -255,6 +301,8 @@ async function main() {
     assert.match(q1?.textSo || '', /\$R = 5\\Omega\$/);
     assert.equal(q1?.answerStatus, 'verified');
     assert.equal(q1?.markingMode, 'auto');
+    assert.equal(q1?.bookRelation, 'direct');
+    assert.match(q1?.bookAnchorText || '', /voltage equals current/i);
     assert.equal(q1?.answer, 1);
     assert.equal(q2?.answerStatus, 'pending');
     assert.equal(q2?.markingMode, 'manual');
@@ -273,7 +321,7 @@ async function main() {
       .attach('excel', excel, { filename: 'Guuldoon_Universal_Import_Template.xlsx' })
       .attach('figures', zip, { filename: 'figures.zip' });
     assert.equal(committed2.status, 200, JSON.stringify(committed2.body));
-    assert.equal(committed2.body.data.created.Questions, 0);
+    assert.equal(Object.values(committed2.body.data.created).reduce((sum: number, value: any) => sum + Number(value || 0), 0), 0);
     assert.equal(await Question.countDocuments({ course: course._id }), 2);
 
     // Student experience uses imported chapters/resources/glossary without touching normal CourseContent.
@@ -294,9 +342,85 @@ async function main() {
       .set(studentHeaders)
       .set('Cookie', cookie);
     assert.equal(experience.status, 200, JSON.stringify(experience.body));
+    assert.equal(experience.body.data.course.language, 'en');
     assert.equal(experience.body.data.chapters[0].id, 'PHY12_CH01');
-    assert.equal(experience.body.data.chapters[0].items[0].title, 'Ohm Law');
+    assert.equal(experience.body.data.chapters[0].title, 'Electricity');
+    assert.equal(experience.body.data.chapters[0].items[0].title, '1.1 Ohm Law');
+    assert.equal(experience.body.data.chapters[0].yearCounts[0].year, 2021);
     assert.equal(experience.body.data.glossary[0].termAr, 'المقاومة');
+
+    const lesson = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/chapters/PHY12_CH01/lesson`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(lesson.status, 200, JSON.stringify(lesson.body));
+    assert.equal(lesson.body.data.chapter.title, 'Electricity');
+    assert.equal(lesson.body.data.sections[0].contentText.includes('$V = IR
+    const exam = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/exams/${q1!.exam}`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(exam.status, 200);
+    const publicQ1 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q01');
+    const publicQ2 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q02');
+    assert.equal(publicQ1.answer, undefined);
+
+    const autoMarked = await request(app)
+      .post(`/api/v1/guuldoon/questions/${publicQ1._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer: 1 });
+    assert.equal(autoMarked.status, 200);
+    assert.equal(autoMarked.body.data.marked, true);
+    assert.equal(autoMarked.body.data.correct, true);
+
+    const pending = await request(app)
+      .post(`/api/v1/guuldoon/questions/${publicQ2._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer: 'draft' });
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.data.marked, false);
+    assert.equal(pending.body.data.correct, null);
+    assert.equal(pending.body.data.explanationStatus, 'draft');
+    assert.equal(pending.body.data.explanation, 'Sharaxaad qabyada ah');
+
+    const afterPending = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/experience`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(afterPending.status, 200);
+    assert.equal(afterPending.body.data.passMeter, 100, 'pending structured attempt must not reduce Pass Meter');
+
+    // Error report is downloadable and auditable.
+    const report = await request(app)
+      .get(`/api/v1/guuldoon/admin/import/batches/${batchId}/errors`)
+      .set(adminHeaders);
+    assert.equal(report.status, 200);
+    assert.match(String(report.headers['content-type']), /spreadsheetml/);
+
+    console.log('Guuldoon universal Excel importer: template, validation, ZIP safety, partial import, idempotency, RTL/LaTeX and auto-marking passed.');
+  } finally {
+    await db.stop();
+  }
+}
+
+main().then(() => process.exit(0)).catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+), true);
+    assert.equal(lesson.body.data.sections[0].highlights[0].relation, 'direct');
+    assert.equal(lesson.body.data.sections[0].highlights[0].questions[0].externalId, 'PHY12_2021_Q01');
+    assert.equal(lesson.body.data.sections[0].highlights[0].questions[0].answer, undefined);
+
+    const byYear = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/chapters/PHY12_CH01/questions?year=2021`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(byYear.status, 200);
+    assert.equal(byYear.body.data.yearCounts[0].year, 2021);
+    assert.equal(byYear.body.data.questions[0].examYear, 2021);
 
     const exam = await request(app)
       .get(`/api/v1/guuldoon/courses/${course._id}/exams/${q1!.exam}`)
