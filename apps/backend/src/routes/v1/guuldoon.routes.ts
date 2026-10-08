@@ -152,9 +152,9 @@ async function chapterStats(userId: string, courseId: mongoose.Types.ObjectId, c
   return result;
 }
 
-async function derivedWeights(courseId: mongoose.Types.ObjectId) {
+async function derivedWeights(courseId: mongoose.Types.ObjectId, examIds: mongoose.Types.ObjectId[]) {
   const rows = await GuuldoonQuestion.aggregate([
-    { $match: { course: courseId } },
+    { $match: { course: courseId, exam: { $in: examIds } } },
     { $group: { _id: '$chapterId', marks: { $sum: '$marks' } } },
   ]);
   const total = rows.reduce((sum, row) => sum + Number(row.marks || 0), 0);
@@ -209,9 +209,9 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
   const chapterIds = chapters.map((chapter: any) => String(chapter._id));
   const [stats, automaticWeights, questionCounts] = await Promise.all([
     chapterStats(req.user!.userId, course._id, chapterIds),
-    derivedWeights(course._id),
+    derivedWeights(course._id, exams.map(exam => exam._id)),
     GuuldoonQuestion.aggregate([
-      { $match: { course: course._id, chapterId: { $in: chapterIds } } },
+      { $match: { course: course._id, exam: { $in: exams.map(exam => exam._id) }, chapterId: { $in: chapterIds } } },
       { $group: { _id: '$chapterId', count: { $sum: 1 } } },
     ]),
   ]);
@@ -358,6 +358,8 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
   if (!question) throw new NotFoundError('Guuldoon question');
 
   const { course, student } = await loadStudentAccess(req, String(question.course), true);
+  const publishedExam = await GuuldoonExam.exists({ _id: question.exam, course: course._id, published: true });
+  if (!publishedExam) throw new NotFoundError('Guuldoon question');
   const submitted = req.body?.answer;
   const timeMs = Math.max(0, Math.min(60 * 60 * 1000, Number(req.body?.timeMs) || 0));
   const marked = question.answerStatus === 'verified' && question.answer !== undefined;
