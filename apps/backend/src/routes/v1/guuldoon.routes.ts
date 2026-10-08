@@ -1,4 +1,5 @@
 import deviceRoutes, { promoteGuuldoonDeviceCookie, requireGuuldoonDevice } from './guuldoon-device.routes';
+import guuldoonImportRoutes from './guuldoon-import.routes';
 import { Router, Request } from 'express';
 import mongoose from 'mongoose';
 import Profile from '../../models/profile.model';
@@ -14,6 +15,9 @@ import GuuldoonExam from '../../models/guuldoon-past-exam.model';
 import GuuldoonQuestion from '../../models/guuldoon-question.model';
 import GuuldoonAttempt from '../../models/guuldoon-attempt.model';
 import GuuldoonMistake from '../../models/guuldoon-mistake.model';
+import GuuldoonChapter from '../../models/guuldoon-chapter.model';
+import GuuldoonResource from '../../models/guuldoon-resource.model';
+import GuuldoonGlossary from '../../models/guuldoon-glossary.model';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../utils/api-error';
@@ -34,6 +38,7 @@ router.use((req, _res, next) => {
 });
 
 router.use('/devices', deviceRoutes);
+router.use('/admin/import', guuldoonImportRoutes);
 
 function objectId(value: string, label = 'ID'): mongoose.Types.ObjectId {
   if (!mongoose.isValidObjectId(value)) throw new BadRequestError(`Invalid ${label}`);
@@ -193,18 +198,24 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
   promoteGuuldoonDeviceCookie(req, res);
   res.set('Cache-Control', 'no-store, private, max-age=0');
 
-  const [content, config, exams, progress, profile, mistakes] = await Promise.all([
+  const [content, config, exams, progress, profile, mistakes, importedChapters, importedResources, importedGlossary] = await Promise.all([
     CourseContent.findOne({ course: course._id }).lean(),
     GuuldoonConfig.findOne({ course: course._id }).lean(),
     GuuldoonExam.find({ course: course._id, published: true }).sort({ year: -1 }).lean(),
     Progress.findOne({ student: student._id, course: course._id }).lean(),
     student.profile ? Profile.findById(student.profile).select('firstName lastName').lean() : null,
     GuuldoonMistake.find({ user: req.user!.userId, course: course._id }).select('box dueAt').lean(),
+    GuuldoonChapter.find({ course: course._id, status: 'published' }).sort({ order: 1 }).lean(),
+    GuuldoonResource.find({ course: course._id }).sort({ createdAt: 1 }).lean(),
+    GuuldoonGlossary.find({ course: course._id }).sort({ termSo: 1 }).lean(),
   ]);
 
-  const chapters = (content?.chapters || [])
-    .filter((chapter: any) => chapter.status === 'published' || !chapter.status)
-    .sort((a: any, b: any) => a.order - b.order);
+  const usingUniversalImport = importedChapters.length > 0;
+  const chapters = usingUniversalImport
+    ? importedChapters
+    : (content?.chapters || [])
+      .filter((chapter: any) => chapter.status === 'published' || !chapter.status)
+      .sort((a: any, b: any) => a.order - b.order);
 
   const chapterIds = chapters.map((chapter: any) => String(chapter._id));
   const [stats, automaticWeights, questionCounts] = await Promise.all([
@@ -218,32 +229,57 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
 
   const manualWeights = new Map((config?.chapterWeights || []).map(item => [item.chapterId, item.examWeight]));
   const countMap = new Map(questionCounts.map(row => [String(row._id), Number(row.count || 0)]));
+  const resourcesByChapter = new Map<string, any[]>();
+  for (const resource of importedResources) {
+    if (!resource.chapterExternalId) continue;
+    const list = resourcesByChapter.get(resource.chapterExternalId) || [];
+    list.push(resource);
+    resourcesByChapter.set(resource.chapterExternalId, list);
+  }
   const chapterRows = chapters.map((chapter: any) => {
-    const id = String(chapter._id);
-    const examWeight = manualWeights.get(id) ?? Math.round((automaticWeights[id] || 0) * 10) / 10;
+    const id = usingUniversalImport ? String(chapter.externalId) : String(chapter._id);
+    const importedWeight = usingUniversalImport && chapter.examWeight !== null && chapter.examWeight !== undefined ? Number(chapter.examWeight) : undefined;
+    const examWeight = importedWeight ?? manualWeights.get(id) ?? Math.round((automaticWeights[id] || 0) * 10) / 10;
     const mastery = stats[id]?.mastery || 0;
+    const importedItems = (resourcesByChapter.get(id) || []).map((resource: any) => ({
+      id: String(resource._id),
+      title: resource.title,
+      type: resource.type,
+      duration: 0,
+      videoSeconds: 0,
+      hasVideo: resource.type === 'video',
+      url: resource.url || '',
+      contentText: resource.contentText || '',
+      pageFrom: resource.pageFrom || null,
+      pageTo: resource.pageTo || null,
+      language: resource.language,
+      direction: resource.direction,
+      offlineAvailable: resource.offlineAvailable,
+      notes: resource.type === 'pdf' ? [{ name: resource.title, url: resource.url, type: 'pdf' }] : [],
+    }));
+    const builderItems = usingUniversalImport ? [] : (chapter.items || [])
+      .filter((item: any) => item.status === 'published' || !item.status)
+      .sort((a: any, b: any) => a.order - b.order)
+      .map((item: any) => ({
+        id: String(item._id),
+        title: item.title,
+        type: item.type,
+        duration: item.duration || 0,
+        videoSeconds: item.videoDuration || 0,
+        hasVideo: !!item.videoUrl,
+        notes: (item.attachments || []).filter((attachment: any) => /pdf/i.test(attachment.type || attachment.name || '')),
+      }));
     return {
       id,
-      title: chapter.title,
-      description: chapter.description || '',
+      title: usingUniversalImport ? (chapter.titleSo || chapter.titleEn) : chapter.title,
+      description: usingUniversalImport ? '' : chapter.description || '',
       order: chapter.order,
       examWeight,
       mastery,
       confidence: stats[id]?.confidence || 0,
       attempts: stats[id]?.attempts || 0,
       questionCount: countMap.get(id) || 0,
-      items: (chapter.items || [])
-        .filter((item: any) => item.status === 'published' || !item.status)
-        .sort((a: any, b: any) => a.order - b.order)
-        .map((item: any) => ({
-          id: String(item._id),
-          title: item.title,
-          type: item.type,
-          duration: item.duration || 0,
-          videoSeconds: item.videoDuration || 0,
-          hasVideo: !!item.videoUrl,
-          notes: (item.attachments || []).filter((attachment: any) => /pdf/i.test(attachment.type || attachment.name || '')),
-        })),
+      items: usingUniversalImport ? importedItems : builderItems,
     };
   });
 
@@ -297,14 +333,15 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
       answerKeyStatus: exam.answerKeyStatus,
     })),
     mistakeSummary,
-    glossary: config?.glossary || [],
+    glossary: importedGlossary.length ? importedGlossary.map(item => ({ termSo: item.termSo, termEn: item.termEn, termAr: item.termAr })) : (config?.glossary || []),
   });
 }));
 
 router.get('/courses/:courseId/chapters/:chapterId/questions', asyncHandler(async (req, res) => {
   const { course } = await loadStudentAccess(req, req.params.courseId, true);
-  const content = await CourseContent.findOne({ course: course._id }).select('chapters._id chapters.title').lean();
-  const chapter = (content?.chapters || []).find((item: any) => String(item._id) === req.params.chapterId);
+  const importedChapter = await GuuldoonChapter.findOne({ course: course._id, externalId: req.params.chapterId, status: 'published' }).lean();
+  const content = importedChapter ? null : await CourseContent.findOne({ course: course._id }).select('chapters._id chapters.title').lean();
+  const chapter = importedChapter || (content?.chapters || []).find((item: any) => String(item._id) === req.params.chapterId);
   if (!chapter) throw new NotFoundError('Guuldoon chapter');
 
   const examIds = await GuuldoonExam.distinct('_id', { course: course._id, published: true });
@@ -320,7 +357,7 @@ router.get('/courses/:courseId/chapters/:chapterId/questions', asyncHandler(asyn
     .lean();
 
   return ApiResponse.success(res, {
-    chapter: { id: String((chapter as any)._id), title: (chapter as any).title },
+    chapter: { id: importedChapter ? String((chapter as any).externalId) : String((chapter as any)._id), title: importedChapter ? ((chapter as any).titleSo || (chapter as any).titleEn) : (chapter as any).title },
     questions: questions.map(safeQuestion),
   });
 }));
@@ -362,7 +399,7 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
   if (!publishedExam) throw new NotFoundError('Guuldoon question');
   const submitted = req.body?.answer;
   const timeMs = Math.max(0, Math.min(60 * 60 * 1000, Number(req.body?.timeMs) || 0));
-  const marked = question.answerStatus === 'verified' && question.answer !== undefined;
+  const marked = question.answerStatus === 'verified' && question.markingMode === 'auto' && question.answer !== undefined;
   const correct = marked ? normalizedAnswer(submitted) === normalizedAnswer(question.answer) : null;
 
   await GuuldoonAttempt.create({
@@ -408,11 +445,12 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     marked,
     correct,
     answerStatus: question.answerStatus,
-    explanation: marked ? question.explainerText || '' : '',
+    markingMode: question.markingMode,
+    explanation: question.answerStatus === 'verified' ? question.explainerText || '' : '',
     explainerAudioUrl: marked ? question.explainerAudioUrl || '' : '',
     bookRef: question.bookRef || null,
     similar: similar.map(safeQuestion),
-    message: marked ? (correct ? 'Sax' : 'Khalad') : 'Jawaab la xaqiijin doonaa',
+    message: marked ? (correct ? 'Sax' : 'Khalad') : question.answerStatus === 'verified' ? 'Jawaabta macallin ayaa qiimeyn doona' : 'Jawaab la xaqiijin doonaa',
   });
 }));
 
@@ -565,7 +603,8 @@ router.post('/admin/exams/:examId/questions/bulk', asyncHandler(async (req, res)
     if (!String(row.textSo || '').trim()) throw new BadRequestError(`Question ${number}: Somali question text required`);
     if (!validChapters.has(chapterId)) throw new BadRequestError(`Question ${number}: chapterId does not exist in this course`);
     const answerStatus = row.answerStatus === 'verified' ? 'verified' : 'pending';
-    if (answerStatus === 'verified' && row.answer === undefined) throw new BadRequestError(`Question ${number}: verified questions require an answer`);
+    const markingMode = answerStatus === 'verified' && ['mcq', 'fill'].includes(type) ? 'auto' : 'manual';
+    if (answerStatus === 'verified' && markingMode === 'auto' && row.answer === undefined) throw new BadRequestError(`Question ${number}: verified auto-marked questions require an answer`);
 
     return {
       updateOne: {
@@ -585,6 +624,7 @@ router.post('/admin/exams/:examId/questions/bulk', asyncHandler(async (req, res)
             topicTags: Array.isArray(row.topicTags) ? row.topicTags.map((tag: unknown) => String(tag).trim()).filter(Boolean) : [],
             answer: row.answer,
             answerStatus,
+            markingMode,
             explainerAudioUrl: String(row.explainerAudioUrl || '').trim(),
             explainerText: String(row.explainerText || '').trim(),
             bookRef: row.bookRef || undefined,
