@@ -302,7 +302,7 @@ async function main() {
     const q2 = await Question.findOne({ course: course._id, externalId: 'PHY12_2021_Q02' }).select('+answer').lean();
     assert.equal(q1?.language, 'ar');
     assert.equal(q1?.direction, 'rtl');
-    assert.match(q1?.textSo || '', /\\$R = 5\\\\Omega\\$/);
+    assert.ok((q1?.textSo || '').includes('$R = 5' + String.fromCharCode(92) + 'Omega$'));
     assert.equal(q1?.answerStatus, 'verified');
     assert.equal(q1?.markingMode, 'auto');
     assert.equal(q1?.answer, 1);
