@@ -620,20 +620,30 @@ export async function parseAndValidateGuuldoonImport(
     }
   }
 
-  // A parent/similar question that became invalid because of its own dependencies
-  // must not remain a valid target for another row.
-  validQuestions = validIds('Questions');
-  for (const row of rows.Questions) {
-    if (rowErrors.has(issueKey('Questions', row.__row))) continue;
-    const id = str(row.question_id);
-    const parentId = str(row.parent_id);
-    if (parentId && !hasRef(parentId, validQuestions, existing.questions)) {
-      add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: `parent_id "${parentId}" points to an invalid question row`, severity: 'error' });
-    }
-    for (const field of ['similar_question_1', 'similar_question_2']) {
-      const similar = str(row[field]);
-      if (similar && !hasRef(similar, validQuestions, existing.questions)) {
-        add({ sheet: 'Questions', row: row.__row, id, field, message: `${field} "${similar}" points to an invalid question row`, severity: 'error' });
+  // Propagate invalid workbook dependencies as blocked rows instead of
+  // repeating the same root-cause error hundreds of times.
+  let dependencyChanged = true;
+  while (dependencyChanged) {
+    dependencyChanged = false;
+    validQuestions = validIds('Questions');
+    for (const row of rows.Questions) {
+      const key = issueKey('Questions', row.__row);
+      if (rowErrors.has(key) || blockedRows.has(key)) continue;
+      const references = [
+        ['parent_id', str(row.parent_id)],
+        ['similar_question_1', str(row.similar_question_1)],
+        ['similar_question_2', str(row.similar_question_2)],
+      ] as const;
+      for (const [field, ref] of references) {
+        if (!ref || hasRef(ref, validQuestions, existing.questions)) continue;
+        if (declaredQuestions.has(ref)) {
+          blockForInvalidParent('Questions', row);
+          dependencyChanged = true;
+          break;
+        }
+        add({ sheet: 'Questions', row: row.__row, id: str(row.question_id), field, message: `${field} "${ref}" does not exist`, severity: 'error' });
+        dependencyChanged = true;
+        break;
       }
     }
   }
