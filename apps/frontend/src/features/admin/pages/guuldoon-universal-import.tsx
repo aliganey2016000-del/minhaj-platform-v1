@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -65,7 +65,7 @@ export function GuuldoonUniversalImport() {
     return form;
   };
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     if (!courseId) return;
     try {
       const { data } = await api.get(`/guuldoon/admin/import/courses/${courseId}/history`);
@@ -73,9 +73,9 @@ export function GuuldoonUniversalImport() {
     } catch {
       setHistory([]);
     }
-  };
+  }, [courseId]);
 
-  useEffect(() => { void loadHistory(); }, [courseId]);
+  useEffect(() => { void loadHistory(); }, [loadHistory]);
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -292,8 +292,8 @@ export function GuuldoonUniversalImport() {
         <section className="rounded-[28px] border border-emerald-500/30 bg-emerald-500/10 p-6">
           <div className="flex items-center gap-3"><CheckCircle2 className="text-emerald-600" size={30} /><div><h2 className="text-xl font-black">Import Completed</h2><p className="text-sm text-[var(--color-text-secondary)]">Batch {result.batchId}</p></div></div>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Created</p><p className="text-2xl font-black">{Object.values(result.created || {}).reduce((a, b) => a + Number(b), 0)}</p></div>
-            <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Updated</p><p className="text-2xl font-black">{Object.values(result.updated || {}).reduce((a, b) => a + Number(b), 0)}</p></div>
+            <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Created</p><p className="text-2xl font-black">{Object.values(result.created || {}).reduce((a: number, b) => a + Number(b), 0)}</p></div>
+            <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Updated</p><p className="text-2xl font-black">{Object.values(result.updated || {}).reduce((a: number, b) => a + Number(b), 0)}</p></div>
             <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Skipped</p><p className="text-2xl font-black">{result.skipped || 0}</p></div>
           </div>
           <p className="mt-4 text-sm">Images uploaded: <strong>{result.imagesUploaded || 0}</strong></p>
