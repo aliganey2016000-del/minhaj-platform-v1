@@ -412,6 +412,7 @@ export async function parseAndValidateGuuldoonImport(
   }
 
   const questionFirst = new Map<string, Row>();
+  const questionNumberFirst = new Map<string, Row>();
   for (const row of rows.Questions) {
     requireValue('Questions', row, 'question_id');
     requireValue('Questions', row, 'exam_id');
@@ -425,12 +426,27 @@ export async function parseAndValidateGuuldoonImport(
         add({ sheet: 'Questions', row: row.__row, id, field: 'question_id', message: `Duplicate question_id "${id}". First occurrence is row ${first.__row}`, severity: 'error' });
       } else questionFirst.set(id, row);
     }
-    if (!Number.isFinite(Number(row.number)) || Number(row.number) < 1) add({ sheet: 'Questions', row: row.__row, id, field: 'number', message: 'number must be greater than 0', severity: 'error' });
+    const number = Number(row.number);
+    if (!Number.isFinite(number) || number < 1) add({ sheet: 'Questions', row: row.__row, id, field: 'number', message: 'number must be greater than 0', severity: 'error' });
+    const examNumberKey = str(row.exam_id) && Number.isFinite(number) ? `${str(row.exam_id)}:${number}` : '';
+    if (examNumberKey) {
+      const first = questionNumberFirst.get(examNumberKey);
+      if (first && str(first.question_id) !== id) {
+        add({ sheet: 'Questions', row: first.__row, id: str(first.question_id), field: 'number', message: `Question number ${number} is duplicated inside exam_id "${row.exam_id}". Another occurrence is row ${row.__row}`, severity: 'error' });
+        add({ sheet: 'Questions', row: row.__row, id, field: 'number', message: `Question number ${number} is duplicated inside exam_id "${row.exam_id}". First occurrence is row ${first.__row}`, severity: 'error' });
+      } else if (!first) {
+        questionNumberFirst.set(examNumberKey, row);
+      }
+    }
     if (!Number.isFinite(Number(row.marks)) || Number(row.marks) < 0) add({ sheet: 'Questions', row: row.__row, id, field: 'marks', message: 'marks must be 0 or greater', severity: 'error' });
     enumValue('Questions', row, 'type', lists.questionType, SERVER_QUESTION_TYPES);
     enumValue('Questions', row, 'language', lists.language, SERVER_LANGUAGES);
     enumValue('Questions', row, 'direction', lists.direction, SERVER_DIRECTIONS);
     enumValue('Questions', row, 'answer_status', lists.answerStatus, SERVER_ANSWER_STATUS);
+    const bookRelation = lower(row.book_relation);
+    if (bookRelation && !SERVER_BOOK_RELATIONS.has(bookRelation)) {
+      add({ sheet: 'Questions', row: row.__row, id, field: 'book_relation', message: `book_relation must be direct, indirect, similar or derived; got "${bookRelation}"`, severity: 'error' });
+    }
 
     const type = lower(row.type);
     const answerStatus = lower(row.answer_status);
