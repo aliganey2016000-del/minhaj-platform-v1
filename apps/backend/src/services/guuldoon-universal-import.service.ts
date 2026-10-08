@@ -214,9 +214,49 @@ function validateFigureBuffer(name: string, data: Buffer): void {
   }
 }
 
+function rawZipEntryNames(buffer: Buffer): string[] {
+  const names: string[] = [];
+  const signature = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const index = buffer.indexOf(signature, offset);
+    if (index < 0) break;
+    if (index + 46 > buffer.length) throw new BadRequestError('Figures ZIP central directory is malformed');
+    const nameLength = buffer.readUInt16LE(index + 28);
+    const extraLength = buffer.readUInt16LE(index + 30);
+    const commentLength = buffer.readUInt16LE(index + 32);
+    const nameStart = index + 46;
+    const nameEnd = nameStart + nameLength;
+    if (nameEnd > buffer.length) throw new BadRequestError('Figures ZIP filename is malformed');
+    names.push(buffer.subarray(nameStart, nameEnd).toString('utf8'));
+    offset = nameEnd + extraLength + commentLength;
+  }
+  return names;
+}
+
+function assertSafeRawZipPaths(buffer: Buffer): void {
+  const names = rawZipEntryNames(buffer);
+  if (!names.length) throw new BadRequestError('Figures ZIP contains no readable central directory entries');
+  for (const raw of names) {
+    const value = raw.replace(/\\/g, '/');
+    const normalized = path.posix.normalize(value);
+    if (
+      value.startsWith('/')
+      || value.startsWith('\\')
+      || /^[a-zA-Z]:[/\\]/.test(raw)
+      || value.split('/').includes('..')
+      || normalized.startsWith('../')
+      || normalized.includes('/../')
+    ) {
+      throw new BadRequestError(`Unsafe ZIP path detected: ${raw}`);
+    }
+  }
+}
+
 function inspectFigureZip(file?: Express.Multer.File): FigureArchive | undefined {
   if (!file) return undefined;
   if (!file.buffer?.length || !file.originalname.toLowerCase().endsWith('.zip')) throw new BadRequestError('Figures file must be a non-empty .zip archive');
+  assertSafeRawZipPaths(file.buffer);
   let zip: AdmZip;
   try {
     zip = new AdmZip(file.buffer);
