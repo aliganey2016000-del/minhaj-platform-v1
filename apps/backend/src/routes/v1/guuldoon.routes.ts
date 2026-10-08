@@ -18,6 +18,7 @@ import GuuldoonMistake from '../../models/guuldoon-mistake.model';
 import GuuldoonChapter from '../../models/guuldoon-chapter.model';
 import GuuldoonResource from '../../models/guuldoon-resource.model';
 import GuuldoonGlossary from '../../models/guuldoon-glossary.model';
+import GuuldoonSubject from '../../models/guuldoon-subject.model';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../utils/api-error';
@@ -110,6 +111,10 @@ function normalizedAnswer(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function normalizeBookText(value: unknown): string {
+  return String(value || '').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 function safeQuestion(question: any) {
   const {
     answer: _answer,
@@ -198,7 +203,7 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
   promoteGuuldoonDeviceCookie(req, res);
   res.set('Cache-Control', 'no-store, private, max-age=0');
 
-  const [content, config, exams, progress, profile, mistakes, importedChapters, importedResources, importedGlossary] = await Promise.all([
+  const [content, config, exams, progress, profile, mistakes, importedChapters, importedResources, importedGlossary, importedSubject] = await Promise.all([
     CourseContent.findOne({ course: course._id }).lean(),
     GuuldoonConfig.findOne({ course: course._id }).lean(),
     GuuldoonExam.find({ course: course._id, published: true }).sort({ year: -1 }).lean(),
@@ -206,8 +211,9 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
     student.profile ? Profile.findById(student.profile).select('firstName lastName').lean() : null,
     GuuldoonMistake.find({ user: req.user!.userId, course: course._id }).select('box dueAt').lean(),
     GuuldoonChapter.find({ course: course._id, status: 'published' }).sort({ order: 1 }).lean(),
-    GuuldoonResource.find({ course: course._id }).sort({ createdAt: 1 }).lean(),
+    GuuldoonResource.find({ course: course._id }).sort({ pageFrom: 1, createdAt: 1 }).lean(),
     GuuldoonGlossary.find({ course: course._id }).sort({ termSo: 1 }).lean(),
+    GuuldoonSubject.findOne({ course: course._id, status: 'published' }).select('externalId language nameEn nameSo').lean(),
   ]);
 
   const usingUniversalImport = importedChapters.length > 0;
@@ -218,17 +224,34 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
       .sort((a: any, b: any) => a.order - b.order);
 
   const chapterIds = chapters.map((chapter: any) => usingUniversalImport ? String(chapter.externalId) : String(chapter._id));
-  const [stats, automaticWeights, questionCounts] = await Promise.all([
+  const [stats, automaticWeights, questionCounts, chapterYearCounts] = await Promise.all([
     chapterStats(req.user!.userId, course._id, chapterIds),
     derivedWeights(course._id, exams.map(exam => exam._id)),
     GuuldoonQuestion.aggregate([
       { $match: { course: course._id, exam: { $in: exams.map(exam => exam._id) }, chapterId: { $in: chapterIds } } },
       { $group: { _id: '$chapterId', count: { $sum: 1 } } },
     ]),
+    GuuldoonQuestion.aggregate([
+      { $match: { course: course._id, exam: { $in: exams.map(exam => exam._id) }, chapterId: { $in: chapterIds } } },
+      { $group: { _id: { chapterId: '$chapterId', exam: '$exam' }, count: { $sum: 1 } } },
+    ]),
   ]);
 
   const manualWeights = new Map((config?.chapterWeights || []).map(item => [item.chapterId, item.examWeight]));
   const countMap = new Map(questionCounts.map(row => [String(row._id), Number(row.count || 0)]));
+  const examYearById = new Map(exams.map(exam => [String(exam._id), Number(exam.year)]));
+  const yearsByChapter = new Map<string, Array<{ year: number; count: number; examId: string }>>();
+  for (const row of chapterYearCounts) {
+    const chapterId = String(row._id.chapterId);
+    const examId = String(row._id.exam);
+    const year = examYearById.get(examId);
+    if (!year) continue;
+    const list = yearsByChapter.get(chapterId) || [];
+    list.push({ year, count: Number(row.count || 0), examId });
+    yearsByChapter.set(chapterId, list);
+  }
+  for (const list of yearsByChapter.values()) list.sort((a, b) => b.year - a.year);
+  const subjectLanguage = importedSubject?.language || 'so';
   const resourcesByChapter = new Map<string, any[]>();
   for (const resource of importedResources) {
     if (!resource.chapterExternalId) continue;
@@ -269,9 +292,17 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
         hasVideo: !!item.videoUrl,
         notes: (item.attachments || []).filter((attachment: any) => /pdf/i.test(attachment.type || attachment.name || '')),
       }));
+    const title = usingUniversalImport
+      ? (subjectLanguage === 'so' ? (chapter.titleSo || chapter.titleEn) : (chapter.titleEn || chapter.titleSo))
+      : chapter.title;
+    const yearCounts = yearsByChapter.get(id) || [];
+    const outsideBook = usingUniversalImport && (
+      /^(other|outside|misc)/i.test(id)
+      || /other topics|outside the book/i.test(String(chapter.titleEn || chapter.titleSo || ''))
+    );
     return {
       id,
-      title: usingUniversalImport ? (chapter.titleSo || chapter.titleEn) : chapter.title,
+      title,
       description: usingUniversalImport ? '' : chapter.description || '',
       order: chapter.order,
       examWeight,
@@ -279,6 +310,9 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
       confidence: stats[id]?.confidence || 0,
       attempts: stats[id]?.attempts || 0,
       questionCount: countMap.get(id) || 0,
+      yearsCount: yearCounts.length,
+      yearCounts,
+      outsideBook,
       items: usingUniversalImport ? importedItems : builderItems,
     };
   });
@@ -317,6 +351,7 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
       description: course.description,
       thumbnail: course.thumbnail,
       grade,
+      language: subjectLanguage,
     },
     studentName: profile?.firstName || '',
     passMeter,
@@ -344,21 +379,27 @@ router.get('/courses/:courseId/chapters/:chapterId/questions', asyncHandler(asyn
   const chapter = importedChapter || (content?.chapters || []).find((item: any) => String(item._id) === req.params.chapterId);
   if (!chapter) throw new NotFoundError('Guuldoon chapter');
 
-  const examIds = await GuuldoonExam.distinct('_id', { course: course._id, published: true });
-  const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 20));
+  const publishedExams = await GuuldoonExam.find({ course: course._id, published: true }).select('_id year').lean();
+  const requestedYear = Number(req.query.year);
+  const selectedExams = Number.isInteger(requestedYear)
+    ? publishedExams.filter(exam => Number(exam.year) === requestedYear)
+    : publishedExams;
+  const examIds = selectedExams.map(exam => exam._id);
+  const examYears = new Map(publishedExams.map(exam => [String(exam._id), Number(exam.year)]));
+  const limit = Math.min(250, Math.max(1, Number(req.query.limit) || 100));
   const questions = await GuuldoonQuestion.find({
     course: course._id,
     exam: { $in: examIds },
     chapterId: req.params.chapterId,
   })
     .select('-answer')
-    .sort({ createdAt: -1, number: 1 })
+    .sort({ exam: 1, number: 1 })
     .limit(limit)
     .lean();
 
   return ApiResponse.success(res, {
     chapter: { id: importedChapter ? String((chapter as any).externalId) : String((chapter as any)._id), title: importedChapter ? ((chapter as any).titleSo || (chapter as any).titleEn) : (chapter as any).title },
-    questions: questions.map(safeQuestion),
+    questions: questions.map(question => ({ ...safeQuestion(question), examYear: examYears.get(String(question.exam)) || null })),
   });
 }));
 
@@ -447,7 +488,7 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     correct,
     answerStatus: question.answerStatus,
     markingMode,
-    explanation: question.answerStatus === 'verified' ? question.explainerText || '' : '',
+    explanation: question.explainerText || '',
     explainerAudioUrl: marked ? question.explainerAudioUrl || '' : '',
     bookRef: question.bookRef || null,
     similar: similar.map(safeQuestion),
