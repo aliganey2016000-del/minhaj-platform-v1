@@ -367,8 +367,14 @@ export async function parseAndValidateGuuldoonImport(
   // Basic row validation.
   for (const row of rows.Subjects) {
     requireValue('Subjects', row, 'subject_id');
-    requireValue('Subjects', row, 'name_so');
     requireValue('Subjects', row, 'name_en');
+    const language = lower(row.language || 'so');
+    if (!lists.language.has(language) || !SERVER_LANGUAGES.has(language)) {
+      add({ sheet: 'Subjects', row: row.__row, id: rowId('Subjects', row), field: 'language', message: `Invalid subject language "${language}"`, severity: 'error' });
+    }
+    if (language === 'so' && !str(row.name_so)) {
+      add({ sheet: 'Subjects', row: row.__row, id: rowId('Subjects', row), field: 'name_so', message: 'name_so is required when subject.language = so', severity: 'error' });
+    }
     const grade = Number(row.grade);
     if (![8, 12].includes(grade)) add({ sheet: 'Subjects', row: row.__row, id: rowId('Subjects', row), field: 'grade', message: 'grade must be 8 or 12', severity: 'error' });
     if (grade !== Number((course as any).globalGrade)) add({ sheet: 'Subjects', row: row.__row, id: rowId('Subjects', row), field: 'grade', message: `Workbook grade ${grade} does not match selected Grade ${(course as any).globalGrade} course`, severity: 'error' });
@@ -379,7 +385,6 @@ export async function parseAndValidateGuuldoonImport(
   for (const row of rows.Chapters) {
     requireValue('Chapters', row, 'chapter_id');
     requireValue('Chapters', row, 'subject_id');
-    requireValue('Chapters', row, 'title_so');
     requireValue('Chapters', row, 'title_en');
     const order = Number(row.order);
     if (!Number.isInteger(order) || order < 1) add({ sheet: 'Chapters', row: row.__row, id: rowId('Chapters', row), field: 'order', message: 'order must be a positive integer', severity: 'error' });
