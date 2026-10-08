@@ -37,7 +37,7 @@ export interface IGuuldoonQuestion extends Document {
 const schema = new Schema<IGuuldoonQuestion>({
   course: { type: Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
   exam: { type: Schema.Types.ObjectId, ref: 'GuuldoonPastExam', required: true, index: true },
-  externalId: { type: String, default: '', trim: true },
+  externalId: { type: String, trim: true, default: undefined },
   examExternalId: { type: String, default: '', trim: true, index: true },
   parent: { type: Schema.Types.ObjectId, ref: 'GuuldoonQuestion', default: null, index: true },
   parentExternalId: { type: String, default: '', trim: true },
@@ -72,7 +72,7 @@ schema.index({ exam: 1, number: 1 }, { unique: true });
 schema.index({ course: 1, chapterId: 1, topicTags: 1 });
 schema.index(
   { course: 1, externalId: 1 },
-  { unique: true, partialFilterExpression: { externalId: { $type: 'string', $ne: '' } } },
+  { unique: true, partialFilterExpression: { externalId: { $exists: true, $type: 'string' } } },
 );
 
 export default mongoose.model<IGuuldoonQuestion>('GuuldoonQuestion', schema);
