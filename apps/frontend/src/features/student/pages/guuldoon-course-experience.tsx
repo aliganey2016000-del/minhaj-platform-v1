@@ -232,7 +232,7 @@ export function GuuldoonCourseExperience() {
     }
   };
 
-  const loadMistakes = async () => {
+  const loadMistakes = useCallback(async () => {
     if (!courseId) return;
     setMistakesLoading(true);
     try {
@@ -243,11 +243,11 @@ export function GuuldoonCourseExperience() {
     } finally {
       setMistakesLoading(false);
     }
-  };
+  }, [courseId]);
 
   useEffect(() => {
     if (tab === 'mistakes') void loadMistakes();
-  }, [tab]);
+  }, [tab, loadMistakes]);
 
   if (loading) {
     return <div className="flex min-h-[60vh] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-4 border-emerald-500/20 border-t-emerald-500" /></div>;
@@ -298,7 +298,7 @@ export function GuuldoonCourseExperience() {
         <div className="space-y-5">
           <section className="grid gap-4 lg:grid-cols-[.9fr_1.1fr]">
             <div className="rounded-[28px] border border-emerald-500/20 bg-gradient-to-br from-emerald-950 via-emerald-900 to-slate-950 p-6 text-white shadow-lg">
-              <p className="text-sm text-emerald-200">Aamino{data.studentName ? `, ${data.studentName}` : ''}</p>
+              <p className="text-sm text-emerald-200">Salaan{data.studentName ? `, ${data.studentName}` : ', arday'}</p>
               <h2 className="mt-2 text-2xl font-black">Diyaar-garowgaaga</h2>
               <div className="mt-6 flex items-center gap-6">
                 <div className="relative flex h-36 w-36 shrink-0 items-center justify-center rounded-full" style={{ background: `conic-gradient(rgb(16 185 129) ${data.passMeter * 3.6}deg, rgba(255,255,255,.12) 0deg)` }}>
@@ -381,7 +381,7 @@ export function GuuldoonCourseExperience() {
                   <div className="border-t border-[var(--color-border-subtle)] p-4 sm:p-5">
                     <div className="space-y-2">
                       {chapter.items.map((item, itemIndex) => (
-                        <button key={item.id} onClick={() => navigate(`/student/courses/${courseId}/learn`, { state: { startItemIdx: itemIndex } })} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-[var(--color-surface-tertiary)]">
+                        <button key={item.id} onClick={() => navigate(`/student/courses/${courseId}/learn`, { state: { startItemIdx: data.chapters.slice(0, index).reduce((sum, row) => sum + row.items.length, 0) + itemIndex } })} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-[var(--color-surface-tertiary)]">
                           {itemIndex === 0 ? <PlayCircle className="text-emerald-500" size={20} /> : <Circle className="text-slate-400" size={18} />}
                           <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{item.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{item.hasVideo ? `Muuqaal ${formatVideo(item.videoSeconds)}` : item.type} {item.duration ? `· ${item.duration} daqiiqo` : ''}</p></div>
                         </button>
