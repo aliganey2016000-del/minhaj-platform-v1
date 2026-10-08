@@ -314,12 +314,12 @@ export function GuuldoonChaptersExperience({
     setLoading(true);
     setError('');
     try {
-      let rows = supplied;
-      if (!rows) {
+      let rows: Question[] = supplied || [];
+      if (!supplied) {
         const { data } = await api.get('/guuldoon/courses/' + courseId + '/chapters/' + chapter.id + '/questions', {
           params: { limit: 30 },
         });
-        rows = data.data.questions || [];
+        rows = (data.data.questions || []) as Question[];
       }
       if (!rows.length) {
         setError('Cutubkan wali su’aalo published ah laguma darin.');
