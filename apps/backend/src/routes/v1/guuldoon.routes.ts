@@ -301,6 +301,30 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
   });
 }));
 
+router.get('/courses/:courseId/chapters/:chapterId/questions', asyncHandler(async (req, res) => {
+  const { course } = await loadStudentAccess(req, req.params.courseId, true);
+  const content = await CourseContent.findOne({ course: course._id }).select('chapters._id chapters.title').lean();
+  const chapter = (content?.chapters || []).find((item: any) => String(item._id) === req.params.chapterId);
+  if (!chapter) throw new NotFoundError('Guuldoon chapter');
+
+  const examIds = await GuuldoonExam.distinct('_id', { course: course._id, published: true });
+  const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 20));
+  const questions = await GuuldoonQuestion.find({
+    course: course._id,
+    exam: { $in: examIds },
+    chapterId: req.params.chapterId,
+  })
+    .select('-answer')
+    .sort({ createdAt: -1, number: 1 })
+    .limit(limit)
+    .lean();
+
+  return ApiResponse.success(res, {
+    chapter: { id: String((chapter as any)._id), title: (chapter as any).title },
+    questions: questions.map(safeQuestion),
+  });
+}));
+
 router.get('/courses/:courseId/exams/:examId', asyncHandler(async (req, res) => {
   const { course } = await loadStudentAccess(req, req.params.courseId, true);
   const exam = await GuuldoonExam.findOne({
