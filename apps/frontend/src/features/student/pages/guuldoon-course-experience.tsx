@@ -263,6 +263,15 @@ export function GuuldoonCourseExperience() {
   const currentQuestion = exam?.questions[questionIndex];
   const answeredCount = Object.keys(feedback).length;
   const correctCount = Object.values(feedback).filter((item: any) => item?.marked && item?.correct).length;
+  const markedQuestions = exam?.questions.filter(question => feedback[question._id]?.marked) || [];
+  const earnedMarks = markedQuestions.reduce((sum, question) => sum + (feedback[question._id]?.correct ? Number(question.marks || 0) : 0), 0);
+  const markedTotalMarks = markedQuestions.reduce((sum, question) => sum + Number(question.marks || 0), 0);
+  const questionGlossary = currentQuestion
+    ? data.glossary.filter(term => {
+        const haystack = `${currentQuestion.textSo} ${currentQuestion.textEn || ''}`.toLowerCase();
+        return haystack.includes(term.termSo.toLowerCase()) || haystack.includes(term.termEn.toLowerCase());
+      }).slice(0, 8)
+    : [];
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-4 pb-28 sm:p-6 lg:p-8 lg:pb-10">
@@ -426,6 +435,7 @@ export function GuuldoonCourseExperience() {
                   <div className="flex flex-wrap items-center gap-2 text-xs"><span className="rounded-full bg-emerald-500/10 px-3 py-1 font-black text-emerald-600">Su'aal {currentQuestion.number}</span><span className="rounded-full bg-slate-500/10 px-3 py-1">{currentQuestion.marks} dhibcood</span>{currentQuestion.topicTags.slice(0, 3).map(tag => <span key={tag} className="rounded-full bg-amber-500/10 px-3 py-1 text-amber-600">{tag}</span>)}</div>
                   <h3 className="mt-5 text-lg font-black leading-8">{currentQuestion.textSo}</h3>
                   {currentQuestion.figureUrl && <img src={currentQuestion.figureUrl} alt="" className="mt-4 max-h-72 rounded-xl object-contain" />}
+                  {questionGlossary.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{questionGlossary.map(term => <button key={term.termEn} type="button" onClick={() => setGlossaryTerm(term)} className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600">{term.termSo} · {term.termEn}</button>)}</div>}
                   {currentQuestion.type === 'mcq' && currentQuestion.options ? (
                     <div className="mt-5 grid gap-3">{currentQuestion.options.map((option, index) => (
                       <button key={index} disabled={!!feedback[currentQuestion._id]} onClick={() => setAnswers(current => ({ ...current, [currentQuestion._id]: index }))} className={`rounded-2xl border p-4 text-left text-sm font-semibold transition ${answers[currentQuestion._id] === index ? 'border-emerald-500 bg-emerald-500/10' : 'border-[var(--color-border-subtle)] hover:border-emerald-500/40'}`}>{String.fromCharCode(65 + index)}. {option}</button>
@@ -442,6 +452,8 @@ export function GuuldoonCourseExperience() {
                       {feedback[currentQuestion._id].explanation && <p className="mt-2 text-sm leading-6">{feedback[currentQuestion._id].explanation}</p>}
                       {feedback[currentQuestion._id].explainerAudioUrl && <audio controls preload="none" className="mt-3 w-full" src={feedback[currentQuestion._id].explainerAudioUrl} />}
                       {feedback[currentQuestion._id].bookRef?.pageFrom && <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Buugga: bogga {feedback[currentQuestion._id].bookRef.pageFrom}{feedback[currentQuestion._id].bookRef.pageTo ? `–${feedback[currentQuestion._id].bookRef.pageTo}` : ''}</p>}
+                      {feedback[currentQuestion._id].similar?.length > 0 && <div className="mt-4"><p className="text-xs font-black uppercase tracking-wide text-[var(--color-text-tertiary)]">2 su'aalood oo la mid ah</p><div className="mt-2 space-y-2">{feedback[currentQuestion._id].similar.slice(0, 2).map((similar: any) => <div key={similar._id} className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3 text-sm font-semibold">{similar.textSo}</div>)}</div></div>}
+                      {feedback[currentQuestion._id].marked === false && <p className="mt-2 text-xs text-amber-600">Natiijadan laguma darin Pass Meter-ka ilaa answer key-ga la xaqiijiyo.</p>}
                     </div>
                   )}
 
@@ -454,7 +466,12 @@ export function GuuldoonCourseExperience() {
               ) : <div className="rounded-2xl border p-6">Su'aalo ma jiraan.</div>}
 
               {answeredCount > 0 && (
-                <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 text-sm"><strong>Natiijada hadda:</strong> {correctCount} sax · {answeredCount} laga jawaabay. {exam.exam.answerKeyStatus === 'pending' && ' Qaar ka mid ah jawaabaha lama calaamadin ilaa macallin xaqiijiyo.'}</div>
+                <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4 text-sm">
+                  <strong>{answeredCount === exam.questions.length ? 'Natiijada:' : 'Natiijada hadda:'}</strong> {correctCount} sax · {answeredCount} laga jawaabay.
+                  {markedTotalMarks > 0 && <span> · {earnedMarks}/{markedTotalMarks} dhibcood oo la xaqiijiyey</span>}
+                  {exam.exam.answerKeyStatus === 'pending' && <span> · Qaar ka mid ah jawaabaha lama calaamadin ilaa macallin xaqiijiyo.</span>}
+                  {answeredCount === exam.questions.length && <p className="mt-2 text-xs text-emerald-600">Jawaab kasta oo khaldan si toos ah ayay ugu gashay Buugga Qaladaadkayga.</p>}
+                </div>
               )}
             </div>
           )}
