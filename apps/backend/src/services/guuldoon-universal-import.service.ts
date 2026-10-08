@@ -296,7 +296,7 @@ function inspectFigureZip(file?: Express.Multer.File): FigureArchive | undefined
 }
 
 async function existingIds(courseId: mongoose.Types.ObjectId) {
-  const [subjects, chapters, exams, resources, questions, glossary, examRows, subjectRows, questionRows] = await Promise.all([
+  const [subjects, chapters, exams, resources, questions, glossary, examRows, subjectRows, questionRows, resourceRows] = await Promise.all([
     GuuldoonSubject.distinct('externalId', { course: courseId }),
     GuuldoonChapter.distinct('externalId', { course: courseId }),
     GuuldoonExam.distinct('externalId', { course: courseId, externalId: { $ne: '' } }),
@@ -306,6 +306,7 @@ async function existingIds(courseId: mongoose.Types.ObjectId) {
     GuuldoonExam.find({ course: courseId }).select('externalId year').lean(),
     GuuldoonSubject.find({ course: courseId }).select('externalId language').lean(),
     GuuldoonQuestion.find({ course: courseId }).select('externalId examExternalId number').lean(),
+    GuuldoonResource.find({ course: courseId }).select('externalId chapterExternalId contentText').lean(),
   ]);
   return {
     subjects: new Set(subjects.map(String)),
@@ -317,6 +318,7 @@ async function existingIds(courseId: mongoose.Types.ObjectId) {
     examRows,
     subjectRows,
     questionRows,
+    resourceRows,
   };
 }
 
