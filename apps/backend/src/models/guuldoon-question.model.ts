@@ -29,6 +29,8 @@ export interface IGuuldoonQuestion extends Document {
   explainerText?: string;
   notes?: string;
   bookRef?: { bookId?: string; pageFrom?: number; pageTo?: number };
+  bookAnchorText?: string;
+  bookRelation?: 'direct' | 'indirect' | 'similar' | 'derived';
   similarIds: mongoose.Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
@@ -65,6 +67,8 @@ const schema = new Schema<IGuuldoonQuestion>({
     pageFrom: { type: Number, min: 1 },
     pageTo: { type: Number, min: 1 },
   },
+  bookAnchorText: { type: String, default: '', trim: true },
+  bookRelation: { type: String, enum: ['direct', 'indirect', 'similar', 'derived'], default: undefined, index: true },
   similarIds: [{ type: Schema.Types.ObjectId, ref: 'GuuldoonQuestion' }],
 }, { timestamps: true });
 
