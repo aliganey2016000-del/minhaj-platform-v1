@@ -435,16 +435,23 @@ router.get('/courses/:courseId/chapters/:chapterId/lesson', asyncHandler(async (
   const normalize = (value: unknown) => String(value || '').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
   const sections = resources.map((resource, index) => {
     const normalizedContent = normalize(resource.contentText);
-    const highlights = questions
-      .filter(question => normalizedContent && normalize(question.bookAnchorText) && normalizedContent.includes(normalize(question.bookAnchorText)))
-      .map(question => ({
+    const groupedHighlights = new Map<string, any>();
+    for (const question of questions) {
+      const anchor = normalize(question.bookAnchorText);
+      if (!normalizedContent || !anchor || !normalizedContent.includes(anchor)) continue;
+      const key = `${anchor}::${question.bookRelation}`;
+      const current = groupedHighlights.get(key) || {
         anchorText: question.bookAnchorText,
         relation: question.bookRelation,
-        question: {
-          ...safeQuestion(question),
-          examYear: examYearMap.get(String(question.exam)) || null,
-        },
-      }));
+        questions: [],
+      };
+      current.questions.push({
+        ...safeQuestion(question),
+        examYear: examYearMap.get(String(question.exam)) || null,
+      });
+      groupedHighlights.set(key, current);
+    }
+    const highlights = [...groupedHighlights.values()];
     return {
       id: String(resource._id),
       externalId: resource.externalId,
