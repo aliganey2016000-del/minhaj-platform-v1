@@ -1,6 +1,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, BookOpen, ChevronDown, Layers3, Target } from 'lucide-react';
+import { ArrowRight, ChevronDown, Layers3, Target } from 'lucide-react';
 import api from '../../../lib/axios';
 import type {
   GuuldoonChapterSummary,
