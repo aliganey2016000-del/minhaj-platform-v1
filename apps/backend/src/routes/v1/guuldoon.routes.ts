@@ -3,46 +3,66 @@ import { Router, Request } from 'express';
 import mongoose from 'mongoose';
 import Profile from '../../models/profile.model';
 import Course from '../../models/course.model';
+import CourseContent from '../../models/course-content.model';
 import Student from '../../models/student.model';
 import ClassModel from '../../models/class.model';
 import Teacher from '../../models/teacher.model';
 import Progress from '../../models/progress.model';
 import Subscription from '../../models/global-subscription.model';
+import GuuldoonConfig from '../../models/guuldoon-course-config.model';
+import GuuldoonExam from '../../models/guuldoon-past-exam.model';
+import GuuldoonQuestion from '../../models/guuldoon-question.model';
+import GuuldoonAttempt from '../../models/guuldoon-attempt.model';
+import GuuldoonMistake from '../../models/guuldoon-mistake.model';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
-import { BadRequestError, ForbiddenError, NotFoundError } from '../../utils/api-error';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../utils/api-error';
 import ApiResponse from '../../utils/api-response';
 
 const router = Router();
+const leitnerDays = [1, 2, 4, 7, 14];
+
 router.use(authMiddleware);
 router.use((req, _res, next) => {
-  if (!['admin', 'org_admin', 'teacher', 'student'].includes(req.user?.role || '') || req.user?.isStaff) return next(new ForbiddenError('Guuldoon access denied'));
-  if (req.user?.role !== 'admin' && !req.user?.organizationId) return next(new ForbiddenError('Organization required'));
+  if (!['admin', 'org_admin', 'teacher', 'student'].includes(req.user?.role || '') || req.user?.isStaff) {
+    return next(new ForbiddenError('Guuldoon access denied'));
+  }
+  if (req.user?.role !== 'admin' && !req.user?.organizationId) {
+    return next(new ForbiddenError('Organization required'));
+  }
   next();
 });
 
 router.use('/devices', deviceRoutes);
 
-router.post('/courses/:courseId/open', asyncHandler(async (req, res) => {
-  if (req.user?.role !== 'student' || req.user.isStaff) throw new ForbiddenError('Student access required');
-  if (!mongoose.isValidObjectId(req.params.courseId)) throw new BadRequestError('Invalid course ID');
+function objectId(value: string, label = 'ID'): mongoose.Types.ObjectId {
+  if (!mongoose.isValidObjectId(value)) throw new BadRequestError(`Invalid ${label}`);
+  return new mongoose.Types.ObjectId(value);
+}
 
+async function loadGlobalCourse(courseId: string, publishedOnly = true) {
   const course = await Course.findOne({
-    _id: req.params.courseId,
+    _id: objectId(courseId, 'course ID'),
     scope: 'global',
-    status: 'published',
-  }).select('_id globalGrade scope status').lean();
+    ...(publishedOnly ? { status: 'published' } : {}),
+  }).select('_id title description thumbnail globalGrade scope status').lean();
   if (!course) throw new NotFoundError('Guuldoon course');
+  return course as any;
+}
+
+async function loadStudentAccess(req: Request, courseId: string, requireEnrollment = true) {
+  if (req.user?.role !== 'student' || req.user.isStaff) throw new ForbiddenError('Student access required');
+  const course = await loadGlobalCourse(courseId, true);
 
   const student = await Student.findOne({
     user: req.user.userId,
     school: req.user.organizationId,
     approvalStatus: 'approved',
     status: 'active',
-  }).select('_id class enrolledCourses school').lean();
+  }).select('_id class enrolledCourses school profile').lean();
   if (!student?.class) throw new ForbiddenError('Your active school class is required for Guuldoon');
 
-  const classroom = await ClassModel.findById(student.class).select('gradeLevel school').lean();
+  const classroom = await ClassModel.findOne({ _id: student.class, school: student.school }).select('gradeLevel').lean();
   const grade = classroom?.gradeLevel ?? null;
   if (![8, 12].includes(grade || 0) || grade !== course.globalGrade) {
     throw new ForbiddenError('This Guuldoon course is not available for your grade');
@@ -62,22 +82,530 @@ router.post('/courses/:courseId/open', asyncHandler(async (req, res) => {
   await requireGuuldoonDevice(req);
 
   const enrolled = (student.enrolledCourses || []).some(id => String(id) === String(course._id));
+  if (requireEnrollment && !enrolled) throw new ForbiddenError('Open this Guuldoon course from the Courses page first');
+
+  return { course, student: student as any, grade };
+}
+
+async function loadAdminCourse(req: Request, courseId: string) {
+  if (req.user?.role !== 'admin') throw new ForbiddenError('Super Admin access required');
+  return loadGlobalCourse(courseId, false);
+}
+
+function normalizedAnswer(value: unknown): string {
+  if (typeof value === 'string') return value.trim().replace(/\s+/g, ' ').toLowerCase();
+  if (Array.isArray(value)) return JSON.stringify(value.map(item => typeof item === 'string' ? item.trim().toLowerCase() : item));
+  if (value && typeof value === 'object') {
+    const ordered = Object.keys(value as Record<string, unknown>).sort().reduce<Record<string, unknown>>((acc, key) => {
+      acc[key] = (value as Record<string, unknown>)[key];
+      return acc;
+    }, {});
+    return JSON.stringify(ordered);
+  }
+  return JSON.stringify(value);
+}
+
+function safeQuestion(question: any) {
+  const {
+    answer: _answer,
+    __v: _v,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...safe
+  } = question;
+  return safe;
+}
+
+async function chapterStats(userId: string, courseId: mongoose.Types.ObjectId, chapterIds: string[]) {
+  const recent = await GuuldoonAttempt.find({
+    user: userId,
+    course: courseId,
+    chapterId: { $in: chapterIds },
+    correct: { $ne: null },
+  }).sort({ createdAt: -1 }).limit(1000).lean();
+
+  const grouped = new Map<string, any[]>();
+  for (const attempt of recent) {
+    const list = grouped.get(attempt.chapterId) || [];
+    if (list.length < 20) list.push(attempt);
+    grouped.set(attempt.chapterId, list);
+  }
+
+  const result: Record<string, { mastery: number; confidence: number; attempts: number }> = {};
+  for (const chapterId of chapterIds) {
+    const attempts = grouped.get(chapterId) || [];
+    let numerator = 0;
+    let denominator = 0;
+    attempts.forEach((attempt, index) => {
+      const weight = 1 / (1 + index * 0.12);
+      numerator += attempt.correct ? weight : 0;
+      denominator += weight;
+    });
+    const raw = denominator ? (numerator / denominator) * 100 : 0;
+    const confidence = Math.min(1, attempts.length / 10);
+    result[chapterId] = {
+      mastery: Math.round(raw * confidence),
+      confidence: Math.round(confidence * 100),
+      attempts: attempts.length,
+    };
+  }
+  return result;
+}
+
+async function derivedWeights(courseId: mongoose.Types.ObjectId, examIds: mongoose.Types.ObjectId[]) {
+  const rows = await GuuldoonQuestion.aggregate([
+    { $match: { course: courseId, exam: { $in: examIds } } },
+    { $group: { _id: '$chapterId', marks: { $sum: '$marks' } } },
+  ]);
+  const total = rows.reduce((sum, row) => sum + Number(row.marks || 0), 0);
+  const weights: Record<string, number> = {};
+  for (const row of rows) weights[String(row._id)] = total ? (Number(row.marks || 0) / total) * 100 : 0;
+  return weights;
+}
+
+// ---------------------------------------------------------------------------
+// Student learning access
+// ---------------------------------------------------------------------------
+
+router.post('/courses/:courseId/open', asyncHandler(async (req, res) => {
+  const { course, student, grade } = await loadStudentAccess(req, req.params.courseId, false);
+  const enrolled = (student.enrolledCourses || []).some((id: any) => String(id) === String(course._id));
+
   if (!enrolled) {
     const result = await Student.updateOne(
       { _id: student._id, enrolledCourses: { $ne: course._id } },
       { $addToSet: { enrolledCourses: course._id } },
     );
-    if (result.modifiedCount > 0) {
-      await Course.updateOne({ _id: course._id }, { $inc: { enrolledStudents: 1 } });
+    if (result.modifiedCount > 0) await Course.updateOne({ _id: course._id }, { $inc: { enrolledStudents: 1 } });
+  }
+
+  promoteGuuldoonDeviceCookie(req, res);
+  res.set('Cache-Control', 'no-store, private, max-age=0');
+  return ApiResponse.success(
+    res,
+    { courseId: String(course._id), grade, access: 'granted', destination: `/student/guuldoon/courses/${course._id}` },
+    'Guuldoon course access granted',
+  );
+}));
+
+router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
+  const { course, student, grade } = await loadStudentAccess(req, req.params.courseId, true);
+  promoteGuuldoonDeviceCookie(req, res);
+  res.set('Cache-Control', 'no-store, private, max-age=0');
+
+  const [content, config, exams, progress, profile, mistakes] = await Promise.all([
+    CourseContent.findOne({ course: course._id }).lean(),
+    GuuldoonConfig.findOne({ course: course._id }).lean(),
+    GuuldoonExam.find({ course: course._id, published: true }).sort({ year: -1 }).lean(),
+    Progress.findOne({ student: student._id, course: course._id }).lean(),
+    student.profile ? Profile.findById(student.profile).select('firstName lastName').lean() : null,
+    GuuldoonMistake.find({ user: req.user!.userId, course: course._id }).select('box dueAt').lean(),
+  ]);
+
+  const chapters = (content?.chapters || [])
+    .filter((chapter: any) => chapter.status === 'published' || !chapter.status)
+    .sort((a: any, b: any) => a.order - b.order);
+
+  const chapterIds = chapters.map((chapter: any) => String(chapter._id));
+  const [stats, automaticWeights, questionCounts] = await Promise.all([
+    chapterStats(req.user!.userId, course._id, chapterIds),
+    derivedWeights(course._id, exams.map(exam => exam._id)),
+    GuuldoonQuestion.aggregate([
+      { $match: { course: course._id, exam: { $in: exams.map(exam => exam._id) }, chapterId: { $in: chapterIds } } },
+      { $group: { _id: '$chapterId', count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const manualWeights = new Map((config?.chapterWeights || []).map(item => [item.chapterId, item.examWeight]));
+  const countMap = new Map(questionCounts.map(row => [String(row._id), Number(row.count || 0)]));
+  const chapterRows = chapters.map((chapter: any) => {
+    const id = String(chapter._id);
+    const examWeight = manualWeights.get(id) ?? Math.round((automaticWeights[id] || 0) * 10) / 10;
+    const mastery = stats[id]?.mastery || 0;
+    return {
+      id,
+      title: chapter.title,
+      description: chapter.description || '',
+      order: chapter.order,
+      examWeight,
+      mastery,
+      confidence: stats[id]?.confidence || 0,
+      attempts: stats[id]?.attempts || 0,
+      questionCount: countMap.get(id) || 0,
+      items: (chapter.items || [])
+        .filter((item: any) => item.status === 'published' || !item.status)
+        .sort((a: any, b: any) => a.order - b.order)
+        .map((item: any) => ({
+          id: String(item._id),
+          title: item.title,
+          type: item.type,
+          duration: item.duration || 0,
+          videoSeconds: item.videoDuration || 0,
+          hasVideo: !!item.videoUrl,
+          notes: (item.attachments || []).filter((attachment: any) => /pdf/i.test(attachment.type || attachment.name || '')),
+        })),
+    };
+  });
+
+  const totalWeight = chapterRows.reduce((sum, chapter) => sum + chapter.examWeight, 0);
+  const passMeter = totalWeight
+    ? Math.round(chapterRows.reduce((sum, chapter) => sum + chapter.mastery * chapter.examWeight, 0) / totalWeight)
+    : 0;
+
+  const weakest = [...chapterRows]
+    .sort((a, b) => (b.examWeight * (100 - b.mastery)) - (a.examWeight * (100 - a.mastery)))
+    .slice(0, 2)
+    .map(({ id, title, examWeight, mastery }) => ({ id, title, examWeight, mastery }));
+
+  const completed = Number((progress as any)?.completedItems || 0)
+    || Number((progress as any)?.completedLessons || 0)
+    + Number((progress as any)?.completedQuizzes || 0)
+    + Number((progress as any)?.completedAssignments || 0);
+  const flatItems = chapterRows.flatMap(chapter => chapter.items.map((item: any) => ({ ...item, chapterId: chapter.id, chapterTitle: chapter.title })));
+  const continueItem = flatItems.length ? flatItems[Math.min(completed, flatItems.length - 1)] : null;
+
+  const now = new Date();
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const week = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const mistakeSummary = {
+    total: mistakes.length,
+    today: mistakes.filter(item => item.dueAt <= now).length,
+    tomorrow: mistakes.filter(item => item.dueAt > now && item.dueAt <= tomorrow).length,
+    thisWeek: mistakes.filter(item => item.dueAt > tomorrow && item.dueAt <= week).length,
+  };
+
+  return ApiResponse.success(res, {
+    course: {
+      id: String(course._id),
+      title: course.title,
+      description: course.description,
+      thumbnail: course.thumbnail,
+      grade,
+    },
+    studentName: profile?.firstName || '',
+    passMeter,
+    passTarget: config?.passTarget ?? 70,
+    targetExamDate: config?.targetExamDate || null,
+    chapters: chapterRows,
+    weakest,
+    continueItem,
+    exams: exams.map(exam => ({
+      id: String(exam._id),
+      year: exam.year,
+      durationMin: exam.durationMin,
+      totalMarks: exam.totalMarks,
+      answerKeyStatus: exam.answerKeyStatus,
+    })),
+    mistakeSummary,
+    glossary: config?.glossary || [],
+  });
+}));
+
+router.get('/courses/:courseId/chapters/:chapterId/questions', asyncHandler(async (req, res) => {
+  const { course } = await loadStudentAccess(req, req.params.courseId, true);
+  const content = await CourseContent.findOne({ course: course._id }).select('chapters._id chapters.title').lean();
+  const chapter = (content?.chapters || []).find((item: any) => String(item._id) === req.params.chapterId);
+  if (!chapter) throw new NotFoundError('Guuldoon chapter');
+
+  const examIds = await GuuldoonExam.distinct('_id', { course: course._id, published: true });
+  const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 20));
+  const questions = await GuuldoonQuestion.find({
+    course: course._id,
+    exam: { $in: examIds },
+    chapterId: req.params.chapterId,
+  })
+    .select('-answer')
+    .sort({ createdAt: -1, number: 1 })
+    .limit(limit)
+    .lean();
+
+  return ApiResponse.success(res, {
+    chapter: { id: String((chapter as any)._id), title: (chapter as any).title },
+    questions: questions.map(safeQuestion),
+  });
+}));
+
+router.get('/courses/:courseId/exams/:examId', asyncHandler(async (req, res) => {
+  const { course } = await loadStudentAccess(req, req.params.courseId, true);
+  const exam = await GuuldoonExam.findOne({
+    _id: objectId(req.params.examId, 'exam ID'),
+    course: course._id,
+    published: true,
+  }).lean();
+  if (!exam) throw new NotFoundError('Past exam');
+
+  const questions = await GuuldoonQuestion.find({ exam: exam._id, course: course._id })
+    .select('-answer')
+    .sort({ number: 1 })
+    .lean();
+
+  return ApiResponse.success(res, {
+    exam: {
+      id: String(exam._id),
+      year: exam.year,
+      durationMin: exam.durationMin,
+      totalMarks: exam.totalMarks,
+      answerKeyStatus: exam.answerKeyStatus,
+      source: exam.source || '',
+    },
+    questions: questions.map(safeQuestion),
+  });
+}));
+
+router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'student') throw new ForbiddenError('Student access required');
+  const question = await GuuldoonQuestion.findById(objectId(req.params.questionId, 'question ID')).select('+answer').lean();
+  if (!question) throw new NotFoundError('Guuldoon question');
+
+  const { course, student } = await loadStudentAccess(req, String(question.course), true);
+  const publishedExam = await GuuldoonExam.exists({ _id: question.exam, course: course._id, published: true });
+  if (!publishedExam) throw new NotFoundError('Guuldoon question');
+  const submitted = req.body?.answer;
+  const timeMs = Math.max(0, Math.min(60 * 60 * 1000, Number(req.body?.timeMs) || 0));
+  const marked = question.answerStatus === 'verified' && question.answer !== undefined;
+  const correct = marked ? normalizedAnswer(submitted) === normalizedAnswer(question.answer) : null;
+
+  await GuuldoonAttempt.create({
+    user: req.user!.userId,
+    student: student._id,
+    course: course._id,
+    question: question._id,
+    chapterId: question.chapterId,
+    correct,
+    answer: submitted,
+    timeMs,
+  });
+
+  if (marked && correct === false) {
+    await GuuldoonMistake.findOneAndUpdate(
+      { user: req.user!.userId, question: question._id },
+      {
+        $set: {
+          course: course._id,
+          box: 1,
+          dueAt: new Date(Date.now() + leitnerDays[0] * 86400000),
+          lastResult: 'wrong',
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+  } else if (marked && correct === true) {
+    const existing = await GuuldoonMistake.findOne({ user: req.user!.userId, question: question._id });
+    if (existing) {
+      const nextBox = Math.min(5, existing.box + 1);
+      existing.box = nextBox;
+      existing.dueAt = new Date(Date.now() + leitnerDays[nextBox - 1] * 86400000);
+      existing.lastResult = 'correct';
+      await existing.save();
     }
   }
 
-  // Existing users may still hold the old /api/v1/guuldoon-scoped cookie.
-  // Promote it before navigating so /courses/:id/content can verify the same browser.
-  promoteGuuldoonDeviceCookie(req, res);
-  res.set('Cache-Control', 'no-store, private, max-age=0');
-  return ApiResponse.success(res, { courseId: String(course._id), grade, access: 'granted' }, 'Guuldoon course access granted');
+  const similar = question.similarIds?.length
+    ? await GuuldoonQuestion.find({ _id: { $in: question.similarIds.slice(0, 2) } }).select('-answer').lean()
+    : [];
+
+  return ApiResponse.success(res, {
+    marked,
+    correct,
+    answerStatus: question.answerStatus,
+    explanation: marked ? question.explainerText || '' : '',
+    explainerAudioUrl: marked ? question.explainerAudioUrl || '' : '',
+    bookRef: question.bookRef || null,
+    similar: similar.map(safeQuestion),
+    message: marked ? (correct ? 'Sax' : 'Khalad') : 'Jawaab la xaqiijin doonaa',
+  });
 }));
+
+router.get('/courses/:courseId/mistakes', asyncHandler(async (req, res) => {
+  const { course } = await loadStudentAccess(req, req.params.courseId, true);
+  const rows = await GuuldoonMistake.find({ user: req.user!.userId, course: course._id })
+    .sort({ dueAt: 1 })
+    .populate({ path: 'question', select: '-answer' })
+    .lean();
+  return ApiResponse.success(res, rows);
+}));
+
+// ---------------------------------------------------------------------------
+// Super Admin Guuldoon Builder APIs
+// ---------------------------------------------------------------------------
+
+router.get('/admin/courses/:courseId/config', asyncHandler(async (req, res) => {
+  const course = await loadAdminCourse(req, req.params.courseId);
+  const [config, content, exams] = await Promise.all([
+    GuuldoonConfig.findOne({ course: course._id }).lean(),
+    CourseContent.findOne({ course: course._id }).select('chapters._id chapters.title chapters.order chapters.status chapters.items').lean(),
+    GuuldoonExam.find({ course: course._id }).sort({ year: -1 }).lean(),
+  ]);
+  return ApiResponse.success(res, {
+    course,
+    config: config || { passTarget: 70, targetExamDate: null, chapterWeights: [], glossary: [] },
+    chapters: (content?.chapters || []).map((chapter: any) => ({
+      id: String(chapter._id),
+      title: chapter.title,
+      order: chapter.order,
+      status: chapter.status,
+      lessons: (chapter.items || []).filter((item: any) => item.type === 'lesson').length,
+    })),
+    exams,
+  });
+}));
+
+router.put('/admin/courses/:courseId/config', asyncHandler(async (req, res) => {
+  const course = await loadAdminCourse(req, req.params.courseId);
+  const content = await CourseContent.findOne({ course: course._id }).select('chapters._id').lean();
+  const validChapters = new Set((content?.chapters || []).map((chapter: any) => String(chapter._id)));
+
+  const chapterWeights = Array.isArray(req.body?.chapterWeights) ? req.body.chapterWeights : [];
+  for (const row of chapterWeights) {
+    if (!validChapters.has(String(row.chapterId))) throw new BadRequestError('Chapter weight references an unknown chapter');
+    const weight = Number(row.examWeight);
+    if (!Number.isFinite(weight) || weight < 0 || weight > 100) throw new BadRequestError('Exam weight must be between 0 and 100');
+  }
+  const totalWeight = chapterWeights.reduce((sum: number, row: any) => sum + Number(row.examWeight || 0), 0);
+  if (chapterWeights.length && Math.abs(totalWeight - 100) > 0.5) {
+    throw new BadRequestError('Chapter exam weights must total 100%');
+  }
+
+  const glossary = Array.isArray(req.body?.glossary) ? req.body.glossary.slice(0, 1000) : [];
+  const passTarget = Math.max(0, Math.min(100, Number(req.body?.passTarget) || 70));
+  const targetExamDate = req.body?.targetExamDate ? new Date(req.body.targetExamDate) : null;
+  if (targetExamDate && Number.isNaN(targetExamDate.getTime())) throw new BadRequestError('Invalid target exam date');
+
+  const saved = await GuuldoonConfig.findOneAndUpdate(
+    { course: course._id },
+    {
+      $set: {
+        passTarget,
+        targetExamDate,
+        chapterWeights: chapterWeights.map((row: any) => ({ chapterId: String(row.chapterId), examWeight: Number(row.examWeight) })),
+        glossary: glossary.map((row: any) => ({
+          termSo: String(row.termSo || '').trim(),
+          termEn: String(row.termEn || '').trim(),
+          termAr: String(row.termAr || '').trim(),
+        })).filter((row: any) => row.termSo && row.termEn && row.termAr),
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+  return ApiResponse.success(res, saved, 'Guuldoon course settings saved');
+}));
+
+router.post('/admin/courses/:courseId/exams', asyncHandler(async (req, res) => {
+  const course = await loadAdminCourse(req, req.params.courseId);
+  const year = Number(req.body?.year);
+  const durationMin = Number(req.body?.durationMin);
+  const totalMarks = Number(req.body?.totalMarks);
+  if (!Number.isInteger(year) || year < 1900 || year > 2100) throw new BadRequestError('Valid exam year is required');
+  if (!Number.isFinite(durationMin) || durationMin <= 0) throw new BadRequestError('Exam duration is required');
+  if (!Number.isFinite(totalMarks) || totalMarks <= 0) throw new BadRequestError('Total marks are required');
+
+  try {
+    const exam = await GuuldoonExam.create({
+      course: course._id,
+      year,
+      durationMin,
+      totalMarks,
+      source: String(req.body?.source || '').trim(),
+      answerKeyStatus: req.body?.answerKeyStatus === 'verified' ? 'verified' : 'pending',
+      published: req.body?.published === true,
+    });
+    return ApiResponse.created(res, exam, 'Past exam created');
+  } catch (error: any) {
+    if (error?.code === 11000) throw new ConflictError('This exam year already exists for the course');
+    throw error;
+  }
+}));
+
+router.patch('/admin/exams/:examId', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') throw new ForbiddenError('Super Admin access required');
+  const exam = await GuuldoonExam.findById(objectId(req.params.examId, 'exam ID'));
+  if (!exam) throw new NotFoundError('Past exam');
+  const allowed = ['durationMin', 'totalMarks', 'source', 'answerKeyStatus', 'published'] as const;
+  for (const key of allowed) if (req.body?.[key] !== undefined) (exam as any)[key] = req.body[key];
+  await exam.save();
+  return ApiResponse.success(res, exam, 'Past exam updated');
+}));
+
+router.delete('/admin/exams/:examId', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') throw new ForbiddenError('Super Admin access required');
+  const exam = await GuuldoonExam.findById(objectId(req.params.examId, 'exam ID'));
+  if (!exam) throw new NotFoundError('Past exam');
+  await Promise.all([
+    GuuldoonQuestion.deleteMany({ exam: exam._id }),
+    GuuldoonAttempt.deleteMany({ course: exam.course, question: { $in: await GuuldoonQuestion.distinct('_id', { exam: exam._id }) } }),
+    GuuldoonMistake.deleteMany({ course: exam.course, question: { $in: await GuuldoonQuestion.distinct('_id', { exam: exam._id }) } }),
+  ]);
+  await exam.deleteOne();
+  return ApiResponse.success(res, { deleted: true }, 'Past exam deleted');
+}));
+
+router.get('/admin/exams/:examId/questions', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') throw new ForbiddenError('Super Admin access required');
+  const exam = await GuuldoonExam.findById(objectId(req.params.examId, 'exam ID')).lean();
+  if (!exam) throw new NotFoundError('Past exam');
+  const questions = await GuuldoonQuestion.find({ exam: exam._id }).select('+answer').sort({ number: 1 }).lean();
+  return ApiResponse.success(res, questions);
+}));
+
+router.post('/admin/exams/:examId/questions/bulk', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') throw new ForbiddenError('Super Admin access required');
+  const exam = await GuuldoonExam.findById(objectId(req.params.examId, 'exam ID')).lean();
+  if (!exam) throw new NotFoundError('Past exam');
+  const rows = Array.isArray(req.body?.questions) ? req.body.questions : [];
+  if (!rows.length || rows.length > 500) throw new BadRequestError('Provide 1 to 500 questions');
+
+  const content = await CourseContent.findOne({ course: exam.course }).select('chapters._id').lean();
+  const validChapters = new Set((content?.chapters || []).map((chapter: any) => String(chapter._id)));
+  const operations = rows.map((row: any, index: number) => {
+    const number = Number(row.number);
+    const chapterId = String(row.chapterId || '');
+    const type = String(row.type || 'mcq');
+    if (!Number.isInteger(number) || number < 1) throw new BadRequestError(`Question row ${index + 1}: valid number required`);
+    if (!['mcq', 'structured', 'fill', 'match'].includes(type)) throw new BadRequestError(`Question ${number}: invalid type`);
+    if (!String(row.textSo || '').trim()) throw new BadRequestError(`Question ${number}: Somali question text required`);
+    if (!validChapters.has(chapterId)) throw new BadRequestError(`Question ${number}: chapterId does not exist in this course`);
+    const answerStatus = row.answerStatus === 'verified' ? 'verified' : 'pending';
+    if (answerStatus === 'verified' && row.answer === undefined) throw new BadRequestError(`Question ${number}: verified questions require an answer`);
+
+    return {
+      updateOne: {
+        filter: { exam: exam._id, number },
+        update: {
+          $set: {
+            course: exam.course,
+            exam: exam._id,
+            number,
+            type,
+            textSo: String(row.textSo).trim(),
+            textEn: String(row.textEn || '').trim(),
+            options: Array.isArray(row.options) ? row.options.map(String) : undefined,
+            marks: Math.max(0, Number(row.marks) || 1),
+            figureUrl: String(row.figureUrl || '').trim(),
+            chapterId,
+            topicTags: Array.isArray(row.topicTags) ? row.topicTags.map((tag: unknown) => String(tag).trim()).filter(Boolean) : [],
+            answer: row.answer,
+            answerStatus,
+            explainerAudioUrl: String(row.explainerAudioUrl || '').trim(),
+            explainerText: String(row.explainerText || '').trim(),
+            bookRef: row.bookRef || undefined,
+            similarIds: Array.isArray(row.similarIds)
+              ? row.similarIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map((id: unknown) => new mongoose.Types.ObjectId(String(id)))
+              : [],
+          },
+        },
+        upsert: true,
+      },
+    };
+  });
+
+  await GuuldoonQuestion.bulkWrite(operations, { ordered: false });
+  const count = await GuuldoonQuestion.countDocuments({ exam: exam._id });
+  return ApiResponse.success(res, { imported: rows.length, totalQuestions: count }, 'Question bank imported');
+}));
+
+// ---------------------------------------------------------------------------
+// Existing admin / teacher performance views
+// ---------------------------------------------------------------------------
 
 /** All scope derives from authentication, never client school or student IDs. */
 async function studentScope(req: Request): Promise<Record<string, unknown>> {
@@ -106,14 +634,19 @@ router.get('/overview', asyncHandler(async (req, res) => {
     Subscription.countDocuments({ ...scope, status: 'pending' }),
     Subscription.aggregate([{ $match: { ...scope, verifiedReference: { $exists: true } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
   ]);
-  return ApiResponse.success(res, { publishedCourses, activeSubscribers: activeUsers.length, pendingPayments, verifiedPaymentsUsd: payments[0]?.total || 0 });
+  return ApiResponse.success(res, {
+    publishedCourses,
+    activeSubscribers: activeUsers.length,
+    pendingPayments,
+    verifiedPaymentsUsd: payments[0]?.total || 0,
+  });
 }));
+
 router.get('/performance', asyncHandler(async (req, res) => {
   const scopedStudents = await studentScope(req);
   if (scopedStudents.school) scopedStudents.school = new mongoose.Types.ObjectId(String(scopedStudents.school));
   if (scopedStudents.user) scopedStudents.user = new mongoose.Types.ObjectId(String(scopedStudents.user));
   const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
-  // Join and paginate in MongoDB rather than loading national student rosters into memory.
   const pipeline: mongoose.PipelineStage[] = [
     { $lookup: { from: Student.collection.name, localField: 'student', foreignField: '_id', pipeline: [{ $match: scopedStudents }, { $project: { studentId: 1, profile: 1 } }], as: 'student' } },
     { $unwind: '$student' },
@@ -122,7 +655,8 @@ router.get('/performance', asyncHandler(async (req, res) => {
     { $sort: { lastAccessed: -1 } },
     { $facet: {
       rows: [
-        { $skip: (page - 1) * 50 }, { $limit: 50 },
+        { $skip: (page - 1) * 50 },
+        { $limit: 50 },
         { $lookup: { from: Profile.collection.name, localField: 'student.profile', foreignField: '_id', pipeline: [{ $project: { firstName: 1, lastName: 1 } }], as: 'profile' } },
         { $set: { 'student.profile': { $arrayElemAt: ['$profile', 0] } } },
         { $project: { student: 1, course: 1, completedLessons: 1, completedQuizzes: 1, completedAssignments: 1, totalItems: 1, status: 1, lastAccessed: 1 } },
@@ -133,4 +667,5 @@ router.get('/performance', asyncHandler(async (req, res) => {
   const [result] = await Progress.aggregate(pipeline);
   return ApiResponse.paginated(res, result?.rows || [], { page, limit: 50, total: result?.count[0]?.total || 0 });
 }));
+
 export default router;

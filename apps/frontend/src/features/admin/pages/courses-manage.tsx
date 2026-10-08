@@ -405,7 +405,7 @@ export default function CoursesManage() {
     const newStatus: Status = currentStatus === 'archived' ? 'draft' : 'archived';
     try { await api.patch(`/courses/${id}`, { status: newStatus }); setCourses(prev => prev.map(c => c._id === id ? { ...c, status: newStatus } : c)); } catch (err: any) { setError(err.response?.data?.message || 'Failed to update course'); }
   };
-  const handleBuildContent = (course: Course) => navigate(`/admin/courses/${course._id}/builder`);
+  const handleBuildContent = (course: Course) => navigate(course.scope === 'global' ? `/admin/global-courses/${course._id}/guuldoon-builder` : `/admin/courses/${course._id}/builder`);
   const handleGateReport = (course: Course) => navigate(`/admin/courses/${course._id}/gate-report`);
   const handlePreview = (course: Course) => navigate(`/admin/courses/${course._id}/preview`);
   const handleViewStudents = (course: Course) => { window.alert(`View Enrolled Students for: ${course.title.en}\nEnrolled: ${course.scope === 'global' ? `${course.enrolledStudents} · Unlimited` : `${course.enrolledStudents}/${course.maxStudents}`}`); };
