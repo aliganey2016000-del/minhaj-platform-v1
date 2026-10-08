@@ -139,9 +139,12 @@ export function StudentSidebar() {
   const sectionActive = (section: NavSection) => section.items.some(item => isActive(item.path));
 
   useEffect(() => {
-    const active = visibleSections.find(section => sectionActive(section));
+    const active = navSections.find(section => section.items.some(item => {
+      if (item.path === '/student/exams') return location.pathname === '/student/exams' || location.pathname === '/student/exams/';
+      return location.pathname.startsWith(item.path);
+    }));
     if (active) setOpenSection(active.title);
-  }, [location.pathname, visibility]);
+  }, [location.pathname, navSections]);
 
   const closeMobile = () => setIsMobileOpen(false);
   const toggleSection = (title: string) => setOpenSection(current => current === title ? null : title);
