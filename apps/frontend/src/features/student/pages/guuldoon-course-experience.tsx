@@ -121,8 +121,15 @@ function formatVideo(seconds: number) {
 
 function FormulaText({ text }: { text: string }) {
   const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g).filter(Boolean);
-  return <>{parts.map((part, index) => {
-    const formula = part.startsWith('
+  return <>
+    {parts.map((part, index) => {
+      const formula = part.startsWith('$') && part.endsWith('$');
+      return formula
+        ? <span key={index} className="mx-0.5 rounded bg-slate-500/10 px-1.5 py-0.5 font-mono text-[.95em]" dir="ltr">{part}</span>
+        : <span key={index}>{part}</span>;
+    })}
+  </>;
+}
 export function GuuldoonCourseExperience() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
