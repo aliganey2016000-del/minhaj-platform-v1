@@ -261,7 +261,7 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
     || Number((progress as any)?.completedLessons || 0)
     + Number((progress as any)?.completedQuizzes || 0)
     + Number((progress as any)?.completedAssignments || 0);
-  const flatItems = chapterRows.flatMap(chapter => chapter.items.map(item => ({ ...item, chapterId: chapter.id, chapterTitle: chapter.title })));
+  const flatItems = chapterRows.flatMap(chapter => chapter.items.map((item: any) => ({ ...item, chapterId: chapter.id, chapterTitle: chapter.title })));
   const continueItem = flatItems.length ? flatItems[Math.min(completed, flatItems.length - 1)] : null;
 
   const now = new Date();
