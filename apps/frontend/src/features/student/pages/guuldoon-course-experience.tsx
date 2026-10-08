@@ -142,6 +142,7 @@ export function GuuldoonCourseExperience() {
   const [mistakes, setMistakes] = useState<any[]>([]);
   const [mistakesLoading, setMistakesLoading] = useState(false);
   const [glossaryTerm, setGlossaryTerm] = useState<Experience['glossary'][number] | null>(null);
+  const [resourcePreview, setResourcePreview] = useState<LessonItem | null>(null);
 
   const loadExperience = useCallback(async () => {
     if (!courseId) return;
@@ -244,6 +245,18 @@ export function GuuldoonCourseExperience() {
     } finally {
       setAnswering(false);
     }
+  };
+
+  const openLearningItem = (item: LessonItem, fallbackIndex = 0) => {
+    if (item.url) {
+      window.open(item.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (item.contentText || item.pageFrom || item.pageTo) {
+      setResourcePreview(item);
+      return;
+    }
+    navigate(`/student/courses/${courseId}/learn`, { state: { startItemIdx: fallbackIndex } });
   };
 
   const loadMistakes = useCallback(async () => {
@@ -362,7 +375,7 @@ export function GuuldoonCourseExperience() {
                   <p className="text-xs text-emerald-600">{data.continueItem.chapterTitle}</p>
                   <p className="mt-1 text-lg font-bold">{data.continueItem.title}</p>
                   <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{data.continueItem.type} {data.continueItem.videoSeconds ? `· ${formatVideo(data.continueItem.videoSeconds)}` : ''}</p>
-                  <button onClick={() => navigate(`/student/courses/${courseId}/learn`)} className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-emerald-600"><PlayCircle size={18} /> Sii wad casharka</button>
+                  <button onClick={() => openLearningItem(data.continueItem!)} className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-emerald-600"><PlayCircle size={18} /> Sii wad casharka</button>
                 </div>
               ) : <p className="mt-3 text-sm text-[var(--color-text-tertiary)]">Cashar la sii wado wali ma jiro.</p>}
             </div>
@@ -404,13 +417,7 @@ export function GuuldoonCourseExperience() {
                   <div className="border-t border-[var(--color-border-subtle)] p-4 sm:p-5">
                     <div className="space-y-2">
                       {chapter.items.map((item, itemIndex) => (
-                        <button key={item.id} onClick={() => {
-                          if (item.url) {
-                            window.open(item.url, '_blank', 'noopener,noreferrer');
-                            return;
-                          }
-                          navigate(`/student/courses/${courseId}/learn`, { state: { startItemIdx: data.chapters.slice(0, index).reduce((sum, row) => sum + row.items.length, 0) + itemIndex } });
-                        }} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-[var(--color-surface-tertiary)]">
+                        <button key={item.id} onClick={() => openLearningItem(item, data.chapters.slice(0, index).reduce((sum, row) => sum + row.items.length, 0) + itemIndex)} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-[var(--color-surface-tertiary)]">
                           {itemIndex === 0 ? <PlayCircle className="text-emerald-500" size={20} /> : <Circle className="text-slate-400" size={18} />}
                           <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{item.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{item.hasVideo ? `Muuqaal ${formatVideo(item.videoSeconds)}` : item.type} {item.duration ? `· ${item.duration} daqiiqo` : ''}</p></div>
                         </button>
@@ -530,6 +537,19 @@ export function GuuldoonCourseExperience() {
           </button>
         ))}
       </nav>
+
+      {resourcePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setResourcePreview(null)}>
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] p-5 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div><p className="text-xs font-black uppercase tracking-wide text-emerald-600">{resourcePreview.type}</p><h3 className="mt-1 text-xl font-black">{resourcePreview.title}</h3></div>
+              <button onClick={() => setResourcePreview(null)} className="rounded-lg p-2 hover:bg-[var(--color-surface-tertiary)]"><X size={18} /></button>
+            </div>
+            {(resourcePreview.pageFrom || resourcePreview.pageTo) && <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">Buugga: bogga {resourcePreview.pageFrom || '—'}{resourcePreview.pageTo ? `–${resourcePreview.pageTo}` : ''}</p>}
+            {resourcePreview.contentText && <div dir={resourcePreview.direction === 'rtl' || resourcePreview.language === 'ar' ? 'rtl' : resourcePreview.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-4 whitespace-pre-wrap text-sm leading-7"><FormulaText text={resourcePreview.contentText} /></div>}
+          </div>
+        </div>
+      )}
 
       {glossaryTerm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setGlossaryTerm(null)}>
