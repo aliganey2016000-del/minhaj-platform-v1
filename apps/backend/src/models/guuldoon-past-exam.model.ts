@@ -17,7 +17,7 @@ export interface IGuuldoonPastExam extends Document {
 
 const schema = new Schema<IGuuldoonPastExam>({
   course: { type: Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
-  externalId: { type: String, default: '', trim: true },
+  externalId: { type: String, trim: true, default: undefined },
   subjectExternalId: { type: String, default: '', trim: true, index: true },
   year: { type: Number, required: true, min: 1900, max: 2100 },
   durationMin: { type: Number, required: true, min: 1, max: 600 },
@@ -31,7 +31,7 @@ const schema = new Schema<IGuuldoonPastExam>({
 schema.index({ course: 1, year: 1 }, { unique: true });
 schema.index(
   { course: 1, externalId: 1 },
-  { unique: true, partialFilterExpression: { externalId: { $type: 'string', $ne: '' } } },
+  { unique: true, partialFilterExpression: { externalId: { $exists: true, $type: 'string' } } },
 );
 
 export default mongoose.model<IGuuldoonPastExam>('GuuldoonPastExam', schema);
