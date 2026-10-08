@@ -36,6 +36,7 @@ export interface ParsedGuuldoonImport {
   issues: ImportIssue[];
   summary: Record<string, { total: number; valid: number; errors: number; warnings: number }>;
   preview: Record<string, unknown>;
+  invalidRowKeys: Set<string>;
   lists: {
     questionType: Set<string>;
     resourceType: Set<string>;
@@ -43,6 +44,7 @@ export interface ParsedGuuldoonImport {
     direction: Set<string>;
     answerStatus: Set<string>;
     status: Set<string>;
+    bookRelation: Set<string>;
   };
   zip?: FigureArchive;
 }
@@ -58,14 +60,15 @@ const SERVER_LANGUAGES = new Set(['so', 'en', 'ar']);
 const SERVER_DIRECTIONS = new Set(['ltr', 'rtl', 'auto']);
 const SERVER_ANSWER_STATUS = new Set(['verified', 'pending']);
 const SERVER_STATUS = new Set(['draft', 'published']);
+const SERVER_BOOK_RELATIONS = new Set(['direct', 'indirect', 'similar', 'derived']);
 const FIGURE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.svg']);
 const MAX_ZIP_ENTRIES = 2000;
 const MAX_ZIP_UNCOMPRESSED = 100 * 1024 * 1024;
 const MAX_FIGURE_BYTES = 10 * 1024 * 1024;
 
 const REQUIRED_HEADERS: Record<ImportSheet, string[]> = {
-  Subjects: ['subject_id', 'grade', 'name_so', 'name_en'],
-  Chapters: ['chapter_id', 'subject_id', 'order', 'title_so', 'title_en'],
+  Subjects: ['subject_id', 'grade', 'name_en'],
+  Chapters: ['chapter_id', 'subject_id', 'order', 'title_en'],
   Exams: ['exam_id', 'subject_id', 'year', 'duration_min', 'total_marks', 'answer_key_status'],
   Resources: ['resource_id', 'subject_id', 'type', 'title', 'language', 'direction'],
   Questions: ['question_id', 'exam_id', 'chapter_id', 'number', 'type', 'language', 'direction', 'text', 'marks', 'answer_status'],
@@ -96,6 +99,10 @@ function splitList(value: unknown): string[] {
 
 function normalizedTag(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-');
+}
+
+function normalizedBookText(value: unknown): string {
+  return str(value).toLocaleLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function rowId(sheet: ImportSheet, row: Row): string {
@@ -191,6 +198,7 @@ function readLists(workbook: XLSX.WorkBook) {
     direction: values('direction'),
     answerStatus: values('answer_status'),
     status: values('status'),
+    bookRelation: values('book_relation'),
   };
   if (!lists.questionType.size || !lists.resourceType.size || !lists.language.size || !lists.direction.size || !lists.answerStatus.size) {
     throw new BadRequestError('Lists sheet must define question_type, resource_type, language, direction and answer_status');
