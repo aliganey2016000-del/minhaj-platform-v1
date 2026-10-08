@@ -1,12 +1,13 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import GuuldoonImportBatch from '../models/guuldoon-import-batch.model';
-import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../utils/api-error';
 import ApiResponse from '../utils/api-response';
 import {
   buildGuuldoonUniversalTemplate,
   buildImportIssuesWorkbook,
   commitGuuldoonImport,
+  guuldoonImportDataFingerprint,
   importFileHashes,
   parseAndValidateGuuldoonImport,
 } from '../services/guuldoon-universal-import.service';
@@ -17,10 +18,11 @@ function requireSuperAdmin(req: Request): void {
 
 function files(req: Request): { excel?: Express.Multer.File; figures?: Express.Multer.File } {
   const uploaded = req.files as Record<string, Express.Multer.File[]> | undefined;
-  return {
-    excel: uploaded?.excel?.[0],
-    figures: uploaded?.figures?.[0],
-  };
+  const excel = uploaded?.excel?.[0];
+  const figures = uploaded?.figures?.[0];
+  if (excel && excel.size > 20 * 1024 * 1024) throw new BadRequestError('Excel workbook must be 20 MB or smaller');
+  if (figures && figures.size > 50 * 1024 * 1024) throw new BadRequestError('Figures ZIP must be 50 MB or smaller');
+  return { excel, figures };
 }
 
 export async function downloadTemplate(req: Request, res: Response): Promise<void> {
@@ -39,6 +41,7 @@ export async function validateImport(req: Request, res: Response): Promise<Respo
 
   const parsed = await parseAndValidateGuuldoonImport(req.params.courseId, excel, figures);
   const hashes = importFileHashes(excel, figures);
+  const dataFingerprint = await guuldoonImportDataFingerprint(req.params.courseId);
   const batch = await GuuldoonImportBatch.create({
     course: new mongoose.Types.ObjectId(req.params.courseId),
     uploadedBy: new mongoose.Types.ObjectId(req.user!.userId),
@@ -46,6 +49,7 @@ export async function validateImport(req: Request, res: Response): Promise<Respo
     zipFilename: figures?.originalname || '',
     excelHash: hashes.excelHash,
     zipHash: hashes.zipHash,
+    dataFingerprint,
     status: 'validated',
     summary: parsed.summary,
     preview: parsed.preview,
@@ -87,6 +91,10 @@ export async function commitImport(req: Request, res: Response): Promise<Respons
   const hashes = importFileHashes(excel, figures);
   if (hashes.excelHash !== batch.excelHash || hashes.zipHash !== (batch.zipHash || '')) {
     throw new BadRequestError('Uploaded files do not match the validated import batch. Revalidate before importing');
+  }
+  const currentFingerprint = await guuldoonImportDataFingerprint(req.params.courseId);
+  if (currentFingerprint !== batch.dataFingerprint) {
+    throw new ConflictError('Guuldoon data changed after validation. Revalidate before importing');
   }
 
   const parsed = await parseAndValidateGuuldoonImport(req.params.courseId, excel, figures);
