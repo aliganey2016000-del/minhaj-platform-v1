@@ -84,12 +84,23 @@ async function workbookBuffer(options: { duplicate?: boolean; invalidReference?:
 
 function figuresZip(malicious = false) {
   const zip = new AdmZip();
-  if (malicious) {
-    zip.addFile('../evil.png', Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), Buffer.alloc(10)]));
-  } else {
-    zip.addFile('figures/circuit.png', Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), Buffer.alloc(32)]));
+  const png = Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), Buffer.alloc(malicious ? 10 : 32)]);
+  if (!malicious) {
+    zip.addFile('figures/circuit.png', png);
+    return zip.toBuffer();
   }
-  return zip.toBuffer();
+
+  const safeName = 'aa/evil.png';
+  const unsafePrefix = String.fromCharCode(46, 46, 47);
+  const unsafeName = unsafePrefix + 'evil.png';
+  zip.addFile(safeName, png);
+  const buffer = zip.toBuffer();
+  let offset = 0;
+  while ((offset = buffer.indexOf(Buffer.from(safeName), offset)) >= 0) {
+    Buffer.from(unsafeName).copy(buffer, offset);
+    offset += unsafeName.length;
+  }
+  return buffer;
 }
 
 async function main() {
