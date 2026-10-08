@@ -201,6 +201,9 @@ async function main() {
     for (const name of ['Subjects','Chapters','Exams','Resources','Questions','Glossary','Lists']) {
       assert.ok(templateWb.getWorksheet(name), `template contains ${name}`);
     }
+    const templateQuestionHeaders = (templateWb.getWorksheet('Questions')!.getRow(1).values as any[]).map(String);
+    assert.ok(templateQuestionHeaders.includes('book_anchor_text'));
+    assert.ok(templateQuestionHeaders.includes('book_relation'));
 
     // Duplicate question_id is a row-level validation error with row details.
     const duplicate = await request(app)
@@ -210,6 +213,45 @@ async function main() {
       .attach('figures', figuresZip(), { filename: 'figures.zip' });
     assert.equal(duplicate.status, 200, JSON.stringify(duplicate.body));
     assert.ok(duplicate.body.data.errors.some((item: any) => item.field === 'question_id' && /Duplicate/.test(item.message)));
+
+    // Question number must be unique inside one exam before commit.
+    const duplicateNumber = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/validate`)
+      .set(adminHeaders)
+      .attach('excel', await workbookBuffer({ duplicateNumber: true }), { filename: 'Guuldoon_Universal_Import_Template.xlsx' })
+      .attach('figures', figuresZip(), { filename: 'figures.zip' });
+    assert.equal(duplicateNumber.status, 200, JSON.stringify(duplicateNumber.body));
+    assert.ok(duplicateNumber.body.data.errors.some((item: any) => item.field === 'number' && /duplicated inside exam_id/.test(item.message)));
+
+    // The two highlight columns are optional and older Guuldoon workbooks remain valid.
+    const legacyColumns = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/validate`)
+      .set(adminHeaders)
+      .attach('excel', await workbookBuffer({ omitHighlightColumns: true }), { filename: 'Guuldoon_Legacy_Import.xlsx' })
+      .attach('figures', figuresZip(), { filename: 'figures.zip' });
+    assert.equal(legacyColumns.status, 200, JSON.stringify(legacyColumns.body));
+    assert.equal(legacyColumns.body.data.errors.some((item: any) => ['book_anchor_text','book_relation'].includes(item.field)), false);
+
+    // Missing anchors are warnings only: question imports remain valid.
+    const missingAnchor = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/validate`)
+      .set(adminHeaders)
+      .attach('excel', await workbookBuffer({ missingAnchor: true }), { filename: 'Guuldoon_Missing_Anchor.xlsx' })
+      .attach('figures', figuresZip(), { filename: 'figures.zip' });
+    assert.equal(missingAnchor.status, 200, JSON.stringify(missingAnchor.body));
+    assert.ok(missingAnchor.body.data.warnings.some((item: any) => item.field === 'book_anchor_text' && /not found/.test(item.message)));
+    assert.equal(missingAnchor.body.data.summary.Questions.valid, 2);
+
+    // Invalid root entities produce one dependency summary per dependent sheet, not hundreds of cascading row errors.
+    const rootFailure = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/validate`)
+      .set(adminHeaders)
+      .attach('excel', await workbookBuffer({ invalidSubject: true }), { filename: 'Guuldoon_Invalid_Subject.xlsx' })
+      .attach('figures', figuresZip(), { filename: 'figures.zip' });
+    assert.equal(rootFailure.status, 200, JSON.stringify(rootFailure.body));
+    assert.ok(rootFailure.body.data.errors.some((item: any) => item.sheet === 'Subjects' && item.field === 'grade'));
+    assert.ok(rootFailure.body.data.errors.some((item: any) => item.field === 'dependency'));
+    assert.ok(rootFailure.body.data.errors.filter((item: any) => item.field === 'dependency').length <= 5);
 
     // Unsafe ZIP paths are rejected before extraction.
     const unsafeZip = await request(app)
@@ -264,6 +306,119 @@ async function main() {
     assert.equal(q1?.answerStatus, 'verified');
     assert.equal(q1?.markingMode, 'auto');
     assert.equal(q1?.answer, 1);
+    assert.equal(q1?.bookRelation, 'derived');
+    assert.equal(q1?.bookAnchorText, '$V = IR    assert.equal(q2?.markingMode, 'manual');
+    assert.ok(q1?.figureUrl?.startsWith('/uploads/guuldoon/'));
+
+    // Re-import is idempotent: stable external IDs update instead of duplicating.
+    const validation2 = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/validate`)
+      .set(adminHeaders)
+      .attach('excel', excel, { filename: 'Guuldoon_Universal_Import_Template.xlsx' })
+      .attach('figures', zip, { filename: 'figures.zip' });
+    const committed2 = await request(app)
+      .post(`/api/v1/guuldoon/admin/import/courses/${course._id}/commit`)
+      .set(adminHeaders)
+      .field('batchId', validation2.body.data.batchId)
+      .attach('excel', excel, { filename: 'Guuldoon_Universal_Import_Template.xlsx' })
+      .attach('figures', zip, { filename: 'figures.zip' });
+    assert.equal(committed2.status, 200, JSON.stringify(committed2.body));
+    assert.equal(committed2.body.data.created.Questions, 0);
+    assert.equal(await Question.countDocuments({ course: course._id }), 2);
+
+    // Student experience uses imported chapters/resources/glossary without touching normal CourseContent.
+    const verifiedDevice = await request(app)
+      .post('/api/v1/guuldoon/devices/verify-password')
+      .set(studentHeaders)
+      .send({ password: 'StudentPassword123!' });
+    assert.equal(verifiedDevice.status, 200);
+    const cookie = (verifiedDevice.headers['set-cookie'] as unknown as string[])[0].split(';')[0];
+    const opened = await request(app)
+      .post(`/api/v1/guuldoon/courses/${course._id}/open`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(opened.status, 200);
+
+    const experience = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/experience`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(experience.status, 200, JSON.stringify(experience.body));
+    assert.equal(experience.body.data.course.language, 'en');
+    assert.equal(experience.body.data.chapters[0].id, 'PHY12_CH01');
+    assert.equal(experience.body.data.chapters[0].title, 'Electricity');
+    assert.equal(experience.body.data.chapters[0].items[0].title, 'Ohm Law');
+    assert.equal(experience.body.data.chapters[0].yearsCount, 1);
+    assert.equal(experience.body.data.chapters[0].yearCounts[0].year, 2021);
+    assert.equal(experience.body.data.glossary[0].termAr, 'المقاومة');
+
+    const lesson = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/chapters/PHY12_CH01/lesson`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(lesson.status, 200, JSON.stringify(lesson.body));
+    assert.equal(lesson.body.data.sections.length, 1);
+    assert.equal(lesson.body.data.sections[0].sectionNumber, '1.1');
+    assert.equal(lesson.body.data.sections[0].highlights.length, 1);
+    assert.equal(lesson.body.data.sections[0].highlights[0].relation, 'derived');
+    assert.equal(lesson.body.data.sections[0].highlights[0].examYear, 2021);
+
+    const yearQuestions = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/chapters/PHY12_CH01/questions?year=2021`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(yearQuestions.status, 200);
+    assert.equal(yearQuestions.body.data.questions.length, 1);
+    assert.equal(yearQuestions.body.data.questions[0].examYear, 2021);
+    assert.equal(yearQuestions.body.data.questions[0].answer, undefined);
+
+    const exam = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/exams/${q1!.exam}`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(exam.status, 200);
+    const publicQ1 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q01');
+    const publicQ2 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q02');
+    assert.equal(publicQ1.answer, undefined);
+
+    const autoMarked = await request(app)
+      .post(`/api/v1/guuldoon/questions/${publicQ1._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer: 1 });
+    assert.equal(autoMarked.status, 200);
+    assert.equal(autoMarked.body.data.marked, true);
+    assert.equal(autoMarked.body.data.correct, true);
+
+    const pending = await request(app)
+      .post(`/api/v1/guuldoon/questions/${publicQ2._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer: 'draft' });
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.data.marked, false);
+    assert.equal(pending.body.data.correct, null);
+    assert.equal(pending.body.data.message, 'Jawaab la xaqiijin doonaa');
+    assert.equal(pending.body.data.explanation, 'Sharaxaad qabyada ah');
+
+    // Error report is downloadable and auditable.
+    const report = await request(app)
+      .get(`/api/v1/guuldoon/admin/import/batches/${batchId}/errors`)
+      .set(adminHeaders);
+    assert.equal(report.status, 200);
+    assert.match(String(report.headers['content-type']), /spreadsheetml/);
+
+    console.log('Guuldoon universal Excel importer: template, validation, ZIP safety, partial import, idempotency, RTL/LaTeX and auto-marking passed.');
+  } finally {
+    await db.stop();
+  }
+}
+
+main().then(() => process.exit(0)).catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+);
     assert.equal(q2?.answerStatus, 'pending');
     assert.equal(q2?.markingMode, 'manual');
     assert.ok(q1?.figureUrl?.startsWith('/uploads/guuldoon/'));
