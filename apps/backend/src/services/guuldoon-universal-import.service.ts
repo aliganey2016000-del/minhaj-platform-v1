@@ -977,12 +977,36 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
   workbook.title = 'Guuldoon Universal Import Template';
 
   const definitions: Array<{ name: ImportSheet; headers: string[]; example: any[] }> = [
-    { name: 'Subjects', headers: ['row_status','subject_id','grade','language','name_so','name_en','name_ar','description_so','description_en','status'], example: ['example','PHY12',12,'en','Fiisigis','Physics','الفيزياء','Diyaarinta imtixaanka','Certificate exam preparation','draft'] },
-    { name: 'Chapters', headers: ['row_status','chapter_id','subject_id','order','title_so','title_en','title_ar','exam_weight','status'], example: ['example','PHY12_CH01','PHY12',1,'','Electricity','الكهرباء',20,'published'] },
-    { name: 'Exams', headers: ['row_status','exam_id','subject_id','year','duration_min','total_marks','source','answer_key_status','published','notes'], example: ['example','PHY12_EX2021','PHY12',2021,120,100,'National exam','verified',true,'Official key checked'] },
-    { name: 'Resources', headers: ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text'], example: ['example','PHY12_RES001','PHY12','PHY12_CH01','note','1.1 Ohm Law','','',10,12,'en','ltr',true,'If resistance is R and current is I, then $V = IR$.'] },
-    { name: 'Questions', headers: ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'], example: ['example','PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','en','ltr','If $R = 5\\Omega$ and $I = 2A$, find $V$.','',2,'2V','5V','10V','20V','C','verified','ohms-law;resistance','circuit_01.png','PHY12_RES001','Use $V = IR$.','',10,12,'If resistance is R and current is I, then $V = IR$.','direct','','',''] },
-    { name: 'Glossary', headers: ['row_status','glossary_id','subject_id','term_so','term_en','term_ar'], example: ['example','PHY12_G001','PHY12','Iska-caabin','Resistance','المقاومة'] },
+    {
+      name: 'Subjects',
+      headers: ['row_status','subject_id','grade','language','name_so','name_en','name_ar','description_so','description_en','status'],
+      example: ['example','PHY12',12,'en','','Physics','الفيزياء','','Certificate exam preparation','draft'],
+    },
+    {
+      name: 'Chapters',
+      headers: ['row_status','chapter_id','subject_id','order','title_so','title_en','title_ar','exam_weight','status'],
+      example: ['example','PHY12_CH01','PHY12',1,'','Electricity','الكهرباء',20,'published'],
+    },
+    {
+      name: 'Exams',
+      headers: ['row_status','exam_id','subject_id','year','duration_min','total_marks','source','answer_key_status','published','notes'],
+      example: ['example','PHY12_EX2021','PHY12',2021,120,100,'National exam','verified',true,'Official key checked'],
+    },
+    {
+      name: 'Resources',
+      headers: ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text'],
+      example: ['example','PHY12_RES001','PHY12','PHY12_CH01','note','1.1 Ohm Law','','',10,12,'en','ltr',true,'Ohm law states that voltage equals current multiplied by resistance. $V = IR$.'],
+    },
+    {
+      name: 'Questions',
+      headers: ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'],
+      example: ['example','PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','en','ltr','If $R = 5\\Omega$ and $I = 2A$, find $V$.','',2,'2V','5V','10V','20V','C','verified','ohms-law;resistance','circuit_01.png','PHY12_RES001','Use $V = IR$.','',10,12,'Ohm law states that voltage equals current multiplied by resistance.','direct','','',''],
+    },
+    {
+      name: 'Glossary',
+      headers: ['row_status','glossary_id','subject_id','term_so','term_en','term_ar'],
+      example: ['example','PHY12_G001','PHY12','Iska-caabin','Resistance','المقاومة'],
+    },
   ];
 
   for (const def of definitions) {
@@ -1005,15 +1029,15 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
     ['structured','audio','en','rtl','pending','published','indirect'],
     ['fill','pdf','ar','auto','','','similar'],
     ['match','book','','','','','derived'],
-    ['','image','','','',''],
-    ['','note','','','',''],
-    ['','link','','','',''],
+    ['','image','','','','',''],
+    ['','note','','','','',''],
+    ['','link','','','','',''],
   ];
   listRows.forEach(row => lists.addRow(row));
   lists.getRow(1).font = { bold: true };
-  lists.columns.forEach(column => { column.width = 22; });
+  lists.columns.forEach((column: any) => { column.width = 22; });
 
-  const applyListValidation = (sheetName: ImportSheet, header: string, formula: string) => {
+  const applyListValidation = (sheetName: ImportSheet, header: string, formula: string, allowBlank = false) => {
     const sheet = workbook.getWorksheet(sheetName)!;
     const headerRow = sheet.getRow(1).values as any[];
     const columnIndex = headerRow.findIndex(value => value === header);
@@ -1021,7 +1045,7 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
     for (let row = 2; row <= 5001; row += 1) {
       sheet.getCell(row, columnIndex).dataValidation = {
         type: 'list',
-        allowBlank: false,
+        allowBlank,
         formulae: [formula],
         showErrorMessage: true,
         errorTitle: 'Invalid value',
@@ -1034,7 +1058,7 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
   applyListValidation('Questions', 'language', 'Lists!$C$2:$C$4');
   applyListValidation('Questions', 'direction', 'Lists!$D$2:$D$4');
   applyListValidation('Questions', 'answer_status', 'Lists!$E$2:$E$3');
-  applyListValidation('Questions', 'book_relation', 'Lists!$G$2:$G$5');
+  applyListValidation('Questions', 'book_relation', 'Lists!$G$2:$G$5', true);
   applyListValidation('Resources', 'type', 'Lists!$B$2:$B$8');
   applyListValidation('Resources', 'language', 'Lists!$C$2:$C$4');
   applyListValidation('Resources', 'direction', 'Lists!$D$2:$D$4');
@@ -1052,85 +1076,16 @@ export async function buildImportIssuesWorkbook(issues: ImportIssue[]): Promise<
   const sheet = workbook.addWorksheet('Import Issues');
   sheet.addRow(['Severity', 'Sheet', 'Row', 'ID', 'Field', 'Error']);
   sheet.getRow(1).font = { bold: true };
-  for (const issue of issues) sheet.addRow([issue.severity, issue.sheet, issue.row, issue.id || '', issue.field || '', issue.message]);
-  sheet.columns = [
-    { width: 12 }, { width: 16 }, { width: 10 }, { width: 28 }, { width: 24 }, { width: 70 },
-  ];
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer);
-}
-,'direct','','',''] },
-    { name: 'Glossary', headers: ['row_status','glossary_id','subject_id','term_so','term_en','term_ar'], example: ['example','PHY12_G001','PHY12','Iska-caabin','Resistance','المقاومة'] },
-  ];
-
-  for (const def of definitions) {
-    const sheet = workbook.addWorksheet(def.name, { views: [{ state: 'frozen', ySplit: 1 }] });
-    sheet.addRow(def.headers);
-    sheet.addRow(def.example);
-    sheet.getRow(1).font = { bold: true };
-    sheet.getRow(2).font = { italic: true };
-    sheet.getRow(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
-    sheet.columns.forEach((column, index) => {
-      column.width = Math.min(42, Math.max(14, def.headers[index].length + 4));
-    });
-    sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: def.headers.length } };
+  for (const issue of issues) {
+    sheet.addRow([issue.severity, issue.sheet, issue.row, issue.id || '', issue.field || '', issue.message]);
   }
-
-  const lists = workbook.addWorksheet('Lists');
-  lists.addRow(['question_type','resource_type','language','direction','answer_status','status']);
-  const listRows = [
-    ['mcq','video','so','ltr','verified','draft'],
-    ['structured','audio','en','rtl','pending','published'],
-    ['fill','pdf','ar','auto','',''],
-    ['match','book','','','',''],
-    ['','image','','','',''],
-    ['','note','','','',''],
-    ['','link','','','',''],
-  ];
-  listRows.forEach(row => lists.addRow(row));
-  lists.getRow(1).font = { bold: true };
-  lists.columns.forEach(column => { column.width = 22; });
-
-  const applyListValidation = (sheetName: ImportSheet, header: string, formula: string) => {
-    const sheet = workbook.getWorksheet(sheetName)!;
-    const headerRow = sheet.getRow(1).values as any[];
-    const columnIndex = headerRow.findIndex(value => value === header);
-    if (columnIndex < 1) return;
-    for (let row = 2; row <= 5001; row += 1) {
-      sheet.getCell(row, columnIndex).dataValidation = {
-        type: 'list',
-        allowBlank: false,
-        formulae: [formula],
-        showErrorMessage: true,
-        errorTitle: 'Invalid value',
-        error: 'Choose a value from the Lists sheet.',
-      };
-    }
-  };
-
-  applyListValidation('Questions', 'type', 'Lists!$A$2:$A$5');
-  applyListValidation('Questions', 'language', 'Lists!$C$2:$C$4');
-  applyListValidation('Questions', 'direction', 'Lists!$D$2:$D$4');
-  applyListValidation('Questions', 'answer_status', 'Lists!$E$2:$E$3');
-  applyListValidation('Resources', 'type', 'Lists!$B$2:$B$8');
-  applyListValidation('Resources', 'language', 'Lists!$C$2:$C$4');
-  applyListValidation('Resources', 'direction', 'Lists!$D$2:$D$4');
-  applyListValidation('Exams', 'answer_key_status', 'Lists!$E$2:$E$3');
-  applyListValidation('Subjects', 'status', 'Lists!$F$2:$F$3');
-  applyListValidation('Chapters', 'status', 'Lists!$F$2:$F$3');
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer);
-}
-
-export async function buildImportIssuesWorkbook(issues: ImportIssue[]): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Import Issues');
-  sheet.addRow(['Severity', 'Sheet', 'Row', 'ID', 'Field', 'Error']);
-  sheet.getRow(1).font = { bold: true };
-  for (const issue of issues) sheet.addRow([issue.severity, issue.sheet, issue.row, issue.id || '', issue.field || '', issue.message]);
   sheet.columns = [
-    { width: 12 }, { width: 16 }, { width: 10 }, { width: 28 }, { width: 24 }, { width: 70 },
+    { width: 12 },
+    { width: 16 },
+    { width: 10 },
+    { width: 28 },
+    { width: 24 },
+    { width: 70 },
   ];
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
