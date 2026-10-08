@@ -356,6 +356,136 @@ async function main() {
     assert.equal(lesson.status, 200, JSON.stringify(lesson.body));
     assert.equal(lesson.body.data.chapter.title, 'Electricity');
     assert.equal(lesson.body.data.sections[0].contentText.includes('$V = IR
+      .get(`/api/v1/guuldoon/courses/${course._id}/exams/${q1!.exam}`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(exam.status, 200);
+    const publicQ1 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q01');
+    const publicQ2 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q02');
+    assert.equal(publicQ1.answer, undefined);
+
+    const autoMarked = await request(app)
+      .post(`/api/v1/guuldoon/questions/${publicQ1._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer: 1 });
+    assert.equal(autoMarked.status, 200);
+    assert.equal(autoMarked.body.data.marked, true);
+    assert.equal(autoMarked.body.data.correct, true);
+
+    const afterVerified = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/experience`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(afterVerified.status, 200);
+    const passMeterAfterVerified = afterVerified.body.data.passMeter;
+
+    const pending = await request(app)
+      .post(`/api/v1/guuldoon/questions/${publicQ2._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer: 'draft' });
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.data.marked, false);
+    assert.equal(pending.body.data.correct, null);
+    assert.equal(pending.body.data.explanationStatus, 'draft');
+    assert.equal(pending.body.data.explanation, 'Sharaxaad qabyada ah');
+
+    const afterPending = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/experience`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(afterPending.status, 200);
+    assert.equal(afterPending.body.data.passMeter, passMeterAfterVerified, 'pending structured attempt must not change Pass Meter');
+
+    // Error report is downloadable and auditable.
+    const report = await request(app)
+      .get(`/api/v1/guuldoon/admin/import/batches/${batchId}/errors`)
+      .set(adminHeaders);
+    assert.equal(report.status, 200);
+    assert.match(String(report.headers['content-type']), /spreadsheetml/);
+
+    console.log('Guuldoon universal Excel importer: template, validation, ZIP safety, partial import, idempotency, RTL/LaTeX and auto-marking passed.');
+  } finally {
+    await db.stop();
+  }
+}
+
+main().then(() => process.exit(0)).catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+), true);
+    assert.equal(lesson.body.data.sections[0].highlights[0].relation, 'direct');
+    assert.equal(lesson.body.data.sections[0].highlights[0].questions[0].externalId, 'PHY12_2021_Q01');
+    assert.equal(lesson.body.data.sections[0].highlights[0].questions[0].answer, undefined);
+
+    const byYear = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/chapters/PHY12_CH01/questions?year=2021`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(byYear.status, 200);
+    assert.equal(byYear.body.data.yearCounts[0].year, 2021);
+    assert.equal(byYear.body.data.questions[0].examYear, 2021);
+
+    const exam = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/exams/${q1!.exam}`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(exam.status, 200);
+    const publicQ1 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q01');
+    const publicQ2 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q02');
+    assert.equal(publicQ1.answer, undefined);
+
+    const autoMarked = await request(app)
+      .post(`/api/v1/guuldoon/questions/${publicQ1._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer: 1 });
+    assert.equal(autoMarked.status, 200);
+    assert.equal(autoMarked.body.data.marked, true);
+    assert.equal(autoMarked.body.data.correct, true);
+
+    const pending = await request(app)
+      .post(`/api/v1/guuldoon/questions/${publicQ2._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer: 'draft' });
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.data.marked, false);
+    assert.equal(pending.body.data.correct, null);
+
+    // Error report is downloadable and auditable.
+    const report = await request(app)
+      .get(`/api/v1/guuldoon/admin/import/batches/${batchId}/errors`)
+      .set(adminHeaders);
+    assert.equal(report.status, 200);
+    assert.match(String(report.headers['content-type']), /spreadsheetml/);
+
+    console.log('Guuldoon universal Excel importer: template, validation, ZIP safety, partial import, idempotency, RTL/LaTeX and auto-marking passed.');
+  } finally {
+    await db.stop();
+  }
+}
+
+main().then(() => process.exit(0)).catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+), true);
+    assert.equal(lesson.body.data.sections[0].highlights[0].relation, 'direct');
+    assert.equal(lesson.body.data.sections[0].highlights[0].questions[0].externalId, 'PHY12_2021_Q01');
+    assert.equal(lesson.body.data.sections[0].highlights[0].questions[0].answer, undefined);
+
+    const byYear = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/chapters/PHY12_CH01/questions?year=2021`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(byYear.status, 200, JSON.stringify(byYear.body));
+    assert.equal(byYear.body.data.yearCounts[0].year, 2021);
+    assert.equal(byYear.body.data.questions[0].examYear, 2021);
+    assert.equal(byYear.body.data.questions[0].answer, undefined);
+
     const exam = await request(app)
       .get(`/api/v1/guuldoon/courses/${course._id}/exams/${q1!.exam}`)
       .set(studentHeaders)
