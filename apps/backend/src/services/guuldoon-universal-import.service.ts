@@ -682,7 +682,7 @@ export async function parseAndValidateGuuldoonImport(
   }
 
   // Chapter weights: only enforce total when all valid workbook chapters provide one.
-  const validChapterRows = rows.Chapters.filter(row => !rowErrors.has(issueKey('Chapters', row.__row)));
+  const validChapterRows = rows.Chapters.filter(row => !rowErrors.has(issueKey('Chapters', row.__row)) && !blockedRows.has(issueKey('Chapters', row.__row)));
   if (validChapterRows.length && validChapterRows.every(row => numberOrNull(row.exam_weight) !== null)) {
     const total = validChapterRows.reduce((sum, row) => sum + Number(row.exam_weight || 0), 0);
     if (Math.abs(total - 100) > 0.5) {
@@ -704,13 +704,13 @@ export async function parseAndValidateGuuldoonImport(
 
   const validQuestionRows = rows.Questions.filter(row => !rowErrors.has(issueKey('Questions', row.__row)) && !blockedRows.has(issueKey('Questions', row.__row)));
   const preview = {
-    subject: rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row))) ? {
-      id: rowId('Subjects', rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)))!),
-      name: str(rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)))!.name_en),
+    subject: rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)) && !blockedRows.has(issueKey('Subjects', row.__row))) ? {
+      id: rowId('Subjects', rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)) && !blockedRows.has(issueKey('Subjects', row.__row)))!),
+      name: str(rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)) && !blockedRows.has(issueKey('Subjects', row.__row)))!.name_en),
       grade: Number((course as any).globalGrade),
     } : null,
     chapters: summary.Chapters.valid,
-    exams: rows.Exams.filter(row => !rowErrors.has(issueKey('Exams', row.__row))).map(row => Number(row.year)).filter(Boolean).sort(),
+    exams: rows.Exams.filter(row => !rowErrors.has(issueKey('Exams', row.__row)) && !blockedRows.has(issueKey('Exams', row.__row))).map(row => Number(row.year)).filter(Boolean).sort(),
     resources: summary.Resources.valid,
     questions: summary.Questions.valid,
     verifiedAnswers: validQuestionRows.filter(row => lower(row.answer_status) === 'verified').length,
@@ -767,7 +767,7 @@ export async function commitGuuldoonImport(
   const created = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
   const updated = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
   const importErrors: ImportIssue[] = [];
-  let skipped = parsed.issues.filter(issue => issue.severity === 'error' && issue.row >= 2).reduce((set, issue) => set.add(issueKey(issue.sheet, issue.row)), new Set<string>()).size;
+  let skipped = parsed.issues.filter(issue => issue.severity === 'error' && issue.row >= 2).reduce((set, issue) => set.add(issueKey(issue.sheet, issue.row)), new Set<string>()).size + parsed.blockedRows.size;
 
   const safeWrite = async (sheet: ImportSheet, row: Row, fn: () => Promise<'created' | 'updated'>) => {
     if (!isValidRow(parsed, sheet, row)) return;
