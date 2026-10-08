@@ -4,6 +4,7 @@ export interface IGuuldoonSubject extends Document {
   course: mongoose.Types.ObjectId;
   externalId: string;
   grade: 8 | 12;
+  language: 'so' | 'en' | 'ar';
   nameSo: string;
   nameEn: string;
   nameAr?: string;
@@ -18,6 +19,7 @@ const schema = new Schema<IGuuldoonSubject>({
   course: { type: Schema.Types.ObjectId, ref: 'Course', required: true, index: true },
   externalId: { type: String, required: true, trim: true },
   grade: { type: Number, enum: [8, 12], required: true },
+  language: { type: String, enum: ['so', 'en', 'ar'], default: 'so', index: true },
   nameSo: { type: String, required: true, trim: true },
   nameEn: { type: String, required: true, trim: true },
   nameAr: { type: String, default: '', trim: true },
