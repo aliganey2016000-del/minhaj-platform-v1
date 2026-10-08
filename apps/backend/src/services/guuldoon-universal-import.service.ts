@@ -506,6 +506,7 @@ export async function parseAndValidateGuuldoonImport(
     if (allLocal.has(id)) return 'invalid';
     return 'missing';
   };
+  const hasRef = (id: string, local: Set<string>, db: Set<string>) => local.has(id) || db.has(id);
   const blockDependency = (sheet: ImportSheet, row: Row, dependency: string) => {
     blockRow(sheet, row);
     dependencyIssue(sheet, `Some ${sheet} rows were skipped because referenced ${dependency} rows are invalid. Fix the root-cause errors in ${dependency} first.`);
@@ -772,10 +773,9 @@ export async function parseAndValidateGuuldoonImport(
   const summary = {} as ParsedGuuldoonImport['summary'];
   for (const sheet of SHEETS) {
     const sheetIssues = issues.filter(item => item.sheet === sheet);
-    const invalidRows = new Set(sheetIssues.filter(item => item.severity === 'error' && item.row >= 2).map(item => item.row));
     summary[sheet] = {
       total: rows[sheet].length,
-      valid: rows[sheet].filter(row => !invalidRows.has(row.__row)).length,
+      valid: rows[sheet].filter(row => !rowErrors.has(issueKey(sheet, row.__row))).length,
       errors: sheetIssues.filter(item => item.severity === 'error').length,
       warnings: sheetIssues.filter(item => item.severity === 'warning').length,
     };
@@ -799,11 +799,11 @@ export async function parseAndValidateGuuldoonImport(
     figuresReferenced: new Set(validQuestionRows.flatMap(row => splitList(row.figure_files).map(name => path.basename(name).toLowerCase()))).size,
   };
 
-  return { course, rows, issues, summary, preview, lists, zip };
+  return { course, rows, issues, summary, preview, invalidRowKeys: rowErrors, lists, zip };
 }
 
 function isValidRow(parsed: ParsedGuuldoonImport, sheet: ImportSheet, row: Row): boolean {
-  return !parsed.issues.some(issue => issue.sheet === sheet && issue.row === row.__row && issue.severity === 'error');
+  return !parsed.invalidRowKeys.has(issueKey(sheet, row.__row));
 }
 
 async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): Promise<Map<string, string>> {
@@ -846,7 +846,7 @@ export async function commitGuuldoonImport(
   const created = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
   const updated = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
   const importErrors: ImportIssue[] = [];
-  let skipped = parsed.issues.filter(issue => issue.severity === 'error' && issue.row >= 2).reduce((set, issue) => set.add(issueKey(issue.sheet, issue.row)), new Set<string>()).size;
+  let skipped = parsed.invalidRowKeys.size;
 
   const safeWrite = async (sheet: ImportSheet, row: Row, fn: () => Promise<'created' | 'updated'>) => {
     if (!isValidRow(parsed, sheet, row)) return;
