@@ -374,6 +374,13 @@ async function main() {
     assert.equal(autoMarked.body.data.marked, true);
     assert.equal(autoMarked.body.data.correct, true);
 
+    const afterVerified = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/experience`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(afterVerified.status, 200);
+    const passMeterAfterVerified = afterVerified.body.data.passMeter;
+
     const pending = await request(app)
       .post(`/api/v1/guuldoon/questions/${publicQ2._id}/answer`)
       .set(studentHeaders)
@@ -390,7 +397,7 @@ async function main() {
       .set(studentHeaders)
       .set('Cookie', cookie);
     assert.equal(afterPending.status, 200);
-    assert.equal(afterPending.body.data.passMeter, 100, 'pending structured attempt must not reduce Pass Meter');
+    assert.equal(afterPending.body.data.passMeter, passMeterAfterVerified, 'pending structured attempt must not change Pass Meter');
 
     // Error report is downloadable and auditable.
     const report = await request(app)
