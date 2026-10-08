@@ -1,12 +1,41 @@
-/** Student Sidebar — accordion parent navigation with responsive/RTL support. */
-import { useEffect, useState } from 'react';
+/** Student Portal sidebar — artifact-inspired glass navigation with responsive/RTL support. */
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { useAuth } from '../../../store/auth-context';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Armchair,
+  Award,
+  BarChart3,
+  Bell,
+  BookOpen,
+  CalendarDays,
+  ChevronRight,
+  ClipboardCheck,
+  Clock3,
+  CreditCard,
+  FileText,
+  FlaskConical,
+  GraduationCap,
+  LayoutDashboard,
+  Library,
+  LogOut,
+  Menu,
+  MessageCircle,
+  Search,
+  Settings,
+  Smartphone,
+  TrendingUp,
+  Trophy,
+  UserRound,
+  WalletCards,
+  X,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../../../store/auth-context';
 import api from '../../../lib/axios';
 
-interface NavItem { path: string; label: string; icon: string; }
-interface NavSection { title: string; icon: string; items: NavItem[]; }
+interface NavItem { path: string; label: string; icon: LucideIcon; }
+interface NavSection { title: string; icon: LucideIcon; items: NavItem[]; accent?: 'emerald' | 'slate'; }
 
 function keyForPath(path: string): string { return path.replace(/^\//, ''); }
 
@@ -15,7 +44,6 @@ export function StudentSidebar() {
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [visibility, setVisibility] = useState<Record<string, boolean> | null>(null);
-  // All parents start collapsed. Opening one automatically closes the previous one.
   const [openSection, setOpenSection] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,7 +54,9 @@ export function StudentSidebar() {
         const map: Record<string, boolean> = {};
         items.forEach((item) => { map[item.key] = item.visible; });
         setVisibility(map);
-      } catch { setVisibility({}); }
+      } catch {
+        setVisibility({});
+      }
     })();
   }, []);
 
@@ -35,86 +65,162 @@ export function StudentSidebar() {
     if (key.startsWith('student/exams') && visibility?.['group:exams'] === false) return false;
     return visibility?.[key] !== false;
   };
-  const navSections: NavSection[] = [
-    { title: 'Guuldoon', icon: '🏆', items: [
-      { path: '/student/global-courses', label: 'Courses', icon: '📚' },
-      { path: '/student/guuldoon/performance', label: 'My Progress', icon: '📈' },
-      { path: '/student/guuldoon/subscriptions', label: 'My Subscription', icon: '💳' },
-      { path: '/student/guuldoon/devices', label: 'My Device', icon: '📱' },
-    ]},
-    { title: 'LEARNING', icon: '📚', items: [
-      { path: '/student/courses', label: 'Courses', icon: '📚' },
-      { path: '/student/available', label: 'Browse Courses', icon: '🆕' },
-      { path: '/student/schedule', label: 'Schedule', icon: '🕐' },
-      { path: '/student/attendance', label: 'Attendance', icon: '📅' },
-      { path: '/student/assignments', label: 'Assignments', icon: '📝' },
-    ]},
-    { title: 'RESULTS & PERFORMANCE', icon: '📊', items: [
-      { path: '/student/exams', label: 'Exam Schedule', icon: '🗓️' },
-      { path: '/student/exams/active', label: 'Active Exams', icon: '🧪' },
-      { path: '/student/exams/seating', label: 'Seat & Hall', icon: '🪑' },
-      { path: '/student/exams/attendance', label: 'Attendance History', icon: '✅' },
-      { path: '/student/exams/results', label: 'Exam Results & Grades', icon: '📊' },
-      { path: '/student/analytics', label: 'Quiz & Lesson Performance', icon: '📈' },
-      { path: '/student/exams/appeals', label: 'Academic Appeals', icon: '⚖️' },
-      { path: '/student/certificates', label: 'Certificates', icon: '🏆' },
-    ]},
-    { title: 'FINANCE', icon: '💰', items: [
-      { path: '/student/payments', label: 'Fees & Payments', icon: '💰' },
-    ]},
-    { title: 'COMMUNICATION', icon: '💬', items: [
-      { path: '/student/forum', label: 'Forum', icon: '💬' },
-      { path: '/student/notifications', label: 'Notifications', icon: '🔔' },
-    ]},
-    { title: 'ACCOUNT', icon: '👤', items: [
-      { path: '/student/profile', label: 'Profile', icon: '👤' },
-      { path: '/student/settings', label: 'Settings', icon: '⚙️' },
-    ]},
-  ];
 
-  const visibleSections = navSections.filter(section => section.title !== 'Guuldoon' || visibility?.['group:guuldoon'] !== false).map((section) => ({ ...section, items: section.items.filter((item) => isVisible(item.path)) })).filter((section) => section.items.length > 0);
+  const navSections: NavSection[] = useMemo(() => [
+    {
+      title: 'Guuldoon',
+      icon: Trophy,
+      accent: 'emerald',
+      items: [
+        { path: '/student/global-courses', label: 'Courses', icon: BookOpen },
+        { path: '/student/guuldoon/performance', label: 'My Progress', icon: TrendingUp },
+        { path: '/student/guuldoon/subscriptions', label: 'My Subscription', icon: CreditCard },
+        { path: '/student/guuldoon/devices', label: 'My Device', icon: Smartphone },
+      ],
+    },
+    {
+      title: 'Learning',
+      icon: GraduationCap,
+      items: [
+        { path: '/student/courses', label: 'Courses', icon: Library },
+        { path: '/student/available', label: 'Browse Courses', icon: Search },
+        { path: '/student/schedule', label: 'Schedule', icon: Clock3 },
+        { path: '/student/attendance', label: 'Attendance', icon: ClipboardCheck },
+        { path: '/student/assignments', label: 'Assignments', icon: FileText },
+      ],
+    },
+    {
+      title: 'Results & Performance',
+      icon: BarChart3,
+      items: [
+        { path: '/student/exams', label: 'Exam Schedule', icon: CalendarDays },
+        { path: '/student/exams/active', label: 'Active Exams', icon: FlaskConical },
+        { path: '/student/exams/seating', label: 'Seat & Hall', icon: Armchair },
+        { path: '/student/exams/attendance', label: 'Attendance History', icon: ClipboardCheck },
+        { path: '/student/exams/results', label: 'Exam Results & Grades', icon: BarChart3 },
+        { path: '/student/analytics', label: 'Quiz & Lesson Performance', icon: TrendingUp },
+        { path: '/student/exams/appeals', label: 'Academic Appeals', icon: FileText },
+        { path: '/student/certificates', label: 'Certificates', icon: Award },
+      ],
+    },
+    {
+      title: 'Finance',
+      icon: WalletCards,
+      items: [{ path: '/student/payments', label: 'Fees & Payments', icon: CreditCard }],
+    },
+    {
+      title: 'Communication',
+      icon: MessageCircle,
+      items: [
+        { path: '/student/forum', label: 'Forum', icon: MessageCircle },
+        { path: '/student/notifications', label: 'Notifications', icon: Bell },
+      ],
+    },
+    {
+      title: 'Account',
+      icon: UserRound,
+      items: [
+        { path: '/student/profile', label: 'Profile', icon: UserRound },
+        { path: '/student/settings', label: 'Settings', icon: Settings },
+      ],
+    },
+  ], []);
+
+  const visibleSections = navSections
+    .filter(section => section.title !== 'Guuldoon' || visibility?.['group:guuldoon'] !== false)
+    .map(section => ({ ...section, items: section.items.filter(item => isVisible(item.path)) }))
+    .filter(section => section.items.length > 0);
+
   const isActive = (path: string) => {
     if (path === '/student') return location.pathname === '/student' || location.pathname === '/student/';
     if (path === '/student/exams') return location.pathname === '/student/exams' || location.pathname === '/student/exams/';
     return location.pathname.startsWith(path);
   };
-  const sectionActive = (section: NavSection) => section.items.some((item) => isActive(item.path));
-  const toggleSection = (title: string) => setOpenSection((current) => current === title ? null : title);
+  const sectionActive = (section: NavSection) => section.items.some(item => isActive(item.path));
+
+  useEffect(() => {
+    const active = visibleSections.find(section => sectionActive(section));
+    if (active) setOpenSection(active.title);
+  }, [location.pathname, visibility]);
+
+  const closeMobile = () => setIsMobileOpen(false);
+  const toggleSection = (title: string) => setOpenSection(current => current === title ? null : title);
+  const orgName = user?.organizationName || 'Sahal Education';
+  const orgLogo = user?.organizationLogo || '';
+  const firstName = user?.firstName || user?.email?.split('@')[0] || 'Student';
 
   const sidebarContent = (
-    <aside className="flex h-full flex-col border-e border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
-      <div className="flex items-center gap-3 border-b border-[var(--color-border-subtle)] px-5 py-5">
-        <Link to="/" className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 text-white shadow-sm">
-          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7v5.5c0 5.05 4.29 9.5 10 11 5.71-1.5 10-5.95 10-11V7l-10-5z" /></svg>
-        </Link>
-        <div className="min-w-0"><p className="truncate text-sm font-bold text-[var(--color-text-primary)]">Student Portal</p><p className="truncate text-xs text-[var(--color-text-tertiary)]">{user?.email}</p></div>
+    <aside className="student-sidebar-surface flex h-full flex-col border-e border-[var(--color-border-subtle)]">
+      <div className="px-4 pb-3 pt-5">
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-400/15 bg-emerald-400/[.06] p-3">
+          <Link to="/" onClick={closeMobile} className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-400 to-teal-600 text-slate-950 shadow-[0_8px_28px_rgba(16,185,129,.18)]">
+            {orgLogo ? <img src={orgLogo} alt="" className="h-full w-full bg-white object-contain p-1" /> : <GraduationCap className="h-5 w-5" strokeWidth={2.2} />}
+          </Link>
+          <div className="min-w-0">
+            <p className="truncate text-[10px] font-black uppercase tracking-[.18em] text-emerald-500">Student Portal</p>
+            <p className="truncate text-sm font-black text-[var(--color-text-primary)]">{orgName}</p>
+          </div>
+        </div>
       </div>
 
-      <nav className="hide-scrollbar flex-1 overflow-y-auto px-3 py-3">
-        {visibility?.student !== false && <Link to="/student" onClick={() => setIsMobileOpen(false)} className={`mb-3 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${isActive('/student') ? 'bg-primary-50 text-primary-700 shadow-sm dark:bg-primary-950/40 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
-          <span className="w-7 text-center text-lg">🏠</span><span>Dashboard</span>
-        </Link>}
+      <nav className="hide-scrollbar flex-1 overflow-y-auto px-3 pb-4">
+        {visibility?.student !== false && (
+          <Link
+            to="/student"
+            onClick={closeMobile}
+            className={`student-sidebar-link mb-2 ${isActive('/student') ? 'student-sidebar-link-active' : ''}`}
+          >
+            <span className="student-sidebar-icon"><LayoutDashboard className="h-[18px] w-[18px]" /></span>
+            <span className="flex-1">Dashboard</span>
+            {isActive('/student') && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.9)]" />}
+          </Link>
+        )}
 
-        {visibleSections.map((section) => {
+        {visibleSections.map(section => {
           const open = openSection === section.title;
           const active = sectionActive(section);
+          const SectionIcon = section.icon;
           return (
-            <div key={section.title} className="mb-1">
-              <button type="button" onClick={() => toggleSection(section.title)} aria-expanded={open} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all ${active ? 'text-primary-600 dark:text-primary-400' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
-                <span className="w-7 text-center text-lg">{section.icon}</span>
+            <div key={section.title} className="mb-1.5">
+              <button
+                type="button"
+                onClick={() => toggleSection(section.title)}
+                aria-expanded={open}
+                className={`student-sidebar-section ${active ? 'student-sidebar-section-active' : ''}`}
+              >
+                <span className={`student-sidebar-icon ${section.accent === 'emerald' ? 'text-emerald-400' : ''}`}>
+                  <SectionIcon className="h-[18px] w-[18px]" />
+                </span>
                 <span className="flex-1 text-start">{section.title}</span>
-                <svg className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                <ChevronRight className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
               </button>
+
               <AnimatePresence initial={false}>
                 {open && (
-                  <motion.ul initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="ms-4 mt-1 space-y-0.5 overflow-hidden border-s border-[var(--color-border-subtle)] ps-2">
-                    {section.items.map((item) => (
-                      <li key={item.path}>
-                        <Link to={item.path} onClick={() => setIsMobileOpen(false)} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${isActive(item.path) ? 'bg-primary-50 text-primary-700 shadow-sm dark:bg-primary-950/40 dark:text-primary-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
-                          <span className="w-6 text-center text-base">{item.icon}</span><span className="truncate">{item.label}</span>{isActive(item.path) && <span className="ms-auto h-1.5 w-1.5 rounded-full bg-primary-500" />}
-                        </Link>
-                      </li>
-                    ))}
+                  <motion.ul
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="ms-5 mt-1.5 space-y-1 overflow-hidden border-s border-emerald-400/10 ps-2"
+                  >
+                    {section.items.map(item => {
+                      const ItemIcon = item.icon;
+                      const itemActive = isActive(item.path);
+                      return (
+                        <li key={item.path}>
+                          <Link
+                            to={item.path}
+                            onClick={closeMobile}
+                            className={`student-sidebar-link py-2.5 ${itemActive ? 'student-sidebar-link-active' : ''}`}
+                          >
+                            <span className="student-sidebar-icon"><ItemIcon className="h-4 w-4" /></span>
+                            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                            {itemActive && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </motion.ul>
                 )}
               </AnimatePresence>
@@ -123,15 +229,71 @@ export function StudentSidebar() {
         })}
       </nav>
 
-      <div className="border-t border-[var(--color-border-subtle)] px-3 py-3"><button onClick={logout} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"><span className="w-7 text-center text-lg">🚪</span><span>Logout</span></button></div>
+      <div className="border-t border-[var(--color-border-subtle)] p-3">
+        <div className="mb-2 flex items-center gap-3 rounded-2xl bg-[var(--color-surface-tertiary)]/70 p-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-400/10 text-xs font-black text-emerald-400">
+            {firstName.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-bold text-[var(--color-text-primary)]">{firstName}</p>
+            <p className="truncate text-[10px] text-[var(--color-text-tertiary)]">{user?.email}</p>
+          </div>
+        </div>
+        <button onClick={logout} className="student-sidebar-link w-full text-red-400 hover:!bg-red-500/10 hover:!text-red-300">
+          <span className="student-sidebar-icon"><LogOut className="h-[18px] w-[18px]" /></span>
+          <span>Logout</span>
+        </button>
+      </div>
     </aside>
   );
 
-  return <>
-    <div className="fixed inset-y-0 start-0 z-40 hidden w-64 lg:block">{sidebarContent}</div>
-    <button type="button" onClick={() => setIsMobileOpen(true)} className="fixed start-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] shadow-sm lg:hidden" aria-label="Open student navigation"><svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg></button>
-    <AnimatePresence>{isMobileOpen && <><motion.button type="button" aria-label="Close student navigation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMobileOpen(false)} className="fixed inset-0 z-40 bg-black/40 lg:hidden" /><motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={{ type: 'tween', duration: 0.2 }} className="fixed inset-y-0 start-0 z-50 w-72 max-w-[85vw] lg:hidden">{sidebarContent}</motion.div></>}</AnimatePresence>
-  </>;
+  return (
+    <>
+      <div className="fixed inset-y-0 start-0 z-40 hidden w-72 lg:block">{sidebarContent}</div>
+
+      <button
+        type="button"
+        onClick={() => setIsMobileOpen(true)}
+        className="student-mobile-menu fixed start-4 top-3.5 z-40 flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] shadow-lg lg:hidden"
+        aria-label="Open student navigation"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      <AnimatePresence>
+        {isMobileOpen && (
+          <>
+            <motion.button
+              type="button"
+              aria-label="Close student navigation"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeMobile}
+              className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm lg:hidden"
+            />
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'tween', duration: 0.2 }}
+              className="fixed inset-y-0 start-0 z-50 w-72 max-w-[88vw] lg:hidden"
+            >
+              <button
+                type="button"
+                onClick={closeMobile}
+                className="absolute end-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]"
+                aria-label="Close student navigation"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              {sidebarContent}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
+  );
 }
 
 export default StudentSidebar;
