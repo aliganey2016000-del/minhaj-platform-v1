@@ -5,7 +5,7 @@ export interface IGuuldoonSubject extends Document {
   externalId: string;
   grade: 8 | 12;
   language: 'so' | 'en' | 'ar';
-  nameSo: string;
+  nameSo?: string;
   nameEn: string;
   nameAr?: string;
   descriptionSo?: string;
@@ -20,7 +20,7 @@ const schema = new Schema<IGuuldoonSubject>({
   externalId: { type: String, required: true, trim: true },
   grade: { type: Number, enum: [8, 12], required: true },
   language: { type: String, enum: ['so', 'en', 'ar'], default: 'so', index: true },
-  nameSo: { type: String, required: true, trim: true },
+  nameSo: { type: String, default: '', trim: true },
   nameEn: { type: String, required: true, trim: true },
   nameAr: { type: String, default: '', trim: true },
   descriptionSo: { type: String, default: '', trim: true },
