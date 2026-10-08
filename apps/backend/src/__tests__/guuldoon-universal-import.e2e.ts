@@ -167,7 +167,7 @@ async function main() {
     const template = await request(app).get('/api/v1/guuldoon/admin/import/template').set(adminHeaders);
     assert.equal(template.status, 200);
     const templateWb = new ExcelJS.Workbook();
-    await templateWb.xlsx.load(template.body as Buffer);
+    await templateWb.xlsx.load(Buffer.from(template.body as Uint8Array) as any);
     for (const name of ['Subjects','Chapters','Exams','Resources','Questions','Glossary','Lists']) {
       assert.ok(templateWb.getWorksheet(name), `template contains ${name}`);
     }
