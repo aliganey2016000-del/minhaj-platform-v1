@@ -399,7 +399,8 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
   if (!publishedExam) throw new NotFoundError('Guuldoon question');
   const submitted = req.body?.answer;
   const timeMs = Math.max(0, Math.min(60 * 60 * 1000, Number(req.body?.timeMs) || 0));
-  const marked = question.answerStatus === 'verified' && question.markingMode === 'auto' && question.answer !== undefined;
+  const markingMode = question.markingMode || (['mcq', 'fill'].includes(question.type) ? 'auto' : 'manual');
+  const marked = question.answerStatus === 'verified' && markingMode === 'auto' && question.answer !== undefined;
   const correct = marked ? normalizedAnswer(submitted) === normalizedAnswer(question.answer) : null;
 
   await GuuldoonAttempt.create({
@@ -445,7 +446,7 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     marked,
     correct,
     answerStatus: question.answerStatus,
-    markingMode: question.markingMode,
+    markingMode,
     explanation: question.answerStatus === 'verified' ? question.explainerText || '' : '',
     explainerAudioUrl: marked ? question.explainerAudioUrl || '' : '',
     bookRef: question.bookRef || null,
