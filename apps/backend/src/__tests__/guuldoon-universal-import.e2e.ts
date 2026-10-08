@@ -302,12 +302,14 @@ async function main() {
     const q2 = await Question.findOne({ course: course._id, externalId: 'PHY12_2021_Q02' }).select('+answer').lean();
     assert.equal(q1?.language, 'ar');
     assert.equal(q1?.direction, 'rtl');
-    assert.match(q1?.textSo || '', /\$R = 5\\Omega\$/);
+    assert.match(q1?.textSo || '', /\\$R = 5\\\\Omega\\$/);
     assert.equal(q1?.answerStatus, 'verified');
     assert.equal(q1?.markingMode, 'auto');
     assert.equal(q1?.answer, 1);
     assert.equal(q1?.bookRelation, 'derived');
-    assert.equal(q1?.bookAnchorText, '$V = IR    assert.equal(q2?.markingMode, 'manual');
+    assert.equal(q1?.bookAnchorText, '$V = IR$');
+    assert.equal(q2?.answerStatus, 'pending');
+    assert.equal(q2?.markingMode, 'manual');
     assert.ok(q1?.figureUrl?.startsWith('/uploads/guuldoon/'));
 
     // Re-import is idempotent: stable external IDs update instead of duplicating.
