@@ -867,6 +867,7 @@ export async function commitGuuldoonImport(
       { course: courseObjectId, externalId: id },
       { $set: {
         grade: Number(row.grade),
+        language: SERVER_LANGUAGES.has(lower(row.language || 'so')) ? lower(row.language || 'so') : 'so',
         nameSo: str(row.name_so),
         nameEn: str(row.name_en),
         nameAr: str(row.name_ar),
@@ -1002,6 +1003,8 @@ export async function commitGuuldoonImport(
         pageFrom: numberOrNull(row.book_page_from),
         pageTo: numberOrNull(row.book_page_to),
       },
+      bookAnchorText: str(row.book_anchor_text),
+      bookRelation: SERVER_BOOK_RELATIONS.has(lower(row.book_relation)) ? lower(row.book_relation) : undefined,
     } }, { upsert: !existing });
     return wasExisting ? 'updated' : 'created';
   });
@@ -1043,11 +1046,11 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
   workbook.title = 'Guuldoon Universal Import Template';
 
   const definitions: Array<{ name: ImportSheet; headers: string[]; example: any[] }> = [
-    { name: 'Subjects', headers: ['row_status','subject_id','grade','name_so','name_en','name_ar','description_so','description_en','status'], example: ['example','PHY12',12,'Fiisigis','Physics','الفيزياء','Diyaarinta imtixaanka','Certificate exam preparation','draft'] },
+    { name: 'Subjects', headers: ['row_status','subject_id','grade','language','name_so','name_en','name_ar','description_so','description_en','status'], example: ['example','PHY12',12,'en','','Physics','الفيزياء','','Certificate exam preparation','draft'] },
     { name: 'Chapters', headers: ['row_status','chapter_id','subject_id','order','title_so','title_en','title_ar','exam_weight','status'], example: ['example','PHY12_CH01','PHY12',1,'Koronto','Electricity','الكهرباء',20,'published'] },
     { name: 'Exams', headers: ['row_status','exam_id','subject_id','year','duration_min','total_marks','source','answer_key_status','published','notes'], example: ['example','PHY12_EX2021','PHY12',2021,120,100,'National exam','verified',true,'Official key checked'] },
     { name: 'Resources', headers: ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text'], example: ['example','PHY12_RES001','PHY12','PHY12_CH01','note','Ohm Law note','','',10,12,'so','ltr',true,'$V = IR$'] },
-    { name: 'Questions', headers: ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','similar_question_1','similar_question_2','notes'], example: ['example','PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','so','ltr','Haddii $R = 5\\Omega$ iyo $I = 2A$, hel $V$.','If $R = 5\\Omega$ and $I = 2A$, find $V$.',2,'2V','5V','10V','20V','C','verified','ohms-law;resistance','circuit_01.png','PHY12_RES001','Isticmaal $V = IR$.','',10,12,'','',''] },
+    { name: 'Questions', headers: ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'], example: ['example','PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','en','ltr','If $R = 5\\Omega$ and $I = 2A$, find $V$.','',2,'2V','5V','10V','20V','C','verified','ohms-law;resistance','circuit_01.png','PHY12_RES001','Use $V = IR$.','',10,12,'Ohm\'s law states that voltage is equal to current multiplied by resistance.','direct','','',''] },
     { name: 'Glossary', headers: ['row_status','glossary_id','subject_id','term_so','term_en','term_ar'], example: ['example','PHY12_G001','PHY12','Iska-caabin','Resistance','المقاومة'] },
   ];
 
@@ -1065,15 +1068,15 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
   }
 
   const lists = workbook.addWorksheet('Lists');
-  lists.addRow(['question_type','resource_type','language','direction','answer_status','status']);
+  lists.addRow(['question_type','resource_type','language','direction','answer_status','status','book_relation']);
   const listRows = [
-    ['mcq','video','so','ltr','verified','draft'],
-    ['structured','audio','en','rtl','pending','published'],
-    ['fill','pdf','ar','auto','',''],
-    ['match','book','','','',''],
-    ['','image','','','',''],
-    ['','note','','','',''],
-    ['','link','','','',''],
+    ['mcq','video','so','ltr','verified','draft','direct'],
+    ['structured','audio','en','rtl','pending','published','indirect'],
+    ['fill','pdf','ar','auto','','','similar'],
+    ['match','book','','','','','derived'],
+    ['','image','','','','',''],
+    ['','note','','','','',''],
+    ['','link','','','','',''],
   ];
   listRows.forEach(row => lists.addRow(row));
   lists.getRow(1).font = { bold: true };
@@ -1096,10 +1099,12 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
     }
   };
 
+  applyListValidation('Subjects', 'language', 'Lists!$C$2:$C$4');
   applyListValidation('Questions', 'type', 'Lists!$A$2:$A$5');
   applyListValidation('Questions', 'language', 'Lists!$C$2:$C$4');
   applyListValidation('Questions', 'direction', 'Lists!$D$2:$D$4');
   applyListValidation('Questions', 'answer_status', 'Lists!$E$2:$E$3');
+  applyListValidation('Questions', 'book_relation', 'Lists!$G$2:$G$5');
   applyListValidation('Resources', 'type', 'Lists!$B$2:$B$8');
   applyListValidation('Resources', 'language', 'Lists!$C$2:$C$4');
   applyListValidation('Resources', 'direction', 'Lists!$D$2:$D$4');
