@@ -125,14 +125,21 @@ export function importFileHashes(excel: Express.Multer.File, figures?: Express.M
 export async function guuldoonImportDataFingerprint(courseId: string): Promise<string> {
   if (!mongoose.isValidObjectId(courseId)) throw new BadRequestError('Invalid Guuldoon course ID');
   const course = new mongoose.Types.ObjectId(courseId);
-  const models = [GuuldoonSubject, GuuldoonChapter, GuuldoonExam, GuuldoonResource, GuuldoonQuestion, GuuldoonGlossary] as const;
-  const snapshots = await Promise.all(models.map(async model => {
+  const snapshot = async (model: any) => {
     const [count, latest] = await Promise.all([
       model.countDocuments({ course }),
       model.findOne({ course }).sort({ updatedAt: -1 }).select('updatedAt').lean(),
     ]);
-    return { count, updatedAt: (latest as any)?.updatedAt ? new Date((latest as any).updatedAt).toISOString() : '' };
-  }));
+    return { count, updatedAt: latest?.updatedAt ? new Date(latest.updatedAt).toISOString() : '' };
+  };
+  const snapshots = await Promise.all([
+    snapshot(GuuldoonSubject),
+    snapshot(GuuldoonChapter),
+    snapshot(GuuldoonExam),
+    snapshot(GuuldoonResource),
+    snapshot(GuuldoonQuestion),
+    snapshot(GuuldoonGlossary),
+  ]);
   return crypto.createHash('sha256').update(JSON.stringify(snapshots)).digest('hex');
 }
 
@@ -166,7 +173,7 @@ function readWorkbook(file: Express.Multer.File): { workbook: XLSX.WorkBook; row
   for (const sheetName of SHEETS) {
     const parsed = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: '', raw: false });
     rows[sheetName] = parsed
-      .map((row, index) => ({ ...row, __row: index + 2 }))
+      .map((row, index): Row => ({ ...(row as Record<string, any>), __row: index + 2 }))
       .filter(row => lower(row.row_status) !== 'example');
   }
   return { workbook, rows };
