@@ -488,25 +488,69 @@ export async function parseAndValidateGuuldoonImport(
   }
 
   const existing = await existingIds(new mongoose.Types.ObjectId(courseId));
+  const allIds = (sheet: ImportSheet) => new Set(rows[sheet].map(row => rowId(sheet, row)).filter(Boolean));
   const validIds = (sheet: ImportSheet) => new Set(rows[sheet].filter(row => !rowErrors.has(issueKey(sheet, row.__row))).map(row => rowId(sheet, row)).filter(Boolean));
+  const allSubjects = allIds('Subjects');
+  const allChapters = allIds('Chapters');
+  const allExams = allIds('Exams');
+  const allResources = allIds('Resources');
+  const allQuestions = allIds('Questions');
   let validSubjects = validIds('Subjects');
   let validChapters = validIds('Chapters');
   let validExams = validIds('Exams');
   let validResources = validIds('Resources');
   let validQuestions = validIds('Questions');
 
-  const hasRef = (id: string, local: Set<string>, db: Set<string>) => local.has(id) || db.has(id);
+  const refState = (id: string, allLocal: Set<string>, validLocal: Set<string>, db: Set<string>) => {
+    if (validLocal.has(id) || db.has(id)) return 'valid';
+    if (allLocal.has(id)) return 'invalid';
+    return 'missing';
+  };
+  const blockDependency = (sheet: ImportSheet, row: Row, dependency: string) => {
+    blockRow(sheet, row);
+    dependencyIssue(sheet, `Some ${sheet} rows were skipped because referenced ${dependency} rows are invalid. Fix the root-cause errors in ${dependency} first.`);
+  };
+
+  const subjectLanguage = new Map<string, string>(
+    existing.subjectRows.map((subject: any) => [String(subject.externalId), lower(subject.language || 'so')]),
+  );
+  for (const row of rows.Subjects) {
+    if (!rowErrors.has(issueKey('Subjects', row.__row)) && str(row.subject_id)) {
+      subjectLanguage.set(str(row.subject_id), lower(row.language || 'so'));
+    }
+  }
+
   for (const row of rows.Chapters) {
     if (rowErrors.has(issueKey('Chapters', row.__row))) continue;
     const ref = str(row.subject_id);
-    if (!hasRef(ref, validSubjects, existing.subjects)) add({ sheet: 'Chapters', row: row.__row, id: rowId('Chapters', row), field: 'subject_id', message: `subject_id "${ref}" does not exist or its workbook row is invalid`, severity: 'error' });
+    const state = refState(ref, allSubjects, validSubjects, existing.subjects);
+    if (state === 'invalid') {
+      blockDependency('Chapters', row, 'Subjects');
+      continue;
+    }
+    if (state === 'missing') {
+      add({ sheet: 'Chapters', row: row.__row, id: rowId('Chapters', row), field: 'subject_id', message: `subject_id "${ref}" does not exist`, severity: 'error' });
+      continue;
+    }
+    const language = subjectLanguage.get(ref) || 'so';
+    if (language === 'so' && !str(row.title_so)) {
+      add({ sheet: 'Chapters', row: row.__row, id: rowId('Chapters', row), field: 'title_so', message: 'title_so is required when subject.language = so', severity: 'error' });
+    }
   }
   validChapters = validIds('Chapters');
 
   for (const row of rows.Exams) {
     if (rowErrors.has(issueKey('Exams', row.__row))) continue;
     const ref = str(row.subject_id);
-    if (!hasRef(ref, validSubjects, existing.subjects)) add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'subject_id', message: `subject_id "${ref}" does not exist or its workbook row is invalid`, severity: 'error' });
+    const state = refState(ref, allSubjects, validSubjects, existing.subjects);
+    if (state === 'invalid') {
+      blockDependency('Exams', row, 'Subjects');
+      continue;
+    }
+    if (state === 'missing') {
+      add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'subject_id', message: `subject_id "${ref}" does not exist`, severity: 'error' });
+      continue;
+    }
     const conflict = existing.examRows.find((exam: any) => Number(exam.year) === Number(row.year) && str(exam.externalId) && str(exam.externalId) !== str(row.exam_id));
     if (conflict) add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'year', message: `Year ${row.year} is already linked to exam_id "${conflict.externalId}"`, severity: 'error' });
   }
@@ -515,16 +559,38 @@ export async function parseAndValidateGuuldoonImport(
   for (const row of rows.Resources) {
     if (rowErrors.has(issueKey('Resources', row.__row))) continue;
     const subjectId = str(row.subject_id);
+    const subjectState = refState(subjectId, allSubjects, validSubjects, existing.subjects);
+    if (subjectState === 'invalid') {
+      blockDependency('Resources', row, 'Subjects');
+      continue;
+    }
+    if (subjectState === 'missing') {
+      add({ sheet: 'Resources', row: row.__row, id: rowId('Resources', row), field: 'subject_id', message: `subject_id "${subjectId}" does not exist`, severity: 'error' });
+      continue;
+    }
     const chapterId = str(row.chapter_id);
-    if (!hasRef(subjectId, validSubjects, existing.subjects)) add({ sheet: 'Resources', row: row.__row, id: rowId('Resources', row), field: 'subject_id', message: `subject_id "${subjectId}" does not exist`, severity: 'error' });
-    if (chapterId && !hasRef(chapterId, validChapters, existing.chapters)) add({ sheet: 'Resources', row: row.__row, id: rowId('Resources', row), field: 'chapter_id', message: `chapter_id "${chapterId}" does not exist`, severity: 'error' });
+    if (chapterId) {
+      const chapterState = refState(chapterId, allChapters, validChapters, existing.chapters);
+      if (chapterState === 'invalid') {
+        blockDependency('Resources', row, 'Chapters');
+        continue;
+      }
+      if (chapterState === 'missing') {
+        add({ sheet: 'Resources', row: row.__row, id: rowId('Resources', row), field: 'chapter_id', message: `chapter_id "${chapterId}" does not exist`, severity: 'error' });
+      }
+    }
   }
   validResources = validIds('Resources');
 
   for (const row of rows.Glossary) {
     if (rowErrors.has(issueKey('Glossary', row.__row))) continue;
     const subjectId = str(row.subject_id);
-    if (!hasRef(subjectId, validSubjects, existing.subjects)) add({ sheet: 'Glossary', row: row.__row, id: rowId('Glossary', row), field: 'subject_id', message: `subject_id "${subjectId}" does not exist`, severity: 'error' });
+    const state = refState(subjectId, allSubjects, validSubjects, existing.subjects);
+    if (state === 'invalid') {
+      blockDependency('Glossary', row, 'Subjects');
+      continue;
+    }
+    if (state === 'missing') add({ sheet: 'Glossary', row: row.__row, id: rowId('Glossary', row), field: 'subject_id', message: `subject_id "${subjectId}" does not exist`, severity: 'error' });
   }
 
   for (const row of rows.Questions) {
@@ -534,17 +600,64 @@ export async function parseAndValidateGuuldoonImport(
     const chapterId = str(row.chapter_id);
     const resourceId = str(row.resource_id);
     const parentId = str(row.parent_id);
-    if (!hasRef(examId, validExams, existing.exams)) add({ sheet: 'Questions', row: row.__row, id, field: 'exam_id', message: `exam_id "${examId}" does not exist or its workbook row is invalid`, severity: 'error' });
-    if (!hasRef(chapterId, validChapters, existing.chapters)) add({ sheet: 'Questions', row: row.__row, id, field: 'chapter_id', message: `chapter_id "${chapterId}" does not exist or its workbook row is invalid`, severity: 'error' });
-    if (resourceId && !hasRef(resourceId, validResources, existing.resources)) add({ sheet: 'Questions', row: row.__row, id, field: 'resource_id', message: `resource_id "${resourceId}" does not exist or its workbook row is invalid`, severity: 'error' });
+
+    const examState = refState(examId, allExams, validExams, existing.exams);
+    const chapterState = refState(chapterId, allChapters, validChapters, existing.chapters);
+    if (examState === 'invalid') {
+      blockDependency('Questions', row, 'Exams');
+      continue;
+    }
+    if (chapterState === 'invalid') {
+      blockDependency('Questions', row, 'Chapters');
+      continue;
+    }
+    if (examState === 'missing') {
+      add({ sheet: 'Questions', row: row.__row, id, field: 'exam_id', message: `exam_id "${examId}" does not exist`, severity: 'error' });
+      continue;
+    }
+    if (chapterState === 'missing') {
+      add({ sheet: 'Questions', row: row.__row, id, field: 'chapter_id', message: `chapter_id "${chapterId}" does not exist`, severity: 'error' });
+      continue;
+    }
+
+    if (resourceId) {
+      const resourceState = refState(resourceId, allResources, validResources, existing.resources);
+      if (resourceState === 'invalid') {
+        blockDependency('Questions', row, 'Resources');
+        continue;
+      }
+      if (resourceState === 'missing') {
+        add({ sheet: 'Questions', row: row.__row, id, field: 'resource_id', message: `resource_id "${resourceId}" does not exist`, severity: 'error' });
+        continue;
+      }
+    }
+
     if (parentId) {
       if (parentId === id) add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: 'parent_id cannot reference the same question', severity: 'error' });
-      else if (!hasRef(parentId, validQuestions, existing.questions)) add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: `parent_id "${parentId}" does not exist or its workbook row is invalid`, severity: 'error' });
+      else {
+        const parentState = refState(parentId, allQuestions, validQuestions, existing.questions);
+        if (parentState === 'invalid') blockDependency('Questions', row, 'Questions');
+        else if (parentState === 'missing') add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: `parent_id "${parentId}" does not exist`, severity: 'error' });
+      }
     }
+
     for (const field of ['similar_question_1', 'similar_question_2']) {
       const similar = str(row[field]);
-      if (similar && !hasRef(similar, validQuestions, existing.questions)) add({ sheet: 'Questions', row: row.__row, id, field, message: `${field} "${similar}" does not exist`, severity: 'error' });
+      if (!similar) continue;
+      const similarState = refState(similar, allQuestions, validQuestions, existing.questions);
+      if (similarState === 'invalid') blockDependency('Questions', row, 'Questions');
+      else if (similarState === 'missing') add({ sheet: 'Questions', row: row.__row, id, field, message: `${field} "${similar}" does not exist`, severity: 'error' });
     }
+
+    const conflict = existing.questionRows.find((question: any) =>
+      str(question.examExternalId) === examId
+      && Number(question.number) === Number(row.number)
+      && str(question.externalId) !== id
+    );
+    if (conflict) {
+      add({ sheet: 'Questions', row: row.__row, id, field: 'number', message: `Question number ${row.number} already belongs to question_id "${conflict.externalId}" in exam_id "${examId}"`, severity: 'error' });
+    }
+
     const figureFiles = splitList(row.figure_files);
     if (figureFiles.length && !zip) add({ sheet: 'Questions', row: row.__row, id, field: 'figure_files', message: 'figure_files are listed but no figures ZIP was uploaded', severity: 'error' });
     for (const filename of figureFiles) {
@@ -552,21 +665,64 @@ export async function parseAndValidateGuuldoonImport(
     }
   }
 
-  // A parent/similar question that became invalid because of its own dependencies
-  // must not remain a valid target for another row.
   validQuestions = validIds('Questions');
   for (const row of rows.Questions) {
     if (rowErrors.has(issueKey('Questions', row.__row))) continue;
     const id = str(row.question_id);
     const parentId = str(row.parent_id);
     if (parentId && !hasRef(parentId, validQuestions, existing.questions)) {
-      add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: `parent_id "${parentId}" points to an invalid question row`, severity: 'error' });
+      blockDependency('Questions', row, 'Questions');
+      continue;
     }
     for (const field of ['similar_question_1', 'similar_question_2']) {
       const similar = str(row[field]);
       if (similar && !hasRef(similar, validQuestions, existing.questions)) {
-        add({ sheet: 'Questions', row: row.__row, id, field, message: `${field} "${similar}" points to an invalid question row`, severity: 'error' });
+        blockDependency('Questions', row, 'Questions');
+        break;
       }
+    }
+  }
+
+  const validResourceRows = rows.Resources.filter(row => !rowErrors.has(issueKey('Resources', row.__row)));
+  const workbookResourceText = validResourceRows.map(row => ({
+    externalId: str(row.resource_id),
+    chapterId: str(row.chapter_id),
+    contentText: str(row.content_text),
+  }));
+  const existingResourceText = existing.resourceRows.map((row: any) => ({
+    externalId: str(row.externalId),
+    chapterId: str(row.chapterExternalId),
+    contentText: str(row.contentText),
+  }));
+  const resourceText = [...workbookResourceText, ...existingResourceText];
+
+  for (const row of rows.Questions) {
+    if (rowErrors.has(issueKey('Questions', row.__row))) continue;
+    const anchor = str(row.book_anchor_text);
+    const relation = lower(row.book_relation);
+    if (!anchor && relation) {
+      add({ sheet: 'Questions', row: row.__row, id: str(row.question_id), field: 'book_anchor_text', message: 'book_relation is set but book_anchor_text is empty; highlight will be skipped', severity: 'warning' });
+      continue;
+    }
+    if (anchor && !relation) {
+      add({ sheet: 'Questions', row: row.__row, id: str(row.question_id), field: 'book_relation', message: 'book_anchor_text is set but book_relation is empty; highlight will be skipped', severity: 'warning' });
+      continue;
+    }
+    if (!anchor || !relation) continue;
+    const resourceId = str(row.resource_id);
+    const chapterId = str(row.chapter_id);
+    const candidates = resourceText.filter(resource => resourceId ? resource.externalId === resourceId : resource.chapterId === chapterId);
+    const normalizedAnchor = normalizedBookText(anchor);
+    const matched = candidates.some(resource => normalizedBookText(resource.contentText).includes(normalizedAnchor));
+    if (!matched) {
+      add({
+        sheet: 'Questions',
+        row: row.__row,
+        id: str(row.question_id),
+        field: 'book_anchor_text',
+        message: `Anchor text was not found in imported lesson content for chapter_id "${chapterId}". Question will import, but no lesson highlight will be shown.`,
+        severity: 'warning',
+      });
     }
   }
 
