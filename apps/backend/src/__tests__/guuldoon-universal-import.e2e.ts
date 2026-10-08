@@ -355,7 +355,21 @@ async function main() {
       .set('Cookie', cookie);
     assert.equal(lesson.status, 200, JSON.stringify(lesson.body));
     assert.equal(lesson.body.data.chapter.title, 'Electricity');
-    assert.equal(lesson.body.data.sections[0].contentText.includes('$V = IR
+    assert.equal(lesson.body.data.sections[0].contentText.includes('$V = IR$'), true);
+    assert.equal(lesson.body.data.sections[0].highlights[0].relation, 'direct');
+    assert.equal(lesson.body.data.sections[0].highlights[0].questions[0].externalId, 'PHY12_2021_Q01');
+    assert.equal(lesson.body.data.sections[0].highlights[0].questions[0].answer, undefined);
+
+    const byYear = await request(app)
+      .get(`/api/v1/guuldoon/courses/${course._id}/chapters/PHY12_CH01/questions?year=2021`)
+      .set(studentHeaders)
+      .set('Cookie', cookie);
+    assert.equal(byYear.status, 200, JSON.stringify(byYear.body));
+    assert.equal(byYear.body.data.yearCounts[0].year, 2021);
+    assert.equal(byYear.body.data.questions[0].examYear, 2021);
+    assert.equal(byYear.body.data.questions[0].answer, undefined);
+
+    const exam = await request(app)
       .get(`/api/v1/guuldoon/courses/${course._id}/exams/${q1!.exam}`)
       .set(studentHeaders)
       .set('Cookie', cookie);
