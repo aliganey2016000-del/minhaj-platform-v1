@@ -4,9 +4,7 @@ import {
   AlertCircle,
   ArrowLeft,
   BookOpen,
-  ChevronDown,
   ChevronRight,
-  Circle,
   Clock3,
   GraduationCap,
   Home,
@@ -17,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { GuuldoonChaptersExperience } from '../components/guuldoon-chapters-experience';
 
 type Tab = 'home' | 'chapters' | 'exams' | 'mistakes';
 
@@ -47,6 +46,9 @@ type Chapter = {
   confidence: number;
   attempts: number;
   questionCount: number;
+  yearsCount: number;
+  yearCounts: { year: number; count: number; examId: string }[];
+  outsideBook?: boolean;
   items: LessonItem[];
 };
 
@@ -65,6 +67,7 @@ type Experience = {
     description?: { en?: string; so?: string; ar?: string };
     thumbnail?: string;
     grade: number;
+    language?: 'so' | 'en' | 'ar';
   };
   studentName: string;
   passMeter: number;
@@ -100,18 +103,6 @@ type LoadedExam = {
   questions: ExamQuestion[];
 };
 
-function masteryColour(value: number) {
-  if (value < 50) return 'text-red-500';
-  if (value < 75) return 'text-amber-500';
-  return 'text-emerald-500';
-}
-
-function masteryBar(value: number) {
-  if (value < 50) return 'bg-red-500';
-  if (value < 75) return 'bg-amber-500';
-  return 'bg-emerald-500';
-}
-
 function formatVideo(seconds: number) {
   if (!seconds) return '';
   const minutes = Math.floor(seconds / 60);
@@ -137,7 +128,6 @@ export function GuuldoonCourseExperience() {
   const [data, setData] = useState<Experience | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [openChapter, setOpenChapter] = useState<string | null>(null);
   const [exam, setExam] = useState<LoadedExam | null>(null);
   const [practiceLabel, setPracticeLabel] = useState('');
   const [examLoading, setExamLoading] = useState(false);
@@ -162,7 +152,6 @@ export function GuuldoonCourseExperience() {
       });
       const payload = response.data as Experience;
       setData(payload);
-      setOpenChapter(payload.chapters[0]?.id || null);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Guuldoon course-ka lama soo rari karin.');
     } finally {
@@ -199,40 +188,6 @@ export function GuuldoonCourseExperience() {
       setSecondsLeft(summary.durationMin * 60);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Imtixaanka lama furi karin.');
-    } finally {
-      setExamLoading(false);
-    }
-  };
-
-  const openChapterPractice = async (chapter: Chapter) => {
-    if (!courseId) return;
-    setExamLoading(true);
-    setError('');
-    try {
-      const { data: response } = await api.get(`/guuldoon/courses/${courseId}/chapters/${chapter.id}/questions`, { params: { limit: 20 } });
-      const questions = response.data.questions || [];
-      if (!questions.length) {
-        setError('Cutubkan wali su’aalo imtixaan oo published ah laguma darin.');
-        return;
-      }
-      setExam({
-        exam: {
-          id: `practice-${chapter.id}`,
-          year: 0,
-          durationMin: 15,
-          totalMarks: questions.reduce((sum: number, question: ExamQuestion) => sum + Number(question.marks || 0), 0),
-          answerKeyStatus: 'pending',
-        },
-        questions,
-      });
-      setPracticeLabel(`Tababar: ${chapter.title}`);
-      setQuestionIndex(0);
-      setAnswers({});
-      setFeedback({});
-      setSecondsLeft(15 * 60);
-      setTab('exams');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Su’aalaha cutubka lama furi karin.');
     } finally {
       setExamLoading(false);
     }
@@ -363,7 +318,7 @@ export function GuuldoonCourseExperience() {
               <p className="mt-2 text-sm text-[var(--color-text-secondary)]">15 daqiiqo · xoogga saar cutubyada miisaanka sare leh ee aad ugu daciifsan tahay.</p>
               <div className="mt-4 space-y-3">
                 {data.weakest.length ? data.weakest.map(chapter => (
-                  <button key={chapter.id} onClick={() => { setOpenChapter(chapter.id); setTab('chapters'); }} className="flex w-full items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] p-4 text-left hover:border-emerald-500/40">
+                  <button key={chapter.id} onClick={() => setTab('chapters')} className="flex w-full items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] p-4 text-left hover:border-emerald-500/40">
                     <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/10 font-black text-emerald-600">{chapter.mastery}%</span>
                     <div className="min-w-0 flex-1"><p className="truncate font-bold">{chapter.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{chapter.examWeight}% dhibcaha taariikhiga ah</p></div>
                     <ChevronRight size={18} />
@@ -407,40 +362,14 @@ export function GuuldoonCourseExperience() {
         </div>
       )}
 
-      {tab === 'chapters' && (
-        <section className="space-y-3">
-          <div className="mb-5"><h2 className="text-2xl font-black">Cutubyada</h2><p className="text-sm text-[var(--color-text-secondary)]">Hal cutub mar keliya ayuu furmaa. Miisaanka wuxuu ka yimaadaa su'aalaha imtixaannadii hore ee la tagged-gareeyey.</p></div>
-          {data.chapters.map((chapter, index) => {
-            const open = openChapter === chapter.id;
-            return (
-              <article key={chapter.id} className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
-                <button onClick={() => setOpenChapter(open ? null : chapter.id)} className="flex w-full items-center gap-3 p-4 text-left sm:p-5">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 font-black text-emerald-600">{index + 1}</span>
-                  <div className="min-w-0 flex-1"><h3 className="truncate font-black">{chapter.title}</h3><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{chapter.items.length} cashar · {chapter.examWeight}% dhibcaha · {chapter.questionCount} su'aalood</p></div>
-                  <div className="w-24 text-right"><p className={`font-black ${masteryColour(chapter.mastery)}`}>{chapter.mastery}%</p><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]"><div className={`h-full ${masteryBar(chapter.mastery)}`} style={{ width: `${chapter.mastery}%` }} /></div></div>
-                  <ChevronDown className={`transition-transform ${open ? 'rotate-180' : ''}`} size={20} />
-                </button>
-                {open && (
-                  <div className="border-t border-[var(--color-border-subtle)] p-4 sm:p-5">
-                    <div className="space-y-2">
-                      {chapter.items.map((item, itemIndex) => (
-                        <button key={item.id} onClick={() => openLearningItem(item, data.chapters.slice(0, index).reduce((sum, row) => sum + row.items.length, 0) + itemIndex)} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-[var(--color-surface-tertiary)]">
-                          {itemIndex === 0 ? <PlayCircle className="text-emerald-500" size={20} /> : <Circle className="text-slate-400" size={18} />}
-                          <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{item.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{item.hasVideo ? `Muuqaal ${formatVideo(item.videoSeconds)}` : item.type} {item.duration ? `· ${item.duration} daqiiqo` : ''}</p></div>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {chapter.items.some(item => item.notes.length) && <span className="rounded-full bg-blue-500/10 px-3 py-1.5 text-xs font-bold text-blue-500">Notes PDF</span>}
-                      <span className="rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-600">{chapter.questionCount} su'aalood imtixaan</span>
-                    </div>
-                    <button onClick={() => void openChapterPractice(chapter)} className="mt-4 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black text-white">Tababar cutubkan</button>
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </section>
+      {tab === 'chapters' && courseId && (
+        <GuuldoonChaptersExperience
+          courseId={courseId}
+          passMeter={data.passMeter}
+          passTarget={data.passTarget}
+          chapters={data.chapters}
+          onRefresh={loadExperience}
+        />
       )}
 
       {tab === 'exams' && (
