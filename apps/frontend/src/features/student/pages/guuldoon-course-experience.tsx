@@ -120,6 +120,7 @@ export function GuuldoonCourseExperience() {
   const [error, setError] = useState('');
   const [openChapter, setOpenChapter] = useState<string | null>(null);
   const [exam, setExam] = useState<LoadedExam | null>(null);
+  const [practiceLabel, setPracticeLabel] = useState('');
   const [examLoading, setExamLoading] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
@@ -171,12 +172,47 @@ export function GuuldoonCourseExperience() {
     try {
       const { data: response } = await api.get(`/guuldoon/courses/${courseId}/exams/${summary.id}`);
       setExam(response.data);
+      setPracticeLabel('');
       setQuestionIndex(0);
       setAnswers({});
       setFeedback({});
       setSecondsLeft(summary.durationMin * 60);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Imtixaanka lama furi karin.');
+    } finally {
+      setExamLoading(false);
+    }
+  };
+
+  const openChapterPractice = async (chapter: Chapter) => {
+    if (!courseId) return;
+    setExamLoading(true);
+    setError('');
+    try {
+      const { data: response } = await api.get(`/guuldoon/courses/${courseId}/chapters/${chapter.id}/questions`, { params: { limit: 20 } });
+      const questions = response.data.questions || [];
+      if (!questions.length) {
+        setError('Cutubkan wali su’aalo imtixaan oo published ah laguma darin.');
+        return;
+      }
+      setExam({
+        exam: {
+          id: `practice-${chapter.id}`,
+          year: 0,
+          durationMin: 15,
+          totalMarks: questions.reduce((sum: number, question: ExamQuestion) => sum + Number(question.marks || 0), 0),
+          answerKeyStatus: 'pending',
+        },
+        questions,
+      });
+      setPracticeLabel(`Tababar: ${chapter.title}`);
+      setQuestionIndex(0);
+      setAnswers({});
+      setFeedback({});
+      setSecondsLeft(15 * 60);
+      setTab('exams');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Su’aalaha cutubka lama furi karin.');
     } finally {
       setExamLoading(false);
     }
@@ -357,7 +393,7 @@ export function GuuldoonCourseExperience() {
                       {chapter.items.some(item => item.notes.length) && <span className="rounded-full bg-blue-500/10 px-3 py-1.5 text-xs font-bold text-blue-500">Notes PDF</span>}
                       <span className="rounded-full bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-600">{chapter.questionCount} su'aalood imtixaan</span>
                     </div>
-                    <button onClick={() => setTab('exams')} className="mt-4 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black text-white">Tababar cutubkan</button>
+                    <button onClick={() => void openChapterPractice(chapter)} className="mt-4 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black text-white">Tababar cutubkan</button>
                   </div>
                 )}
               </article>
@@ -382,8 +418,8 @@ export function GuuldoonCourseExperience() {
           ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4">
-                <button onClick={() => { setExam(null); setSecondsLeft(null); }} className="inline-flex items-center gap-2 text-sm font-bold"><ArrowLeft size={16} /> Sanadaha</button>
-                <div className="text-center"><p className="font-black">Imtixaanka {exam.exam.year}</p><p className="text-xs text-[var(--color-text-tertiary)]">{answeredCount}/{exam.questions.length} laga jawaabay</p></div>
+                <button onClick={() => { setExam(null); setSecondsLeft(null); if (practiceLabel) { setPracticeLabel(''); setTab('chapters'); } }} className="inline-flex items-center gap-2 text-sm font-bold"><ArrowLeft size={16} /> {practiceLabel ? 'Cutubyada' : 'Sanadaha'}</button>
+                <div className="text-center"><p className="font-black">{practiceLabel || `Imtixaanka ${exam.exam.year}`}</p><p className="text-xs text-[var(--color-text-tertiary)]">{answeredCount}/{exam.questions.length} laga jawaabay</p></div>
                 <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ${secondsLeft === 0 ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-600'}`}><Clock3 size={15} /> {secondsLeft === null ? '--:--' : `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}`}</div>
               </div>
 
