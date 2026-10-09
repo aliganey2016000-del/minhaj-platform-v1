@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../../store/auth-context';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, BookOpen, Crown, GraduationCap, Search, TrendingUp } from 'lucide-react';
+import { ArrowRight, BookOpen, Crown, GraduationCap, Search } from 'lucide-react';
 import api from '../../../lib/axios';
 import CoursesManage from '../../admin/pages/courses-manage';
 
@@ -23,6 +23,7 @@ export function GlobalCoursesPage() {
   const [error, setError] = useState('');
   const [openingCourseId, setOpeningCourseId] = useState<string | null>(null);
   const [accessError, setAccessError] = useState('');
+  const [subscribed, setSubscribed] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (user?.role === 'admin') return;
@@ -45,6 +46,20 @@ export function GlobalCoursesPage() {
     return () => {
       cancelled = true;
     };
+  }, [user?.role]);
+
+  useEffect(() => {
+    if (user?.role !== 'student') return;
+    let cancelled = false;
+    api.get('/global-subscriptions/mine')
+      .then(({ data }) => {
+        const now = Date.now();
+        const rows: any[] = data.data || [];
+        const active = rows.some(row => row.status === 'approved' && Date.parse(row.startsAt) <= now && Date.parse(row.expiresAt) > now);
+        if (!cancelled) setSubscribed(active);
+      })
+      .catch(() => { if (!cancelled) setSubscribed(false); });
+    return () => { cancelled = true; };
   }, [user?.role]);
 
   const openGuuldoonCourse = async (course: GlobalCourse) => {
@@ -97,21 +112,7 @@ export function GlobalCoursesPage() {
           </div>
         </header>
 
-        <Link
-          to="/student/guuldoon/performance"
-          className="flex items-center gap-4 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5 shadow-sm"
-        >
-          <span className="rounded-full bg-emerald-50 p-3 text-emerald-700">
-            <TrendingUp size={25} />
-          </span>
-          <div className="flex-1">
-            <h2 className="font-bold">Horumarkayga</h2>
-            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">La soco cashirrada aad dhammaystirtay</p>
-          </div>
-          <ArrowRight size={18} />
-        </Link>
-
-        {grade && (
+        {grade && subscribed === false && (
           <section className="flex flex-wrap items-center gap-4 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-amber-100 p-5 text-slate-900">
             <span className="rounded-full bg-amber-200 p-3 text-amber-700">
               <Crown size={27} />
