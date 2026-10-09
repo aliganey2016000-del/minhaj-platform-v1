@@ -60,6 +60,8 @@ async function workbookBuffer(options: { duplicate?: boolean; invalidReference?:
   const questions = [
     ['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','ar','rtl','إذا كانت $R = 5\\Omega$ والتيار $I = 2A$، احسب الجهد.','If $R = 5\\Omega$ and $I = 2A$, find V.',2,'2V','10V','20V','5V','B','verified','ohms-law;resistance','circuit.png','PHY12_RES001','Isticmaal $V = IR$.','',10,12,anchor,'direct','','',''],
     ['', 'PHY12_2021_Q02','PHY12_EX2021','PHY12_CH02','PHY12_2021_Q01',2,'structured','so','ltr','Sharax mowjadda.','Explain the wave.',4,'','','','','Draft answer','pending','waves','','','Sharaxaad qabyada ah','','','','','','','',''],
+    ['', 'PHY12_2021_Q20','PHY12_EX2021','PHY12_CH01','',20,'fill','en','ltr','The time for one complete cycle is called the ___.','',1,'','','','','Period','verified','period','','','','','','','','','','','','','text','time period|T','',''],
+    ['', 'PHY12_2021_Q21','PHY12_EX2021','PHY12_CH01','',21,'structured','en','ltr','A 5 ohm resistor carries 2 A. Find the voltage.','',2,'','','','','10 V','verified','ohms-law','','','','','','','','','','','','','numeric','','2','V'],
   ];
   if (options.invalidReference) {
     questions.push(['', 'PHY12_BAD_REF','PHY12_EX2021','PHY12_MISSING','',3,'mcq','so','ltr','Su’aal khaldan','Bad ref',1,'A','B','C','D','A','verified','bad','','','','','','','','','','','','']);
@@ -79,8 +81,8 @@ async function workbookBuffer(options: { duplicate?: boolean; invalidReference?:
     }
   }
   add('Questions',
-    ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'],
-    questions,
+    ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes','answer_type','accepted_answers','tolerance_pct','unit'],
+    questions.map(row => (row.length < 34 ? [...row, ...Array(34 - row.length).fill('')] : row)),
   );
   add('Glossary',
     ['row_status','glossary_id','subject_id','term_so','term_en','term_ar'],
@@ -208,6 +210,7 @@ async function main() {
     const templateQuestionHeaders = (templateWb.getWorksheet('Questions')!.getRow(1).values as any[]).map(String);
     assert.ok(templateQuestionHeaders.includes('book_anchor_text'));
     assert.ok(templateQuestionHeaders.includes('book_relation'));
+    for (const header of ['answer_type', 'accepted_answers', 'tolerance_pct', 'unit']) assert.ok(templateQuestionHeaders.includes(header), `template contains ${header}`);
     const templateSubjectHeaders = (templateWb.getWorksheet('Subjects')!.getRow(1).values as any[]).map(String);
     assert.ok(templateSubjectHeaders.includes('language'));
 
@@ -268,7 +271,7 @@ async function main() {
     assert.equal(validation.status, 200, JSON.stringify(validation.body));
     assert.ok(validation.body.data.errors.some((item: any) => item.id === 'PHY12_BAD_REF' && item.field === 'chapter_id'));
     assert.ok(validation.body.data.errors.some((item: any) => item.id === 'PHY12_BAD_FIG' && item.field === 'figure_files'));
-    assert.equal(validation.body.data.summary.Questions.valid, 2);
+    assert.equal(validation.body.data.summary.Questions.valid, 4);
 
     const batchId = validation.body.data.batchId;
     const committed = await request(app)
@@ -282,7 +285,7 @@ async function main() {
     assert.equal(committed.body.data.created.Chapters, 2);
     assert.equal(committed.body.data.created.Exams, 1);
     assert.equal(committed.body.data.created.Resources, 1);
-    assert.equal(committed.body.data.created.Questions, 2);
+    assert.equal(committed.body.data.created.Questions, 4);
     assert.equal(committed.body.data.created.Glossary, 1);
     assert.ok(committed.body.data.skipped >= 2);
     assert.equal(committed.body.data.imagesUploaded, 1);
@@ -291,7 +294,7 @@ async function main() {
     assert.equal(await Chapter.countDocuments({ course: course._id }), 2);
     assert.equal(await Exam.countDocuments({ course: course._id }), 1);
     assert.equal(await Resource.countDocuments({ course: course._id }), 1);
-    assert.equal(await Question.countDocuments({ course: course._id }), 2);
+    assert.equal(await Question.countDocuments({ course: course._id }), 4);
     assert.equal(await Glossary.countDocuments({ course: course._id }), 1);
 
     const q1 = await Question.findOne({ course: course._id, externalId: 'PHY12_2021_Q01' }).select('+answer').lean();
@@ -322,7 +325,7 @@ async function main() {
       .attach('figures', zip, { filename: 'figures.zip' });
     assert.equal(committed2.status, 200, JSON.stringify(committed2.body));
     assert.equal(Object.values(committed2.body.data.created).reduce((sum: number, value: any) => sum + Number(value || 0), 0), 0);
-    assert.equal(await Question.countDocuments({ course: course._id }), 2);
+    assert.equal(await Question.countDocuments({ course: course._id }), 4);
 
     // Student experience uses imported chapters/resources/glossary without touching normal CourseContent.
     const verifiedDevice = await request(app)
@@ -411,6 +414,52 @@ async function main() {
       .set('Cookie', cookie);
     assert.equal(afterPending.status, 200);
     assert.equal(afterPending.body.data.passMeter, passMeterAfterVerified, 'pending structured attempt must not change Pass Meter');
+
+    // Deterministic marking of short answers and calculations (no AI, no teacher).
+    const publicQ20 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q20');
+    const publicQ21 = exam.body.data.questions.find((item: any) => item.externalId === 'PHY12_2021_Q21');
+    assert.ok(publicQ20 && publicQ21);
+    assert.equal(publicQ20.answer, undefined);
+    assert.equal(publicQ21.answer, undefined);
+    const answerQuestion = (id: string, answer: unknown) => request(app)
+      .post(`/api/v1/guuldoon/questions/${id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', cookie)
+      .send({ answer });
+    const typo = await answerQuestion(publicQ20._id, 'periode');
+    assert.equal(typo.body.data.marked, true);
+    assert.equal(typo.body.data.correct, true, 'one-letter typo is accepted');
+    assert.equal((await answerQuestion(publicQ20._id, 'T')).body.data.correct, true, 'accepted_answers entry');
+    const wrongText = await answerQuestion(publicQ20._id, 'frequency');
+    assert.equal(wrongText.body.data.marked, true);
+    assert.equal(wrongText.body.data.correct, false);
+    assert.equal((await answerQuestion(publicQ21._id, '10.1 V')).body.data.correct, true, 'within 2% tolerance');
+    assert.equal((await answerQuestion(publicQ21._id, '10')).body.data.correct, true, 'missing unit is not penalised');
+    const wrongNumber = await answerQuestion(publicQ21._id, '12 V');
+    assert.equal(wrongNumber.body.data.correct, false);
+    assert.equal(wrongNumber.body.data.reason, 'value');
+    const wrongUnit = await answerQuestion(publicQ21._id, '10 A');
+    assert.equal(wrongUnit.body.data.correct, false);
+    assert.equal(wrongUnit.body.data.reason, 'unit');
+
+    // Frequently given wrong text answers surface for one-tap approval and grow the answer list.
+    await answerQuestion(publicQ20._id, 'Frequency');
+    const unmatched = await request(app)
+      .get(`/api/v1/guuldoon/admin/courses/${course._id}/unmatched-answers`)
+      .set(adminHeaders);
+    assert.equal(unmatched.status, 200, JSON.stringify(unmatched.body));
+    const frequencyRow = unmatched.body.data.find((item: any) => item.answer.toLowerCase() === 'frequency');
+    assert.ok(frequencyRow, 'wrong text answer is listed');
+    assert.equal(frequencyRow.count, 2);
+    const accepted = await request(app)
+      .post(`/api/v1/guuldoon/admin/unmatched-answers/${frequencyRow.id}/accept`)
+      .set(adminHeaders);
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+    assert.equal((await answerQuestion(publicQ20._id, 'frequency')).body.data.correct, true, 'accepted answer is now correct');
+    const again = await request(app)
+      .post(`/api/v1/guuldoon/admin/unmatched-answers/${frequencyRow.id}/accept`)
+      .set(adminHeaders);
+    assert.equal(again.status, 409);
 
     // Error report is downloadable and auditable.
     const report = await request(app)
