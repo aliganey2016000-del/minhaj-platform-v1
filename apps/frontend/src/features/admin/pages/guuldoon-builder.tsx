@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, BookOpen, FileJson, GraduationCap, Plus, Save, Settings2, Tags, UploadCloud } from 'lucide-react';
 import api from '../../../lib/axios';
+import { GuuldoonUnmatchedAnswers } from '../components/guuldoon-unmatched-answers';
 
 type Chapter = { id: string; title: string; order: number; status: string; lessons: number };
 type Exam = {
@@ -201,6 +202,8 @@ export function GuuldoonBuilder() {
         <textarea value={questionsJson} onChange={e => setQuestionsJson(e.target.value)} rows={12} spellCheck={false} className="mt-4 w-full rounded-xl border border-[var(--color-border-default)] bg-slate-950 p-4 font-mono text-xs text-slate-100 outline-none" />
         <div className="mt-3 flex flex-wrap gap-2"><button disabled={saving || !selectedExam} onClick={() => void importQuestions()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Import / Update Questions</button><button onClick={() => setQuestionsJson(JSON.stringify([{ number: 1, type: 'mcq', textSo: 'Su’aasha...', options: ['A', 'B', 'C', 'D'], marks: 2, chapterId: chapters[0]?.id || 'CHAPTER_ID', topicTags: ['topic'], answer: 0, answerStatus: 'verified', explainerText: 'Sharaxaad kooban', bookRef: { pageFrom: 10, pageTo: 12 } }], null, 2))} className="rounded-xl border px-4 py-2.5 text-sm font-bold">Load Example</button></div>
       </section>
+
+      {courseId && <GuuldoonUnmatchedAnswers courseId={courseId} />}
 
       <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
         <div className="flex items-center gap-2"><BookOpen className="text-emerald-600" size={20} /><h2 className="font-black">Glossary · Soomaali / English / العربية</h2></div>

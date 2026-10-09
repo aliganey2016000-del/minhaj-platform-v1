@@ -451,6 +451,7 @@ async function main() {
     const frequencyRow = unmatched.body.data.find((item: any) => item.answer.toLowerCase() === 'frequency');
     assert.ok(frequencyRow, 'wrong text answer is listed');
     assert.equal(frequencyRow.count, 2);
+    assert.ok(String(frequencyRow.expected).includes('Period'), 'admin sees the current answer key');
     const accepted = await request(app)
       .post(`/api/v1/guuldoon/admin/unmatched-answers/${frequencyRow.id}/accept`)
       .set(adminHeaders);
