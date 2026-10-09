@@ -14,6 +14,7 @@ import GuuldoonConfig from '../../models/guuldoon-course-config.model';
 import GuuldoonExam from '../../models/guuldoon-past-exam.model';
 import GuuldoonQuestion from '../../models/guuldoon-question.model';
 import GuuldoonAttempt from '../../models/guuldoon-attempt.model';
+import GuuldoonPracticeResult from '../../models/guuldoon-practice-result.model';
 import GuuldoonMistake from '../../models/guuldoon-mistake.model';
 import GuuldoonChapter from '../../models/guuldoon-chapter.model';
 import GuuldoonResource from '../../models/guuldoon-resource.model';
@@ -117,6 +118,7 @@ async function chapterStats(userId: string, courseId: mongoose.Types.ObjectId, c
     course: courseId,
     chapterId: { $in: chapterIds },
     correct: { $ne: null },
+    retry: { $ne: true },
   }).sort({ createdAt: -1 }).limit(1000).lean();
 
   const grouped = new Map<string, any[]>();
@@ -532,6 +534,7 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
   const publishedExam = await GuuldoonExam.exists({ _id: question.exam, course: course._id, published: true });
   if (!publishedExam) throw new NotFoundError('Guuldoon question');
   const submitted = req.body?.answer;
+  const isRetry = req.body?.retry === true;
   const timeMs = Math.max(0, Math.min(60 * 60 * 1000, Number(req.body?.timeMs) || 0));
   const markingMode = question.markingMode || (isAutoMarkable(question.type, question.answer) ? 'auto' : 'manual');
   const marked = question.answerStatus === 'verified' && markingMode === 'auto' && isAutoMarkable(question.type, question.answer);
@@ -547,13 +550,14 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     correct,
     answer: submitted,
     timeMs,
+    retry: isRetry,
   });
 
-  if (marked && correct === false && isAnswerSpec(question.answer) && question.answer.kind === 'text') {
+  if (!isRetry && marked && correct === false && isAnswerSpec(question.answer) && question.answer.kind === 'text') {
     await recordUnmatchedAnswer(String(course._id), String(question._id), submitted);
   }
 
-  if (marked && correct === false) {
+  if (!isRetry && marked && correct === false) {
     await GuuldoonMistake.findOneAndUpdate(
       { user: req.user!.userId, question: question._id },
       {
@@ -566,7 +570,7 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
-  } else if (marked && correct === true) {
+  } else if (!isRetry && marked && correct === true) {
     const existing = await GuuldoonMistake.findOne({ user: req.user!.userId, question: question._id });
     if (existing) {
       const nextBox = Math.min(5, existing.box + 1);
@@ -577,6 +581,7 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     }
   }
 
+  const revealAnswer = !marked || correct === true || isRetry;
   const similar = question.similarIds?.length
     ? await GuuldoonQuestion.find({ _id: { $in: question.similarIds.slice(0, 2) } }).select('-answer').lean()
     : [];
@@ -587,14 +592,50 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     reason: grade && !grade.correct ? grade.reason : undefined,
     answerStatus: question.answerStatus,
     markingMode,
-    answerDisplay: describeAnswer(question.type, question.answer, question.options),
-    explanation: question.explainerText || '',
+    answerDisplay: revealAnswer ? describeAnswer(question.type, question.answer, question.options) : undefined,
+    explanation: revealAnswer ? question.explainerText || '' : '',
     explanationStatus: question.answerStatus === 'verified' ? 'verified' : 'draft',
     explainerAudioUrl: question.answerStatus === 'verified' ? question.explainerAudioUrl || '' : '',
     bookRef: question.bookRef || null,
     similar: similar.map(safeQuestion),
     message: marked ? (correct ? 'Sax' : 'Khalad') : question.answerStatus === 'verified' ? 'Jawaabta macallin ayaa qiimeyn doona' : 'Jawaab la xaqiijin doonaa',
   });
+}));
+
+router.post('/courses/:courseId/practice-results', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'student') throw new ForbiddenError('Student access required');
+  const { course } = await loadStudentAccess(req, req.params.courseId, true);
+  const body = req.body || {};
+  const num = (value: unknown, max: number) => Math.max(0, Math.min(max, Math.floor(Number(value) || 0)));
+  const total = num(body.total, 500);
+  const correct = num(body.correct, total);
+  const firstTry = num(body.firstTry, correct);
+  const source = ['understand', 'past', 'single'].includes(body.source) ? body.source : null;
+  const chapterId = typeof body.chapterId === 'string' ? body.chapterId.trim().slice(0, 100) : '';
+  if (!total || !source || !chapterId) throw new BadRequestError('Invalid practice result');
+  const result = await GuuldoonPracticeResult.create({
+    user: req.user!.userId,
+    course: course._id,
+    chapterId,
+    source,
+    total,
+    firstTry,
+    correct,
+    wrong: total - correct,
+    durationMs: num(body.durationMs, 24 * 60 * 60 * 1000),
+  });
+  const history = await GuuldoonPracticeResult.find({ user: req.user!.userId, course: course._id, chapterId, source })
+    .sort({ createdAt: -1 }).limit(10).lean();
+  const best = history.reduce((max, item) => Math.max(max, Math.round((item.correct / item.total) * 100)), 0);
+  return ApiResponse.success(res, { saved: String(result._id), best, history: history.map(item => ({ total: item.total, correct: item.correct, firstTry: item.firstTry, at: item.createdAt })) });
+}));
+
+router.get('/courses/:courseId/practice-results', asyncHandler(async (req, res) => {
+  const { course } = await loadStudentAccess(req, req.params.courseId, true);
+  const chapterId = String(req.query.chapterId || '');
+  const rows = await GuuldoonPracticeResult.find({ user: req.user!.userId, course: course._id, ...(chapterId ? { chapterId } : {}) })
+    .sort({ createdAt: -1 }).limit(20).lean();
+  return ApiResponse.success(res, rows.map(item => ({ chapterId: item.chapterId, source: item.source, total: item.total, correct: item.correct, firstTry: item.firstTry, at: item.createdAt })));
 }));
 
 router.get('/courses/:courseId/mistakes', asyncHandler(async (req, res) => {
