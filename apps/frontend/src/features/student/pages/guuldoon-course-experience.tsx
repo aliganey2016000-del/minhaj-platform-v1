@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Clock3,
   GraduationCap,
-  Home,
   PlayCircle,
   RotateCcw,
   Target,
@@ -125,7 +124,7 @@ function FormulaText({ text }: { text: string }) {
 export function GuuldoonCourseExperience() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('home');
+  const [tab, setTab] = useState<Tab>('chapters');
   const [data, setData] = useState<Experience | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -300,9 +299,8 @@ export function GuuldoonCourseExperience() {
 
       {error && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</div>}
 
-      <nav className="hidden grid-cols-4 gap-2 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-2 sm:grid">
+      <nav className="hidden grid-cols-3 gap-2 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-2 sm:grid">
         {([
-          ['home', Home, 'Hoyga'],
           ['chapters', BookOpen, 'Cutubyada'],
           ['exams', GraduationCap, 'Imtixaan'],
           ['mistakes', RotateCcw, 'Qaladaad'],
@@ -482,9 +480,8 @@ export function GuuldoonCourseExperience() {
         </section>
       )}
 
-      <nav className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-4 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]/95 p-2 shadow-2xl backdrop-blur sm:hidden">
+      <nav className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]/95 p-2 shadow-2xl backdrop-blur sm:hidden">
         {([
-          ['home', Home, 'Hoyga'],
           ['chapters', BookOpen, 'Cutubyo'],
           ['exams', GraduationCap, 'Imtixaan'],
           ['mistakes', RotateCcw, 'Qaladaad'],
