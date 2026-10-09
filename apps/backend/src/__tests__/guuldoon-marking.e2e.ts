@@ -87,4 +87,16 @@ assert.deepEqual(buildAnswerSpec({ answerType: 'text', correctAnswer: 'Period', 
 assert.deepEqual(buildAnswerSpec({ acceptedAnswers: ['a', 'b'] }), { kind: 'text', accepted: ['a', 'b'] });
 assert.equal(buildAnswerSpec({ correctAnswer: 'B' }), undefined);
 
+// Regression: tiny values, leading-zero decimal comma, leading articles.
+const tiny = { kind: 'numeric', value: 1.92e-16, unit: 'J' } as const;
+assert.equal(gradeNumeric('1.92e-16 J', tiny).correct, true);
+assert.equal(gradeNumeric('1.92×10^-16', tiny).correct, true);
+assert.equal(gradeNumeric('2.2e-16', tiny).correct, false, 'small values keep a relative tolerance');
+assert.equal(gradeNumeric('1.92e-15', tiny).correct, false);
+assert.equal(gradeNumeric('0,105', { kind: 'numeric', value: 0.105 }).correct, true, 'leading zero comma is a decimal');
+assert.equal(gradeNumeric('1,500', { kind: 'numeric', value: 1500 }).correct, true, 'thousands comma still works');
+assert.equal(gradeText('the violet', ['Violet']).correct, true);
+assert.equal(gradeText('An alpha particle', ['alpha particle']).correct, true);
+assert.equal(gradeText('theory', ['Violet']).correct, false);
+
 console.log('Guuldoon deterministic marking engine: numeric, units, text, Arabic, legacy keys and importer keys passed.');
