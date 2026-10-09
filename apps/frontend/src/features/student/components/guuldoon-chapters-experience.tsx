@@ -498,25 +498,14 @@ export function GuuldoonChaptersExperience({
                           <button onClick={() => void startPractice(chapter)} className="rounded-xl border border-sky-500/30 px-3 py-2 text-xs font-black text-sky-500">Bilow</button>
                         </div>
 
-                        <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]/35 p-3">
-                          <div className="flex items-center gap-3">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-black text-amber-500">3</span>
-                            <div><p className="text-sm font-black">Su’aalaha sanad kasta</p><p className="text-[11px] text-[var(--color-text-tertiary)]">Dooro sannad.</p></div>
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {years.length ? years.map(item => {
-                              const tone = item.count >= 8
-                                ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/20'
-                                : item.count >= 4
-                                  ? 'bg-sky-500/15 text-sky-500 border-sky-500/20'
-                                  : 'bg-amber-500/15 text-amber-500 border-amber-500/20';
-                              return (
-                                <button key={item.year} onClick={() => void loadYearQuestions(chapter, item.year)} className={'rounded-full border px-3 py-1.5 text-[11px] font-black ' + tone}>
-                                  {item.year} · {item.count}
-                                </button>
-                              );
-                            }) : <span className="text-xs text-[var(--color-text-tertiary)]">Su’aalo published ah wali ma jiraan.</span>}
-                          </div>
+                        <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]/35 p-3">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-black text-amber-500">3</span>
+                          <div className="min-w-0 flex-1"><p className="text-sm font-black">Su’aalaha sanad kasta</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{years.length ? years.length + ' sano, dooro sanad si aad u aragto sidii loo weydiiyay' : 'Su’aalo published ah wali ma jiraan.'}</p></div>
+                          <button
+                            disabled={!years.length}
+                            onClick={() => void loadYearQuestions(chapter, years[0].year)}
+                            className="rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-black text-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
+                          >Dooro</button>
                         </div>
                       </div>
                     </div>
@@ -610,12 +599,23 @@ export function GuuldoonChaptersExperience({
             <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[.16em] text-emerald-500">Su’aalaha sanad kasta</p><h2 className="truncate font-black">{activeChapter.title}</h2></div>
           </div>
 
-          <div className="hide-scrollbar flex gap-2 overflow-x-auto pb-1">
-            {yearCounts.map(item => (
-              <button key={item.year} onClick={() => void loadYearQuestions(activeChapter, item.year)} className={'shrink-0 rounded-xl border px-3 py-2 text-xs font-black ' + (selectedYear === item.year ? 'border-emerald-500 bg-emerald-500/15 text-emerald-500' : 'border-[var(--color-border-default)] bg-[var(--color-surface-primary)]')}>
-                {item.year} <span className="opacity-60">· {item.count}</span>
-              </button>
-            ))}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(76px,1fr))] gap-2" role="group" aria-label="Dooro sanad">
+            {yearCounts.map(item => {
+              const selected = selectedYear === item.year;
+              const strength = Math.round(8 + 22 * (item.count / Math.max(1, ...yearCounts.map(y => y.count))));
+              return (
+                <button
+                  key={item.year}
+                  onClick={() => void loadYearQuestions(activeChapter, item.year)}
+                  aria-pressed={selected}
+                  style={selected ? undefined : { background: 'color-mix(in srgb, rgb(16 185 129) ' + strength + '%, var(--color-surface-primary))' }}
+                  className={'flex flex-col items-center gap-0.5 rounded-2xl border px-1.5 py-2.5 transition ' + (selected ? 'border-emerald-500 bg-emerald-600 text-white shadow-lg shadow-emerald-600/30' : 'border-[var(--color-border-default)]')}
+                >
+                  <b className="text-base font-extrabold tabular-nums">{item.year}</b>
+                  <span className={'text-[11.5px] ' + (selected ? 'text-white/85' : 'text-[var(--color-text-tertiary)]')}>{item.count} su’aal</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="grid gap-3">
