@@ -15,6 +15,7 @@ import GuuldoonQuestion from '../models/guuldoon-question.model';
 import GuuldoonGlossary from '../models/guuldoon-glossary.model';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
+import { r2Enabled, uploadToR2 } from '../utils/r2-storage';
 
 export const GUULDOON_IMPORT_SHEETS = ['Subjects', 'Chapters', 'Exams', 'Resources', 'Questions', 'Glossary', 'Lists'] as const;
 
@@ -65,6 +66,7 @@ const FIGURE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.svg']);
 const MAX_ZIP_ENTRIES = 2000;
 const MAX_ZIP_UNCOMPRESSED = 100 * 1024 * 1024;
 const MAX_FIGURE_BYTES = 10 * 1024 * 1024;
+const R2_CONTENT_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
 
 const REQUIRED_HEADERS: Record<ImportSheet, string[]> = {
   Subjects: ['subject_id', 'grade', 'name_en'],
@@ -765,12 +767,21 @@ async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): P
   const urls = new Map<string, string>();
   if (!used.size || !parsed.zip) return urls;
   const directory = path.join(process.cwd(), 'uploads', 'guuldoon', courseId);
-  await fs.promises.mkdir(directory, { recursive: true });
   for (const key of used) {
     const entry = parsed.zip.files.get(key);
     if (!entry) continue;
     validateFigureBuffer(entry.name, entry.data);
     const filename = `${crypto.createHash('sha256').update(entry.data).digest('hex').slice(0, 32)}${entry.extension}`;
+    if (r2Enabled) {
+      try {
+        await uploadToR2(`guuldoon/${courseId}/${filename}`, entry.data, R2_CONTENT_TYPES[entry.extension.toLowerCase()] || 'application/octet-stream');
+        urls.set(key, `/api/v1/guuldoon-media/${courseId}/${filename}`);
+        continue;
+      } catch (error) {
+        console.warn('[guuldoon] R2 upload failed, falling back to local disk:', error instanceof Error ? error.message : error);
+      }
+    }
+    await fs.promises.mkdir(directory, { recursive: true });
     const destination = path.join(directory, filename);
     if (!fs.existsSync(destination)) await fs.promises.writeFile(destination, entry.data);
     urls.set(key, `/uploads/guuldoon/${courseId}/${filename}`);
