@@ -701,6 +701,12 @@ router.get('/admin/exams/:examId/questions', asyncHandler(async (req, res) => {
   return ApiResponse.success(res, questions);
 }));
 
+/** Short label of the stored answer key, shown to the admin next to a student's wrong answer. */
+function expectedAnswerLabel(answer: unknown): string {
+  if (isAnswerSpec(answer)) return answer.kind === 'text' ? answer.accepted.join(' | ') : String(answer.value) + (answer.unit ? ' ' + answer.unit : '');
+  return typeof answer === 'string' ? answer : '';
+}
+
 async function recordUnmatchedAnswer(courseId: string, questionId: string, submitted: unknown) {
   const normalized = normalizeText(submitted).slice(0, 200);
   if (!normalized) return;
@@ -725,13 +731,14 @@ router.get('/admin/courses/:courseId/unmatched-answers', asyncHandler(async (req
   const rows = await GuuldoonUnmatchedAnswer.find({ course: course._id, status: 'pending' })
     .sort({ count: -1, lastSeenAt: -1 })
     .limit(limit)
-    .populate('question', 'textSo textEn externalId number chapterId')
+    .populate('question', '+answer textSo textEn externalId number chapterId')
     .lean();
   return ApiResponse.success(res, rows.map((row: any) => ({
     id: String(row._id),
     answer: row.sample,
     count: row.count,
     lastSeenAt: row.lastSeenAt,
+    expected: row.question ? expectedAnswerLabel(row.question.answer) : '',
     question: row.question ? { id: String(row.question._id), externalId: row.question.externalId || '', number: row.question.number, text: row.question.textSo, chapterId: row.question.chapterId } : null,
   })));
 }));
