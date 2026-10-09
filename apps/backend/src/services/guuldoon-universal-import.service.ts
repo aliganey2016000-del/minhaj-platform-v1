@@ -767,25 +767,33 @@ async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): P
   const urls = new Map<string, string>();
   if (!used.size || !parsed.zip) return urls;
   const directory = path.join(process.cwd(), 'uploads', 'guuldoon', courseId);
-  for (const key of used) {
-    const entry = parsed.zip.files.get(key);
-    if (!entry) continue;
-    validateFigureBuffer(entry.name, entry.data);
-    const filename = `${crypto.createHash('sha256').update(entry.data).digest('hex').slice(0, 32)}${entry.extension}`;
-    if (r2Enabled) {
-      try {
-        await uploadToR2(`guuldoon/${courseId}/${filename}`, entry.data, R2_CONTENT_TYPES[entry.extension.toLowerCase()] || 'application/octet-stream');
-        urls.set(key, `/api/v1/guuldoon-media/${courseId}/${filename}`);
-        continue;
-      } catch (error) {
-        console.warn('[guuldoon] R2 upload failed, falling back to local disk:', error instanceof Error ? error.message : error);
+  let directoryReady = false;
+  const queue = [...used];
+  const worker = async () => {
+    for (let key = queue.shift(); key !== undefined; key = queue.shift()) {
+      const entry = parsed.zip!.files.get(key);
+      if (!entry) continue;
+      validateFigureBuffer(entry.name, entry.data);
+      const filename = `${crypto.createHash('sha256').update(entry.data).digest('hex').slice(0, 32)}${entry.extension}`;
+      if (r2Enabled) {
+        try {
+          await uploadToR2(`guuldoon/${courseId}/${filename}`, entry.data, R2_CONTENT_TYPES[entry.extension.toLowerCase()] || 'application/octet-stream');
+          urls.set(key, `/api/v1/guuldoon-media/${courseId}/${filename}`);
+          continue;
+        } catch (error) {
+          console.warn('[guuldoon] R2 upload failed, falling back to local disk:', error instanceof Error ? error.message : error);
+        }
       }
+      if (!directoryReady) {
+        await fs.promises.mkdir(directory, { recursive: true });
+        directoryReady = true;
+      }
+      const destination = path.join(directory, filename);
+      if (!fs.existsSync(destination)) await fs.promises.writeFile(destination, entry.data);
+      urls.set(key, `/uploads/guuldoon/${courseId}/${filename}`);
     }
-    await fs.promises.mkdir(directory, { recursive: true });
-    const destination = path.join(directory, filename);
-    if (!fs.existsSync(destination)) await fs.promises.writeFile(destination, entry.data);
-    urls.set(key, `/uploads/guuldoon/${courseId}/${filename}`);
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(10, used.size) }, worker));
   return urls;
 }
 
