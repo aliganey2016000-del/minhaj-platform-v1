@@ -6,7 +6,7 @@ export interface IGuuldoonChapter extends Document {
   externalId: string;
   subjectExternalId: string;
   order: number;
-  titleSo: string;
+  titleSo?: string;
   titleEn: string;
   titleAr?: string;
   examWeight?: number;
@@ -21,7 +21,7 @@ const schema = new Schema<IGuuldoonChapter>({
   externalId: { type: String, required: true, trim: true },
   subjectExternalId: { type: String, required: true, trim: true, index: true },
   order: { type: Number, required: true, min: 1 },
-  titleSo: { type: String, required: true, trim: true },
+  titleSo: { type: String, default: '', trim: true },
   titleEn: { type: String, required: true, trim: true },
   titleAr: { type: String, default: '', trim: true },
   examWeight: { type: Number, min: 0, max: 100, default: null },

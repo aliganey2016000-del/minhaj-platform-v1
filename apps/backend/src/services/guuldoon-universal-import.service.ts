@@ -45,6 +45,7 @@ export interface ParsedGuuldoonImport {
     status: Set<string>;
   };
   zip?: FigureArchive;
+  blockedRows: Set<string>;
 }
 
 interface FigureArchive {
@@ -58,14 +59,15 @@ const SERVER_LANGUAGES = new Set(['so', 'en', 'ar']);
 const SERVER_DIRECTIONS = new Set(['ltr', 'rtl', 'auto']);
 const SERVER_ANSWER_STATUS = new Set(['verified', 'pending']);
 const SERVER_STATUS = new Set(['draft', 'published']);
+const SERVER_BOOK_RELATIONS = new Set(['direct', 'indirect', 'similar', 'derived']);
 const FIGURE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.svg']);
 const MAX_ZIP_ENTRIES = 2000;
 const MAX_ZIP_UNCOMPRESSED = 100 * 1024 * 1024;
 const MAX_FIGURE_BYTES = 10 * 1024 * 1024;
 
 const REQUIRED_HEADERS: Record<ImportSheet, string[]> = {
-  Subjects: ['subject_id', 'grade', 'name_so', 'name_en'],
-  Chapters: ['chapter_id', 'subject_id', 'order', 'title_so', 'title_en'],
+  Subjects: ['subject_id', 'grade', 'name_en'],
+  Chapters: ['chapter_id', 'subject_id', 'order', 'title_en'],
   Exams: ['exam_id', 'subject_id', 'year', 'duration_min', 'total_marks', 'answer_key_status'],
   Resources: ['resource_id', 'subject_id', 'type', 'title', 'language', 'direction'],
   Questions: ['question_id', 'exam_id', 'chapter_id', 'number', 'type', 'language', 'direction', 'text', 'marks', 'answer_status'],
@@ -96,6 +98,10 @@ function splitList(value: unknown): string[] {
 
 function normalizedTag(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-');
+}
+
+function normalizeBookText(value: unknown): string {
+  return str(value).toLocaleLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function rowId(sheet: ImportSheet, row: Row): string {
@@ -288,7 +294,7 @@ function inspectFigureZip(file?: Express.Multer.File): FigureArchive | undefined
 }
 
 async function existingIds(courseId: mongoose.Types.ObjectId) {
-  const [subjects, chapters, exams, resources, questions, glossary, examRows] = await Promise.all([
+  const [subjects, chapters, exams, resources, questions, glossary, examRows, questionRows, resourceRows, subjectRows] = await Promise.all([
     GuuldoonSubject.distinct('externalId', { course: courseId }),
     GuuldoonChapter.distinct('externalId', { course: courseId }),
     GuuldoonExam.distinct('externalId', { course: courseId, externalId: { $ne: '' } }),
@@ -296,6 +302,9 @@ async function existingIds(courseId: mongoose.Types.ObjectId) {
     GuuldoonQuestion.distinct('externalId', { course: courseId, externalId: { $ne: '' } }),
     GuuldoonGlossary.distinct('externalId', { course: courseId }),
     GuuldoonExam.find({ course: courseId }).select('externalId year').lean(),
+    GuuldoonQuestion.find({ course: courseId }).select('externalId examExternalId number').lean(),
+    GuuldoonResource.find({ course: courseId }).select('chapterExternalId contentText').lean(),
+    GuuldoonSubject.find({ course: courseId }).select('externalId language').lean(),
   ]);
   return {
     subjects: new Set(subjects.map(String)),
@@ -305,6 +314,9 @@ async function existingIds(courseId: mongoose.Types.ObjectId) {
     questions: new Set(questions.map(String)),
     glossary: new Set(glossary.map(String)),
     examRows,
+    questionRows,
+    resourceRows,
+    subjectRows,
   };
 }
 
@@ -322,6 +334,7 @@ export async function parseAndValidateGuuldoonImport(
   const zip = inspectFigureZip(figures);
   const issues: ImportIssue[] = [];
   const rowErrors = new Set<string>();
+  const blockedRows = new Set<string>();
   const add = (entry: ImportIssue) => {
     issues.push(entry);
     if (entry.severity === 'error') rowErrors.add(issueKey(entry.sheet, entry.row));
@@ -346,8 +359,10 @@ export async function parseAndValidateGuuldoonImport(
   // Basic row validation.
   for (const row of rows.Subjects) {
     requireValue('Subjects', row, 'subject_id');
-    requireValue('Subjects', row, 'name_so');
     requireValue('Subjects', row, 'name_en');
+    const subjectLanguage = lower(row.language || 'en');
+    if (!SERVER_LANGUAGES.has(subjectLanguage)) add({ sheet: 'Subjects', row: row.__row, id: rowId('Subjects', row), field: 'language', message: 'language must be so, en or ar', severity: 'error' });
+    if (subjectLanguage === 'so') requireValue('Subjects', row, 'name_so');
     const grade = Number(row.grade);
     if (![8, 12].includes(grade)) add({ sheet: 'Subjects', row: row.__row, id: rowId('Subjects', row), field: 'grade', message: 'grade must be 8 or 12', severity: 'error' });
     if (grade !== Number((course as any).globalGrade)) add({ sheet: 'Subjects', row: row.__row, id: rowId('Subjects', row), field: 'grade', message: `Workbook grade ${grade} does not match selected Grade ${(course as any).globalGrade} course`, severity: 'error' });
@@ -355,11 +370,15 @@ export async function parseAndValidateGuuldoonImport(
     if (!SERVER_STATUS.has(status)) add({ sheet: 'Subjects', row: row.__row, id: rowId('Subjects', row), field: 'status', message: 'status must be draft or published', severity: 'error' });
   }
 
+  const workbookSubjectLanguage = new Map(rows.Subjects.map(row => [str(row.subject_id), lower(row.language || 'en')]));
   for (const row of rows.Chapters) {
     requireValue('Chapters', row, 'chapter_id');
     requireValue('Chapters', row, 'subject_id');
-    requireValue('Chapters', row, 'title_so');
-    requireValue('Chapters', row, 'title_en');
+    const subjectLanguage = workbookSubjectLanguage.get(str(row.subject_id)) || 'en';
+    if (subjectLanguage === 'so') requireValue('Chapters', row, 'title_so');
+    else if (subjectLanguage === 'ar') {
+      if (!str(row.title_ar) && !str(row.title_en)) add({ sheet: 'Chapters', row: row.__row, id: rowId('Chapters', row), field: 'title_ar', message: 'title_ar or title_en is required for Arabic subjects', severity: 'error' });
+    } else requireValue('Chapters', row, 'title_en');
     const order = Number(row.order);
     if (!Number.isInteger(order) || order < 1) add({ sheet: 'Chapters', row: row.__row, id: rowId('Chapters', row), field: 'order', message: 'order must be a positive integer', severity: 'error' });
     const weight = numberOrNull(row.exam_weight);
@@ -386,6 +405,7 @@ export async function parseAndValidateGuuldoonImport(
   }
 
   const questionFirst = new Map<string, Row>();
+  const examNumberFirst = new Map<string, Row>();
   for (const row of rows.Questions) {
     requireValue('Questions', row, 'question_id');
     requireValue('Questions', row, 'exam_id');
@@ -400,6 +420,14 @@ export async function parseAndValidateGuuldoonImport(
       } else questionFirst.set(id, row);
     }
     if (!Number.isFinite(Number(row.number)) || Number(row.number) < 1) add({ sheet: 'Questions', row: row.__row, id, field: 'number', message: 'number must be greater than 0', severity: 'error' });
+    const examNumberKey = `${str(row.exam_id)}::${Number(row.number)}`;
+    if (str(row.exam_id) && Number.isFinite(Number(row.number))) {
+      const firstNumber = examNumberFirst.get(examNumberKey);
+      if (firstNumber && str(firstNumber.question_id) !== id) {
+        add({ sheet: 'Questions', row: firstNumber.__row, id: str(firstNumber.question_id), field: 'number', message: `Question number ${row.number} is duplicated within exam ${row.exam_id}`, severity: 'error' });
+        add({ sheet: 'Questions', row: row.__row, id, field: 'number', message: `Question number ${row.number} is duplicated within exam ${row.exam_id}; first occurrence is row ${firstNumber.__row}`, severity: 'error' });
+      } else if (!firstNumber) examNumberFirst.set(examNumberKey, row);
+    }
     if (!Number.isFinite(Number(row.marks)) || Number(row.marks) < 0) add({ sheet: 'Questions', row: row.__row, id, field: 'marks', message: 'marks must be 0 or greater', severity: 'error' });
     enumValue('Questions', row, 'type', lists.questionType, SERVER_QUESTION_TYPES);
     enumValue('Questions', row, 'language', lists.language, SERVER_LANGUAGES);
@@ -419,6 +447,11 @@ export async function parseAndValidateGuuldoonImport(
     if (!splitList(row.topic_tags).length) add({ sheet: 'Questions', row: row.__row, id, field: 'topic_tags', message: 'No topic_tags supplied; Pass Meter analytics will be less useful', severity: 'warning' });
     if (!str(row.explainer_text) && !str(row.explainer_audio)) add({ sheet: 'Questions', row: row.__row, id, field: 'explainer_text', message: 'No explanation text or audio supplied', severity: 'warning' });
     if (!str(row.similar_question_1) && !str(row.similar_question_2)) add({ sheet: 'Questions', row: row.__row, id, field: 'similar_question_1', message: 'No similar questions supplied', severity: 'warning' });
+    const anchor = str(row.book_anchor_text);
+    const relation = lower(row.book_relation);
+    if (relation && !SERVER_BOOK_RELATIONS.has(relation)) add({ sheet: 'Questions', row: row.__row, id, field: 'book_relation', message: 'book_relation must be direct, indirect, similar or derived', severity: 'error' });
+    if (anchor && !relation) add({ sheet: 'Questions', row: row.__row, id, field: 'book_relation', message: 'book_anchor_text is present but book_relation is empty; highlight will be skipped', severity: 'warning' });
+    if (relation && !anchor) add({ sheet: 'Questions', row: row.__row, id, field: 'book_anchor_text', message: 'book_relation is present but book_anchor_text is empty; highlight will be skipped', severity: 'warning' });
   }
 
   for (const row of rows.Glossary) {
@@ -444,7 +477,14 @@ export async function parseAndValidateGuuldoonImport(
   }
 
   const existing = await existingIds(new mongoose.Types.ObjectId(courseId));
-  const validIds = (sheet: ImportSheet) => new Set(rows[sheet].filter(row => !rowErrors.has(issueKey(sheet, row.__row))).map(row => rowId(sheet, row)).filter(Boolean));
+  const declaredIds = (sheet: ImportSheet) => new Set(rows[sheet].map(row => rowId(sheet, row)).filter(Boolean));
+  const declaredSubjects = declaredIds('Subjects');
+  const declaredChapters = declaredIds('Chapters');
+  const declaredExams = declaredIds('Exams');
+  const declaredResources = declaredIds('Resources');
+  const declaredQuestions = declaredIds('Questions');
+  const blockForInvalidParent = (sheet: ImportSheet, row: Row) => blockedRows.add(issueKey(sheet, row.__row));
+  const validIds = (sheet: ImportSheet) => new Set(rows[sheet].filter(row => !rowErrors.has(issueKey(sheet, row.__row)) && !blockedRows.has(issueKey(sheet, row.__row))).map(row => rowId(sheet, row)).filter(Boolean));
   let validSubjects = validIds('Subjects');
   let validChapters = validIds('Chapters');
   let validExams = validIds('Exams');
@@ -455,14 +495,20 @@ export async function parseAndValidateGuuldoonImport(
   for (const row of rows.Chapters) {
     if (rowErrors.has(issueKey('Chapters', row.__row))) continue;
     const ref = str(row.subject_id);
-    if (!hasRef(ref, validSubjects, existing.subjects)) add({ sheet: 'Chapters', row: row.__row, id: rowId('Chapters', row), field: 'subject_id', message: `subject_id "${ref}" does not exist or its workbook row is invalid`, severity: 'error' });
+    if (!hasRef(ref, validSubjects, existing.subjects)) {
+      if (declaredSubjects.has(ref)) blockForInvalidParent('Chapters', row);
+      else add({ sheet: 'Chapters', row: row.__row, id: rowId('Chapters', row), field: 'subject_id', message: `subject_id "${ref}" does not exist`, severity: 'error' });
+    }
   }
   validChapters = validIds('Chapters');
 
   for (const row of rows.Exams) {
     if (rowErrors.has(issueKey('Exams', row.__row))) continue;
     const ref = str(row.subject_id);
-    if (!hasRef(ref, validSubjects, existing.subjects)) add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'subject_id', message: `subject_id "${ref}" does not exist or its workbook row is invalid`, severity: 'error' });
+    if (!hasRef(ref, validSubjects, existing.subjects)) {
+      if (declaredSubjects.has(ref)) blockForInvalidParent('Exams', row);
+      else add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'subject_id', message: `subject_id "${ref}" does not exist`, severity: 'error' });
+    }
     const conflict = existing.examRows.find((exam: any) => Number(exam.year) === Number(row.year) && str(exam.externalId) && str(exam.externalId) !== str(row.exam_id));
     if (conflict) add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'year', message: `Year ${row.year} is already linked to exam_id "${conflict.externalId}"`, severity: 'error' });
   }
@@ -472,34 +518,58 @@ export async function parseAndValidateGuuldoonImport(
     if (rowErrors.has(issueKey('Resources', row.__row))) continue;
     const subjectId = str(row.subject_id);
     const chapterId = str(row.chapter_id);
-    if (!hasRef(subjectId, validSubjects, existing.subjects)) add({ sheet: 'Resources', row: row.__row, id: rowId('Resources', row), field: 'subject_id', message: `subject_id "${subjectId}" does not exist`, severity: 'error' });
-    if (chapterId && !hasRef(chapterId, validChapters, existing.chapters)) add({ sheet: 'Resources', row: row.__row, id: rowId('Resources', row), field: 'chapter_id', message: `chapter_id "${chapterId}" does not exist`, severity: 'error' });
+    if (!hasRef(subjectId, validSubjects, existing.subjects)) {
+      if (declaredSubjects.has(subjectId)) blockForInvalidParent('Resources', row);
+      else add({ sheet: 'Resources', row: row.__row, id: rowId('Resources', row), field: 'subject_id', message: `subject_id "${subjectId}" does not exist`, severity: 'error' });
+    }
+    if (chapterId && !hasRef(chapterId, validChapters, existing.chapters)) {
+      if (declaredChapters.has(chapterId)) blockForInvalidParent('Resources', row);
+      else add({ sheet: 'Resources', row: row.__row, id: rowId('Resources', row), field: 'chapter_id', message: `chapter_id "${chapterId}" does not exist`, severity: 'error' });
+    }
   }
   validResources = validIds('Resources');
 
   for (const row of rows.Glossary) {
     if (rowErrors.has(issueKey('Glossary', row.__row))) continue;
     const subjectId = str(row.subject_id);
-    if (!hasRef(subjectId, validSubjects, existing.subjects)) add({ sheet: 'Glossary', row: row.__row, id: rowId('Glossary', row), field: 'subject_id', message: `subject_id "${subjectId}" does not exist`, severity: 'error' });
+    if (!hasRef(subjectId, validSubjects, existing.subjects)) {
+      if (declaredSubjects.has(subjectId)) blockForInvalidParent('Glossary', row);
+      else add({ sheet: 'Glossary', row: row.__row, id: rowId('Glossary', row), field: 'subject_id', message: `subject_id "${subjectId}" does not exist`, severity: 'error' });
+    }
   }
 
   for (const row of rows.Questions) {
-    if (rowErrors.has(issueKey('Questions', row.__row))) continue;
+    if (rowErrors.has(issueKey('Questions', row.__row)) || blockedRows.has(issueKey('Questions', row.__row))) continue;
     const id = str(row.question_id);
     const examId = str(row.exam_id);
     const chapterId = str(row.chapter_id);
     const resourceId = str(row.resource_id);
     const parentId = str(row.parent_id);
-    if (!hasRef(examId, validExams, existing.exams)) add({ sheet: 'Questions', row: row.__row, id, field: 'exam_id', message: `exam_id "${examId}" does not exist or its workbook row is invalid`, severity: 'error' });
-    if (!hasRef(chapterId, validChapters, existing.chapters)) add({ sheet: 'Questions', row: row.__row, id, field: 'chapter_id', message: `chapter_id "${chapterId}" does not exist or its workbook row is invalid`, severity: 'error' });
-    if (resourceId && !hasRef(resourceId, validResources, existing.resources)) add({ sheet: 'Questions', row: row.__row, id, field: 'resource_id', message: `resource_id "${resourceId}" does not exist or its workbook row is invalid`, severity: 'error' });
+    if (!hasRef(examId, validExams, existing.exams)) {
+      if (declaredExams.has(examId)) blockForInvalidParent('Questions', row);
+      else add({ sheet: 'Questions', row: row.__row, id, field: 'exam_id', message: `exam_id "${examId}" does not exist`, severity: 'error' });
+    }
+    if (!hasRef(chapterId, validChapters, existing.chapters)) {
+      if (declaredChapters.has(chapterId)) blockForInvalidParent('Questions', row);
+      else add({ sheet: 'Questions', row: row.__row, id, field: 'chapter_id', message: `chapter_id "${chapterId}" does not exist`, severity: 'error' });
+    }
+    if (resourceId && !hasRef(resourceId, validResources, existing.resources)) {
+      if (declaredResources.has(resourceId)) blockForInvalidParent('Questions', row);
+      else add({ sheet: 'Questions', row: row.__row, id, field: 'resource_id', message: `resource_id "${resourceId}" does not exist`, severity: 'error' });
+    }
     if (parentId) {
       if (parentId === id) add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: 'parent_id cannot reference the same question', severity: 'error' });
-      else if (!hasRef(parentId, validQuestions, existing.questions)) add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: `parent_id "${parentId}" does not exist or its workbook row is invalid`, severity: 'error' });
+      else if (!hasRef(parentId, validQuestions, existing.questions)) {
+        if (declaredQuestions.has(parentId)) blockForInvalidParent('Questions', row);
+        else add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: `parent_id "${parentId}" does not exist`, severity: 'error' });
+      }
     }
     for (const field of ['similar_question_1', 'similar_question_2']) {
       const similar = str(row[field]);
-      if (similar && !hasRef(similar, validQuestions, existing.questions)) add({ sheet: 'Questions', row: row.__row, id, field, message: `${field} "${similar}" does not exist`, severity: 'error' });
+      if (similar && !hasRef(similar, validQuestions, existing.questions)) {
+        if (declaredQuestions.has(similar)) blockForInvalidParent('Questions', row);
+        else add({ sheet: 'Questions', row: row.__row, id, field, message: `${field} "${similar}" does not exist`, severity: 'error' });
+      }
     }
     const figureFiles = splitList(row.figure_files);
     if (figureFiles.length && !zip) add({ sheet: 'Questions', row: row.__row, id, field: 'figure_files', message: 'figure_files are listed but no figures ZIP was uploaded', severity: 'error' });
@@ -508,20 +578,72 @@ export async function parseAndValidateGuuldoonImport(
     }
   }
 
-  // A parent/similar question that became invalid because of its own dependencies
-  // must not remain a valid target for another row.
-  validQuestions = validIds('Questions');
+  // Unique question number per exam, including records already stored in this course.
+  const existingNumberMap = new Map(existing.questionRows.map((row: any) => [`${str(row.examExternalId)}::${Number(row.number)}`, str(row.externalId)]));
   for (const row of rows.Questions) {
-    if (rowErrors.has(issueKey('Questions', row.__row))) continue;
-    const id = str(row.question_id);
-    const parentId = str(row.parent_id);
-    if (parentId && !hasRef(parentId, validQuestions, existing.questions)) {
-      add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: `parent_id "${parentId}" points to an invalid question row`, severity: 'error' });
+    if (rowErrors.has(issueKey('Questions', row.__row)) || blockedRows.has(issueKey('Questions', row.__row))) continue;
+    const key = `${str(row.exam_id)}::${Number(row.number)}`;
+    const existingQuestionId = existingNumberMap.get(key);
+    if (existingQuestionId && existingQuestionId !== str(row.question_id)) {
+      add({ sheet: 'Questions', row: row.__row, id: str(row.question_id), field: 'number', message: `Question number ${row.number} in exam ${row.exam_id} already belongs to question_id "${existingQuestionId}"`, severity: 'error' });
     }
-    for (const field of ['similar_question_1', 'similar_question_2']) {
-      const similar = str(row[field]);
-      if (similar && !hasRef(similar, validQuestions, existing.questions)) {
-        add({ sheet: 'Questions', row: row.__row, id, field, message: `${field} "${similar}" points to an invalid question row`, severity: 'error' });
+  }
+
+  // Highlight anchors are optional. When supplied, verify that the anchor text
+  // can actually be found in imported or existing lesson text for the chapter.
+  const lessonTextByChapter = new Map<string, string[]>();
+  for (const resource of existing.resourceRows as any[]) {
+    const chapterId = str(resource.chapterExternalId);
+    const contentText = str(resource.contentText);
+    if (!chapterId || !contentText) continue;
+    const values = lessonTextByChapter.get(chapterId) || [];
+    values.push(normalizeBookText(contentText));
+    lessonTextByChapter.set(chapterId, values);
+  }
+  for (const row of rows.Resources) {
+    if (rowErrors.has(issueKey('Resources', row.__row)) || blockedRows.has(issueKey('Resources', row.__row))) continue;
+    const chapterId = str(row.chapter_id);
+    const contentText = str(row.content_text);
+    if (!chapterId || !contentText) continue;
+    const values = lessonTextByChapter.get(chapterId) || [];
+    values.push(normalizeBookText(contentText));
+    lessonTextByChapter.set(chapterId, values);
+  }
+  for (const row of rows.Questions) {
+    if (rowErrors.has(issueKey('Questions', row.__row)) || blockedRows.has(issueKey('Questions', row.__row))) continue;
+    const anchor = normalizeBookText(row.book_anchor_text);
+    const relation = lower(row.book_relation);
+    if (!anchor || !SERVER_BOOK_RELATIONS.has(relation)) continue;
+    const lessonTexts = lessonTextByChapter.get(str(row.chapter_id)) || [];
+    if (!lessonTexts.some(text => text.includes(anchor))) {
+      add({ sheet: 'Questions', row: row.__row, id: str(row.question_id), field: 'book_anchor_text', message: 'book_anchor_text was not found in chapter content_text; question will import but no lesson highlight will be shown', severity: 'warning' });
+    }
+  }
+
+  // Propagate invalid workbook dependencies as blocked rows instead of
+  // repeating the same root-cause error hundreds of times.
+  let dependencyChanged = true;
+  while (dependencyChanged) {
+    dependencyChanged = false;
+    validQuestions = validIds('Questions');
+    for (const row of rows.Questions) {
+      const key = issueKey('Questions', row.__row);
+      if (rowErrors.has(key) || blockedRows.has(key)) continue;
+      const references = [
+        ['parent_id', str(row.parent_id)],
+        ['similar_question_1', str(row.similar_question_1)],
+        ['similar_question_2', str(row.similar_question_2)],
+      ] as const;
+      for (const [field, ref] of references) {
+        if (!ref || hasRef(ref, validQuestions, existing.questions)) continue;
+        if (declaredQuestions.has(ref)) {
+          blockForInvalidParent('Questions', row);
+          dependencyChanged = true;
+          break;
+        }
+        add({ sheet: 'Questions', row: row.__row, id: str(row.question_id), field, message: `${field} "${ref}" does not exist`, severity: 'error' });
+        dependencyChanged = true;
+        break;
       }
     }
   }
@@ -560,8 +682,17 @@ export async function parseAndValidateGuuldoonImport(
     if (row) add({ sheet: 'Questions', row: row.__row, id, field: 'parent_id', message: 'Circular parent_id relationship detected', severity: 'error' });
   }
 
+  const blockedBySheet = new Map<string, number>();
+  for (const key of blockedRows) {
+    const sheet = key.split(':')[0];
+    blockedBySheet.set(sheet, (blockedBySheet.get(sheet) || 0) + 1);
+  }
+  for (const [sheet, count] of blockedBySheet) {
+    issues.push({ sheet, row: 1, field: 'dependency', message: `${count} row(s) were blocked by invalid parent data. Fix the root error(s) above and revalidate.`, severity: 'warning' });
+  }
+
   // Chapter weights: only enforce total when all valid workbook chapters provide one.
-  const validChapterRows = rows.Chapters.filter(row => !rowErrors.has(issueKey('Chapters', row.__row)));
+  const validChapterRows = rows.Chapters.filter(row => !rowErrors.has(issueKey('Chapters', row.__row)) && !blockedRows.has(issueKey('Chapters', row.__row)));
   if (validChapterRows.length && validChapterRows.every(row => numberOrNull(row.exam_weight) !== null)) {
     const total = validChapterRows.reduce((sum, row) => sum + Number(row.exam_weight || 0), 0);
     if (Math.abs(total - 100) > 0.5) {
@@ -575,21 +706,21 @@ export async function parseAndValidateGuuldoonImport(
     const invalidRows = new Set(sheetIssues.filter(item => item.severity === 'error' && item.row >= 2).map(item => item.row));
     summary[sheet] = {
       total: rows[sheet].length,
-      valid: rows[sheet].filter(row => !invalidRows.has(row.__row)).length,
+      valid: rows[sheet].filter(row => !invalidRows.has(row.__row) && !blockedRows.has(issueKey(sheet, row.__row))).length,
       errors: sheetIssues.filter(item => item.severity === 'error').length,
       warnings: sheetIssues.filter(item => item.severity === 'warning').length,
     };
   }
 
-  const validQuestionRows = rows.Questions.filter(row => !rowErrors.has(issueKey('Questions', row.__row)));
+  const validQuestionRows = rows.Questions.filter(row => !rowErrors.has(issueKey('Questions', row.__row)) && !blockedRows.has(issueKey('Questions', row.__row)));
   const preview = {
-    subject: rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row))) ? {
-      id: rowId('Subjects', rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)))!),
-      name: str(rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)))!.name_en),
+    subject: rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)) && !blockedRows.has(issueKey('Subjects', row.__row))) ? {
+      id: rowId('Subjects', rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)) && !blockedRows.has(issueKey('Subjects', row.__row)))!),
+      name: str(rows.Subjects.find(row => !rowErrors.has(issueKey('Subjects', row.__row)) && !blockedRows.has(issueKey('Subjects', row.__row)))!.name_en),
       grade: Number((course as any).globalGrade),
     } : null,
     chapters: summary.Chapters.valid,
-    exams: rows.Exams.filter(row => !rowErrors.has(issueKey('Exams', row.__row))).map(row => Number(row.year)).filter(Boolean).sort(),
+    exams: rows.Exams.filter(row => !rowErrors.has(issueKey('Exams', row.__row)) && !blockedRows.has(issueKey('Exams', row.__row))).map(row => Number(row.year)).filter(Boolean).sort(),
     resources: summary.Resources.valid,
     questions: summary.Questions.valid,
     verifiedAnswers: validQuestionRows.filter(row => lower(row.answer_status) === 'verified').length,
@@ -599,11 +730,11 @@ export async function parseAndValidateGuuldoonImport(
     figuresReferenced: new Set(validQuestionRows.flatMap(row => splitList(row.figure_files).map(name => path.basename(name).toLowerCase()))).size,
   };
 
-  return { course, rows, issues, summary, preview, lists, zip };
+  return { course, rows, issues, summary, preview, lists, zip, blockedRows };
 }
 
 function isValidRow(parsed: ParsedGuuldoonImport, sheet: ImportSheet, row: Row): boolean {
-  return !parsed.issues.some(issue => issue.sheet === sheet && issue.row === row.__row && issue.severity === 'error');
+  return !parsed.blockedRows.has(issueKey(sheet, row.__row)) && !parsed.issues.some(issue => issue.sheet === sheet && issue.row === row.__row && issue.severity === 'error');
 }
 
 async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): Promise<Map<string, string>> {
@@ -646,7 +777,7 @@ export async function commitGuuldoonImport(
   const created = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
   const updated = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
   const importErrors: ImportIssue[] = [];
-  let skipped = parsed.issues.filter(issue => issue.severity === 'error' && issue.row >= 2).reduce((set, issue) => set.add(issueKey(issue.sheet, issue.row)), new Set<string>()).size;
+  let skipped = parsed.issues.filter(issue => issue.severity === 'error' && issue.row >= 2).reduce((set, issue) => set.add(issueKey(issue.sheet, issue.row)), new Set<string>()).size + parsed.blockedRows.size;
 
   const safeWrite = async (sheet: ImportSheet, row: Row, fn: () => Promise<'created' | 'updated'>) => {
     if (!isValidRow(parsed, sheet, row)) return;
@@ -656,7 +787,7 @@ export async function commitGuuldoonImport(
       else updated[sheet] += 1;
     } catch (error: any) {
       skipped += 1;
-      importErrors.push({ sheet, row: row.__row, id: rowId(sheet, row), message: error?.message || 'Database write failed', severity: 'error' });
+      importErrors.push({ sheet, row: row.__row, id: rowId(sheet, row), field: '_db', message: `DB write failed: ${error?.message || 'unknown database error'}`, severity: 'error' });
     }
   };
 
@@ -667,7 +798,8 @@ export async function commitGuuldoonImport(
       { course: courseObjectId, externalId: id },
       { $set: {
         grade: Number(row.grade),
-        nameSo: str(row.name_so),
+        language: SERVER_LANGUAGES.has(lower(row.language || 'en')) ? lower(row.language || 'en') : 'en',
+        nameSo: str(row.name_so) || str(row.name_en),
         nameEn: str(row.name_en),
         nameAr: str(row.name_ar),
         descriptionSo: str(row.description_so),
@@ -693,8 +825,8 @@ export async function commitGuuldoonImport(
         subject,
         subjectExternalId: str(row.subject_id),
         order: Number(row.order),
-        titleSo: str(row.title_so),
-        titleEn: str(row.title_en),
+        titleSo: str(row.title_so) || str(row.title_en),
+        titleEn: str(row.title_en) || str(row.title_so),
         titleAr: str(row.title_ar),
         examWeight: numberOrNull(row.exam_weight),
         status: SERVER_STATUS.has(lower(row.status)) ? lower(row.status) : 'draft',
@@ -797,6 +929,8 @@ export async function commitGuuldoonImport(
       explainerAudioUrl: str(row.explainer_audio),
       explainerText: str(row.explainer_text),
       notes: str(row.notes),
+      bookAnchorText: str(row.book_anchor_text),
+      bookRelation: SERVER_BOOK_RELATIONS.has(lower(row.book_relation)) ? lower(row.book_relation) : undefined,
       bookRef: {
         bookId: str(row.resource_id),
         pageFrom: numberOrNull(row.book_page_from),
@@ -843,12 +977,36 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
   workbook.title = 'Guuldoon Universal Import Template';
 
   const definitions: Array<{ name: ImportSheet; headers: string[]; example: any[] }> = [
-    { name: 'Subjects', headers: ['row_status','subject_id','grade','name_so','name_en','name_ar','description_so','description_en','status'], example: ['example','PHY12',12,'Fiisigis','Physics','الفيزياء','Diyaarinta imtixaanka','Certificate exam preparation','draft'] },
-    { name: 'Chapters', headers: ['row_status','chapter_id','subject_id','order','title_so','title_en','title_ar','exam_weight','status'], example: ['example','PHY12_CH01','PHY12',1,'Koronto','Electricity','الكهرباء',20,'published'] },
-    { name: 'Exams', headers: ['row_status','exam_id','subject_id','year','duration_min','total_marks','source','answer_key_status','published','notes'], example: ['example','PHY12_EX2021','PHY12',2021,120,100,'National exam','verified',true,'Official key checked'] },
-    { name: 'Resources', headers: ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text'], example: ['example','PHY12_RES001','PHY12','PHY12_CH01','note','Ohm Law note','','',10,12,'so','ltr',true,'$V = IR$'] },
-    { name: 'Questions', headers: ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','similar_question_1','similar_question_2','notes'], example: ['example','PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','so','ltr','Haddii $R = 5\\Omega$ iyo $I = 2A$, hel $V$.','If $R = 5\\Omega$ and $I = 2A$, find $V$.',2,'2V','5V','10V','20V','C','verified','ohms-law;resistance','circuit_01.png','PHY12_RES001','Isticmaal $V = IR$.','',10,12,'','',''] },
-    { name: 'Glossary', headers: ['row_status','glossary_id','subject_id','term_so','term_en','term_ar'], example: ['example','PHY12_G001','PHY12','Iska-caabin','Resistance','المقاومة'] },
+    {
+      name: 'Subjects',
+      headers: ['row_status','subject_id','grade','language','name_so','name_en','name_ar','description_so','description_en','status'],
+      example: ['example','PHY12',12,'en','','Physics','الفيزياء','','Certificate exam preparation','draft'],
+    },
+    {
+      name: 'Chapters',
+      headers: ['row_status','chapter_id','subject_id','order','title_so','title_en','title_ar','exam_weight','status'],
+      example: ['example','PHY12_CH01','PHY12',1,'','Electricity','الكهرباء',20,'published'],
+    },
+    {
+      name: 'Exams',
+      headers: ['row_status','exam_id','subject_id','year','duration_min','total_marks','source','answer_key_status','published','notes'],
+      example: ['example','PHY12_EX2021','PHY12',2021,120,100,'National exam','verified',true,'Official key checked'],
+    },
+    {
+      name: 'Resources',
+      headers: ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text'],
+      example: ['example','PHY12_RES001','PHY12','PHY12_CH01','note','1.1 Ohm Law','','',10,12,'en','ltr',true,'Ohm law states that voltage equals current multiplied by resistance. $V = IR$.'],
+    },
+    {
+      name: 'Questions',
+      headers: ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'],
+      example: ['example','PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','en','ltr','If $R = 5\\Omega$ and $I = 2A$, find $V$.','',2,'2V','5V','10V','20V','C','verified','ohms-law;resistance','circuit_01.png','PHY12_RES001','Use $V = IR$.','',10,12,'Ohm law states that voltage equals current multiplied by resistance.','direct','','',''],
+    },
+    {
+      name: 'Glossary',
+      headers: ['row_status','glossary_id','subject_id','term_so','term_en','term_ar'],
+      example: ['example','PHY12_G001','PHY12','Iska-caabin','Resistance','المقاومة'],
+    },
   ];
 
   for (const def of definitions) {
@@ -865,21 +1023,21 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
   }
 
   const lists = workbook.addWorksheet('Lists');
-  lists.addRow(['question_type','resource_type','language','direction','answer_status','status']);
+  lists.addRow(['question_type','resource_type','language','direction','answer_status','status','book_relation']);
   const listRows = [
-    ['mcq','video','so','ltr','verified','draft'],
-    ['structured','audio','en','rtl','pending','published'],
-    ['fill','pdf','ar','auto','',''],
-    ['match','book','','','',''],
-    ['','image','','','',''],
-    ['','note','','','',''],
-    ['','link','','','',''],
+    ['mcq','video','so','ltr','verified','draft','direct'],
+    ['structured','audio','en','rtl','pending','published','indirect'],
+    ['fill','pdf','ar','auto','','','similar'],
+    ['match','book','','','','','derived'],
+    ['','image','','','','',''],
+    ['','note','','','','',''],
+    ['','link','','','','',''],
   ];
   listRows.forEach(row => lists.addRow(row));
   lists.getRow(1).font = { bold: true };
-  lists.columns.forEach(column => { column.width = 22; });
+  lists.columns.forEach((column: any) => { column.width = 22; });
 
-  const applyListValidation = (sheetName: ImportSheet, header: string, formula: string) => {
+  const applyListValidation = (sheetName: ImportSheet, header: string, formula: string, allowBlank = false) => {
     const sheet = workbook.getWorksheet(sheetName)!;
     const headerRow = sheet.getRow(1).values as any[];
     const columnIndex = headerRow.findIndex(value => value === header);
@@ -887,7 +1045,7 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
     for (let row = 2; row <= 5001; row += 1) {
       sheet.getCell(row, columnIndex).dataValidation = {
         type: 'list',
-        allowBlank: false,
+        allowBlank,
         formulae: [formula],
         showErrorMessage: true,
         errorTitle: 'Invalid value',
@@ -900,10 +1058,12 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
   applyListValidation('Questions', 'language', 'Lists!$C$2:$C$4');
   applyListValidation('Questions', 'direction', 'Lists!$D$2:$D$4');
   applyListValidation('Questions', 'answer_status', 'Lists!$E$2:$E$3');
+  applyListValidation('Questions', 'book_relation', 'Lists!$G$2:$G$5', true);
   applyListValidation('Resources', 'type', 'Lists!$B$2:$B$8');
   applyListValidation('Resources', 'language', 'Lists!$C$2:$C$4');
   applyListValidation('Resources', 'direction', 'Lists!$D$2:$D$4');
   applyListValidation('Exams', 'answer_key_status', 'Lists!$E$2:$E$3');
+  applyListValidation('Subjects', 'language', 'Lists!$C$2:$C$4');
   applyListValidation('Subjects', 'status', 'Lists!$F$2:$F$3');
   applyListValidation('Chapters', 'status', 'Lists!$F$2:$F$3');
 
@@ -916,9 +1076,16 @@ export async function buildImportIssuesWorkbook(issues: ImportIssue[]): Promise<
   const sheet = workbook.addWorksheet('Import Issues');
   sheet.addRow(['Severity', 'Sheet', 'Row', 'ID', 'Field', 'Error']);
   sheet.getRow(1).font = { bold: true };
-  for (const issue of issues) sheet.addRow([issue.severity, issue.sheet, issue.row, issue.id || '', issue.field || '', issue.message]);
+  for (const issue of issues) {
+    sheet.addRow([issue.severity, issue.sheet, issue.row, issue.id || '', issue.field || '', issue.message]);
+  }
   sheet.columns = [
-    { width: 12 }, { width: 16 }, { width: 10 }, { width: 28 }, { width: 24 }, { width: 70 },
+    { width: 12 },
+    { width: 16 },
+    { width: 10 },
+    { width: 28 },
+    { width: 24 },
+    { width: 70 },
   ];
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
