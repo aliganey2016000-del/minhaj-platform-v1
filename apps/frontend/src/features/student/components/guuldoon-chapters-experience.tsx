@@ -218,6 +218,29 @@ function splitAnswer(text: string): { question: string; answer: string; fromBook
   return { question: text.slice(0, match.index).trim(), answer: match[2].trim(), fromBook: match[1].toLowerCase() !== 'solution' };
 }
 
+const FIGURE_MARKER = /\{\{fig:([^|}]+)\|([^}]*)\}\}/g;
+
+function splitFigures(text: string): { text: string; figures: { src: string; caption: string }[] } {
+  const figures: { src: string; caption: string }[] = [];
+  const clean = text.replace(FIGURE_MARKER, (_all, src: string, caption: string) => {
+    figures.push({ src: src.trim(), caption: caption.trim() });
+    return '';
+  }).replace(/\s{2,}/g, ' ').trim();
+  return { text: clean, figures };
+}
+
+function QuestionBody({ text, render }: { text: string; render: (value: string) => ReactNode }) {
+  const { question, answer, fromBook } = splitAnswer(text);
+  const { text: plain, figures } = splitFigures(question);
+  return (
+    <>
+      {render(plain)}
+      {figures.map((figure, index) => <span key={figure.src + index} className="mt-2 block"><InlineFigure src={figure.src} caption={figure.caption} /></span>)}
+      {answer && <AnswerReveal answer={answer} fromBook={fromBook} />}
+    </>
+  );
+}
+
 function AnswerReveal({ answer, fromBook }: { answer: string; fromBook: boolean }) {
   const [open, setOpen] = useState(false);
   return (
@@ -315,9 +338,9 @@ function LessonBody({ content, highlights, visible, onOpen }: {
       {blocks.map((block, index) => {
         if (block.kind === 'h2') return <h4 key={index} className="mt-8 flex items-center gap-2 border-b border-emerald-500/30 pb-2 text-lg font-black text-emerald-600 first:mt-0 sm:text-xl"><span className="h-5 w-1.5 rounded-full bg-emerald-500" />{inline(block.text)}</h4>;
         if (block.kind === 'h3') return <h5 key={index} className="mt-5 text-base font-black text-[var(--color-text-primary)] sm:text-lg">{inline(block.text)}</h5>;
-        if (block.kind === 'p') { const { question, answer, fromBook } = splitAnswer(block.text); return <p key={index}>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</p>; }
-        if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span>{(() => { const { question, answer, fromBook } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</>; })()}</span></li>)}</ul>;
-        if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span>{(() => { const { question, answer, fromBook } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</>; })()}</span></li>)}</ol>;
+        if (block.kind === 'p') return <div key={index}><QuestionBody text={block.text} render={inline} /></div>;
+        if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ul>;
+        if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ol>;
         if (block.tag === 'figure' && block.lines[0]) return <InlineFigure key={index} src={block.lines[0].trim()} caption={block.title} />;
         const meta = calloutMeta[block.tag] || calloutMeta.note;
         return (
@@ -326,10 +349,10 @@ function LessonBody({ content, highlights, visible, onOpen }: {
             <div className="space-y-1.5">
               {block.lines.map((line, i) => {
                 const bullet = line.startsWith('- ');
-                const { question, answer, fromBook } = block.tag === 'formula' ? { question: line, answer: '', fromBook: false } : splitAnswer(bullet ? line.slice(2) : line);
+                if (block.tag === 'formula') return <p key={i} className="font-mono text-[.95em]" dir="ltr">{inline(line)}</p>;
                 return bullet
-                  ? <p key={i} className="flex gap-2"><span aria-hidden="true">•</span><span>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</span></p>
-                  : <p key={i} className={block.tag === 'formula' ? 'font-mono text-[.95em]' : ''} dir={block.tag === 'formula' ? 'ltr' : undefined}>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</p>;
+                  ? <div key={i} className="flex gap-2"><span aria-hidden="true">•</span><span className="min-w-0 flex-1"><QuestionBody text={line.slice(2)} render={inline} /></span></div>
+                  : <div key={i}><QuestionBody text={line} render={inline} /></div>;
               })}
             </div>
           </aside>
