@@ -60,8 +60,8 @@ async function workbookBuffer(options: { duplicate?: boolean; invalidReference?:
   const questions = [
     ['', 'PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','ar','rtl','إذا كانت $R = 5\\Omega$ والتيار $I = 2A$، احسب الجهد.','If $R = 5\\Omega$ and $I = 2A$, find V.',2,'2V','10V','20V','5V','B','verified','ohms-law;resistance','circuit.png','PHY12_RES001','Isticmaal $V = IR$.','',10,12,anchor,'direct','','',''],
     ['', 'PHY12_2021_Q02','PHY12_EX2021','PHY12_CH02','PHY12_2021_Q01',2,'structured','so','ltr','Sharax mowjadda.','Explain the wave.',4,'','','','','Draft answer','pending','waves','','','Sharaxaad qabyada ah','','','','','','','',''],
-    ['', 'PHY12_2021_Q20','PHY12_EX2021','PHY12_CH01','',20,'fill','en','ltr','The time for one complete cycle is called the ___.','',1,'','','','','Period','verified','period','','','','','','','','','','','','','text','time period|T','',''],
-    ['', 'PHY12_2021_Q21','PHY12_EX2021','PHY12_CH01','',21,'structured','en','ltr','A 5 ohm resistor carries 2 A. Find the voltage.','',2,'','','','','10 V','verified','ohms-law','','','','','','','','','','','','','numeric','','2','V'],
+    ['', 'PHY12_2021_Q20','PHY12_EX2021','PHY12_CH01','',20,'fill','en','ltr','The time for one complete cycle is called the ___.','',1,'','','','','Period','verified','period','','','','','','','','','','','','text','time period|T','',''],
+    ['', 'PHY12_2021_Q21','PHY12_EX2021','PHY12_CH01','',21,'structured','en','ltr','A 5 ohm resistor carries 2 A. Find the voltage.','',2,'','','','','10 V','verified','ohms-law','','','','','','','','','','','','numeric','','2','V'],
   ];
   if (options.invalidReference) {
     questions.push(['', 'PHY12_BAD_REF','PHY12_EX2021','PHY12_MISSING','',3,'mcq','so','ltr','Su’aal khaldan','Bad ref',1,'A','B','C','D','A','verified','bad','','','','','','','','','','','','']);
