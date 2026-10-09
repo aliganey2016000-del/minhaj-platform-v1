@@ -449,6 +449,7 @@ router.get('/courses/:courseId/chapters/:chapterId/lesson', asyncHandler(async (
       type: resource.type,
       url: resource.url || '',
       contentText: resource.contentText || '',
+      figureFiles: resource.figureFiles || [],
       pageFrom: resource.pageFrom || null,
       pageTo: resource.pageTo || null,
       language: resource.language,

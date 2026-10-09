@@ -76,6 +76,7 @@ type LessonSection = {
   type: string;
   url?: string;
   contentText: string;
+  figureFiles?: string[];
   pageFrom?: number | null;
   pageTo?: number | null;
   language?: 'so' | 'en' | 'ar';
@@ -150,7 +151,7 @@ function FormulaText({ text }: { text: string }) {
         if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) return <strong key={index} className="font-black">{part.slice(2, -2)}</strong>;
         const formula = part.startsWith('$') && part.endsWith('$');
         return formula
-          ? <span key={index} className="mx-0.5 rounded bg-slate-500/10 px-1.5 py-0.5 font-mono text-[.95em]" dir="ltr">{part}</span>
+          ? <span key={index} className="mx-0.5 rounded bg-slate-500/10 px-1.5 py-0.5 font-mono text-[.95em]" dir="ltr">{part.replace(/^\$+|\$+$/g, '')}</span>
           : <span key={index}>{part}</span>;
       })}
     </>
@@ -209,6 +210,59 @@ function HighlightedText({ text, highlights, visible, onOpen }: {
   return <>{output}</>;
 }
 
+const ANSWER_PATTERN = /\s*\((?:Answers?|Ans)[:.]\s*([\s\S]+)\)\s*$/i;
+
+function splitAnswer(text: string): { question: string; answer: string } {
+  const match = ANSWER_PATTERN.exec(text);
+  if (!match) return { question: text, answer: '' };
+  return { question: text.slice(0, match.index).trim(), answer: match[1].trim() };
+}
+
+function AnswerReveal({ answer }: { answer: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="mt-1.5 block">
+      <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-600">
+        {open ? 'Qari jawaabta' : 'Muuji jawaabta'}
+      </button>
+      {open && (
+        <span className="mt-2 block rounded-xl border-l-4 border-emerald-500 bg-emerald-500/10 px-3 py-2 text-sm font-semibold">
+          <span className="block text-[10px] font-black uppercase tracking-wide text-emerald-600">Jawaabta buugga</span>
+          <FormulaText text={answer} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function LessonFigures({ figures }: { figures: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [zoom, setZoom] = useState<string | null>(null);
+  if (!figures.length) return null;
+  return (
+    <div className="mt-4">
+      <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="inline-flex items-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 px-3.5 py-2 text-xs font-black text-sky-500">
+        <ImageIcon size={14} /> {open ? 'Qari sawirada buugga' : 'Sawirada buugga (' + figures.length + ' bog)'}
+      </button>
+      {open && (
+        <div className="mt-3 grid gap-3">
+          {figures.map((figure, index) => (
+            <button key={figure} type="button" onClick={() => setZoom(figure)} className="overflow-hidden rounded-2xl border bg-white text-left" aria-label={'Fur sawirka ' + (index + 1)}>
+              <img src={figure} alt={'Bog buugga ' + (index + 1)} loading="lazy" className="w-full" />
+            </button>
+          ))}
+        </div>
+      )}
+      {zoom && (
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[80] overflow-auto bg-black/90 p-3" onClick={() => setZoom(null)}>
+          <button type="button" className="fixed right-3 top-3 z-[81] rounded-full bg-white px-4 py-2 text-sm font-black text-black" onClick={() => setZoom(null)}>Xidh</button>
+          <img src={zoom} alt="" className="mx-auto mt-12 w-[220%] max-w-none sm:w-full sm:max-w-3xl" onClick={event => event.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 type LessonBlock =
   | { kind: 'h2'; text: string }
   | { kind: 'h3'; text: string }
@@ -264,9 +318,9 @@ function LessonBody({ content, highlights, visible, onOpen }: {
       {blocks.map((block, index) => {
         if (block.kind === 'h2') return <h4 key={index} className="mt-8 flex items-center gap-2 border-b border-emerald-500/30 pb-2 text-lg font-black text-emerald-600 first:mt-0 sm:text-xl"><span className="h-5 w-1.5 rounded-full bg-emerald-500" />{inline(block.text)}</h4>;
         if (block.kind === 'h3') return <h5 key={index} className="mt-5 text-base font-black text-[var(--color-text-primary)] sm:text-lg">{inline(block.text)}</h5>;
-        if (block.kind === 'p') return <p key={index}>{inline(block.text)}</p>;
-        if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span>{inline(item)}</span></li>)}</ul>;
-        if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span>{inline(item)}</span></li>)}</ol>;
+        if (block.kind === 'p') { const { question, answer } = splitAnswer(block.text); return <p key={index}>{inline(question)}{answer && <AnswerReveal answer={answer} />}</p>; }
+        if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span>{(() => { const { question, answer } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} />}</>; })()}</span></li>)}</ul>;
+        if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span>{(() => { const { question, answer } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} />}</>; })()}</span></li>)}</ol>;
         const meta = calloutMeta[block.tag] || calloutMeta.note;
         return (
           <aside key={index} className={'rounded-2xl border-l-4 p-4 ' + meta.className}>
@@ -648,6 +702,8 @@ export function GuuldoonChaptersExperience({
                     <span key={relation} className={'rounded-full px-2.5 py-1 ' + relationMeta[relation].className}>{relationMeta[relation].label}</span>
                   ))}
                 </div>
+
+                <LessonFigures key={section.id} figures={section.figureFiles || []} />
 
                 <div dir={section.direction === 'rtl' || section.language === 'ar' ? 'rtl' : section.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-5">
                   <LessonBody content={section.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={section.highlights || []} visible={highlightsVisible} onOpen={setHighlightPopup} />

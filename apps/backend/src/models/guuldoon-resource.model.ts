@@ -17,6 +17,7 @@ export interface IGuuldoonResource extends Document {
   direction: 'ltr' | 'rtl' | 'auto';
   offlineAvailable: boolean;
   contentText?: string;
+  figureFiles?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -36,6 +37,7 @@ const schema = new Schema<IGuuldoonResource>({
   direction: { type: String, enum: ['ltr', 'rtl', 'auto'], default: 'auto' },
   offlineAvailable: { type: Boolean, default: false },
   contentText: { type: String, default: '' },
+  figureFiles: { type: [String], default: [] },
 }, { timestamps: true });
 
 schema.index({ course: 1, externalId: 1 }, { unique: true });
