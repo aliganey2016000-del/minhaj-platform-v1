@@ -21,19 +21,29 @@ export function GuuldoonPage({ page }: { page: Page }) {
   const { pathname } = useLocation();
   const [access, setAccess] = useState<'loading' | 'allowed' | 'denied' | 'error'>('loading');
   const role = user?.role || '';
+  const userKey = user ? `${user.id}:${user.role}` : '';
   useEffect(() => {
+    // Keyed on the user's id/role (not the user object): the auth provider re-creates the user
+    // object after /auth/me enrichment, which used to flash "Loading Guuldoon..." again.
     let cancelled = false;
-    setAccess('loading');
     if (!user || !allowedPages[user.role]?.includes(page)) { setAccess('denied'); return; }
     if (user.role === 'admin') { setAccess('allowed'); return; }
+    const cacheKey = `guuldoon-access:${userKey}:${pathname}`;
+    let cached: string | null = null;
+    try { cached = sessionStorage.getItem(cacheKey); } catch { /* storage unavailable */ }
+    if (cached === 'allowed') setAccess('allowed'); // show instantly, re-verify silently below
+    else setAccess('loading');
     const portal = user.role === 'org_admin' ? 'admin' : user.role;
     api.get('/sidebar-settings/mine', { params: { portal } }).then(({ data }) => {
       const visibility: Record<string, boolean> = {};
       for (const item of data.data?.items || []) visibility[item.key] = item.visible;
-      if (!cancelled) setAccess(visibility['group:guuldoon'] === false || visibility[pathname.replace(/^\//, '')] === false ? 'denied' : 'allowed');
-    }).catch(() => { if (!cancelled) setAccess('error'); });
+      const next = visibility['group:guuldoon'] === false || visibility[pathname.replace(/^\//, '')] === false ? 'denied' : 'allowed';
+      try { sessionStorage.setItem(cacheKey, next); } catch { /* storage unavailable */ }
+      if (!cancelled) setAccess(next);
+    }).catch(() => { if (!cancelled && cached !== 'allowed') setAccess('error'); });
     return () => { cancelled = true; };
-  }, [user, page, pathname]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userKey, page, pathname]);
   if (isLoading || access === 'loading') return <p className="p-6">Loading Guuldoon...</p>;
   if (!user) return <Navigate to="/auth/login" replace />;
   if (access === 'denied') return <p role="alert" className="p-6">You do not have access to this Guuldoon page.</p>;
