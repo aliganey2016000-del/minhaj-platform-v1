@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -142,9 +142,10 @@ export function GuuldoonCourseExperience() {
   const [glossaryTerm, setGlossaryTerm] = useState<Experience['glossary'][number] | null>(null);
   const [resourcePreview, setResourcePreview] = useState<LessonItem | null>(null);
 
+  const hasData = useRef(false);
   const loadExperience = useCallback(async () => {
     if (!courseId) return;
-    setLoading(true);
+    if (!hasData.current) setLoading(true);
     setError('');
     try {
       const { data: response } = await api.get(`/guuldoon/courses/${courseId}/experience`, {
@@ -153,7 +154,8 @@ export function GuuldoonCourseExperience() {
       });
       const payload = response.data as Experience;
       setData(payload);
-      setOpenChapter(payload.chapters[0]?.id || null);
+      if (!hasData.current) setOpenChapter(payload.chapters[0]?.id || null);
+      hasData.current = true;
     } catch (err: any) {
       setError(err.response?.data?.message || 'Guuldoon course-ka lama soo rari karin.');
     } finally {
@@ -175,7 +177,7 @@ export function GuuldoonCourseExperience() {
     }
   }, [courseId]);
 
-  useEffect(() => { void loadExperience(); }, [loadExperience]);
+  useEffect(() => { hasData.current = false; void loadExperience(); }, [courseId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (secondsLeft === null || secondsLeft <= 0 || !exam) return;

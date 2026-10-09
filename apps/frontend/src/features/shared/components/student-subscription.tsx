@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, CircleAlert, Crown, FileText, Laptop, RefreshCw } from 'lucide-react';
 import api from '../../../lib/axios';
@@ -22,15 +22,16 @@ export function StudentSubscription() {
   const [reference, setReference] = useState('');
   const [notice, setNotice] = useState('');
   const [now, setNow] = useState(Date.now());
+  const loaded = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true); setError('');
+    if (!loaded.current) setLoading(true); setError('');
     try {
       const [subscriptions, catalog] = await Promise.all([api.get('/global-subscriptions/mine'), api.get('/courses/global')]);
       setRows(subscriptions.data.data || []);
       const value = catalog.data.meta?.grade;
       setGrade(value === 8 || value === 12 ? value : null);
     } catch { setError('Rukumashada lama soo rari karin. Fadlan mar kale isku day.'); }
-    finally { setLoading(false); }
+    finally { loaded.current = true; setLoading(false); }
   }, []);
   useEffect(() => { void load(); const timer = window.setInterval(() => setNow(Date.now()), 60000); return () => window.clearInterval(timer); }, [load]);
   const history = rows.filter(row => row.grade === grade).sort((a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || ''));
