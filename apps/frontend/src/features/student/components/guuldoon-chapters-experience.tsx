@@ -143,10 +143,11 @@ function masteryBar(value: number) {
 }
 
 function FormulaText({ text }: { text: string }) {
-  const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g).filter(Boolean);
+  const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$|\*\*[^*]+?\*\*)/g).filter(Boolean);
   return (
     <>
       {parts.map((part, index) => {
+        if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) return <strong key={index} className="font-black">{part.slice(2, -2)}</strong>;
         const formula = part.startsWith('$') && part.endsWith('$');
         return formula
           ? <span key={index} className="mx-0.5 rounded bg-slate-500/10 px-1.5 py-0.5 font-mono text-[.95em]" dir="ltr">{part}</span>
@@ -206,6 +207,80 @@ function HighlightedText({ text, highlights, visible, onOpen }: {
   });
   if (cursor < text.length) output.push(<FormulaText key="tail" text={text.slice(cursor)} />);
   return <>{output}</>;
+}
+
+type LessonBlock =
+  | { kind: 'h2'; text: string }
+  | { kind: 'h3'; text: string }
+  | { kind: 'p'; text: string }
+  | { kind: 'ul'; items: string[] }
+  | { kind: 'ol'; items: string[] }
+  | { kind: 'callout'; tag: string; title: string; lines: string[] };
+
+function parseLesson(content: string): LessonBlock[] {
+  const blocks: LessonBlock[] = [];
+  content.replace(/\r/g, '').split(/\n{2,}/).forEach(raw => {
+    const chunk = raw.trim();
+    if (!chunk) return;
+    const lines = chunk.split('\n');
+    if (lines.every(line => line.startsWith('>'))) {
+      const body = lines.map(line => line.replace(/^>\s?/, ''));
+      const tag = /^\[!(\w+)\]\s*(.*)$/.exec(body[0] || '');
+      if (tag) blocks.push({ kind: 'callout', tag: tag[1].toLowerCase(), title: tag[2].trim(), lines: body.slice(1) });
+      else blocks.push({ kind: 'callout', tag: 'note', title: '', lines: body });
+    } else if (lines.every(line => /^- /.test(line))) {
+      blocks.push({ kind: 'ul', items: lines.map(line => line.slice(2)) });
+    } else if (lines.every(line => /^\d+\.\s/.test(line))) {
+      blocks.push({ kind: 'ol', items: lines.map(line => line.replace(/^\d+\.\s/, '')) });
+    } else if (chunk.startsWith('### ')) {
+      blocks.push({ kind: 'h3', text: chunk.slice(4) });
+    } else if (chunk.startsWith('## ')) {
+      blocks.push({ kind: 'h2', text: chunk.slice(3) });
+    } else {
+      blocks.push({ kind: 'p', text: chunk.replace(/\n/g, ' ') });
+    }
+  });
+  return blocks;
+}
+
+const calloutMeta: Record<string, { label: string; icon: string; className: string }> = {
+  goal: { label: 'Hadafka cashirka', icon: '🎯', className: 'border-emerald-500/40 bg-emerald-500/10' },
+  formula: { label: 'Qaanuun / Formula', icon: '🧮', className: 'border-violet-500/40 bg-violet-500/10' },
+  example: { label: 'Tusaale', icon: '✏️', className: 'border-sky-500/40 bg-sky-500/10' },
+  note: { label: 'Xusuusnow', icon: '💡', className: 'border-amber-500/40 bg-amber-500/10' },
+  try: { label: 'Isku day', icon: '🧪', className: 'border-rose-500/40 bg-rose-500/10' },
+};
+
+function LessonBody({ content, highlights, visible, onOpen }: {
+  content: string;
+  highlights: LessonHighlight[];
+  visible: boolean;
+  onOpen: (highlight: LessonHighlight) => void;
+}) {
+  const blocks = useMemo(() => parseLesson(content), [content]);
+  const inline = (text: string) => <HighlightedText text={text} highlights={highlights} visible={visible} onOpen={onOpen} />;
+  return (
+    <div className="space-y-4 text-[15px] leading-7 text-[var(--color-text-primary)] sm:text-base sm:leading-8">
+      {blocks.map((block, index) => {
+        if (block.kind === 'h2') return <h4 key={index} className="mt-8 flex items-center gap-2 border-b border-emerald-500/30 pb-2 text-lg font-black text-emerald-600 first:mt-0 sm:text-xl"><span className="h-5 w-1.5 rounded-full bg-emerald-500" />{inline(block.text)}</h4>;
+        if (block.kind === 'h3') return <h5 key={index} className="mt-5 text-base font-black text-[var(--color-text-primary)] sm:text-lg">{inline(block.text)}</h5>;
+        if (block.kind === 'p') return <p key={index}>{inline(block.text)}</p>;
+        if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span>{inline(item)}</span></li>)}</ul>;
+        if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span>{inline(item)}</span></li>)}</ol>;
+        const meta = calloutMeta[block.tag] || calloutMeta.note;
+        return (
+          <aside key={index} className={'rounded-2xl border-l-4 p-4 ' + meta.className}>
+            <p className="mb-2 text-xs font-black uppercase tracking-wide"><span aria-hidden="true">{meta.icon} </span>{meta.label}{block.title ? ' · ' + block.title : ''}</p>
+            <div className="space-y-1.5">
+              {block.lines.map((line, i) => line.startsWith('- ')
+                ? <p key={i} className="flex gap-2"><span aria-hidden="true">•</span><span>{inline(line.slice(2))}</span></p>
+                : <p key={i} className={block.tag === 'formula' ? 'font-mono text-[.95em]' : ''} dir={block.tag === 'formula' ? 'ltr' : undefined}>{inline(line)}</p>)}
+            </div>
+          </aside>
+        );
+      })}
+    </div>
+  );
 }
 
 export function GuuldoonChaptersExperience({
@@ -574,8 +649,8 @@ export function GuuldoonChaptersExperience({
                   ))}
                 </div>
 
-                <div dir={section.direction === 'rtl' || section.language === 'ar' ? 'rtl' : section.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-5 whitespace-pre-wrap text-[15px] leading-8 text-[var(--color-text-primary)] sm:text-base">
-                  <HighlightedText text={section.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={section.highlights || []} visible={highlightsVisible} onOpen={setHighlightPopup} />
+                <div dir={section.direction === 'rtl' || section.language === 'ar' ? 'rtl' : section.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-5">
+                  <LessonBody content={section.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={section.highlights || []} visible={highlightsVisible} onOpen={setHighlightPopup} />
                 </div>
 
                 <div className="mt-7 grid grid-cols-2 gap-2 sm:flex sm:justify-between">
