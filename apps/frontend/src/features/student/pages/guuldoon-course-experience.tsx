@@ -162,6 +162,20 @@ export function GuuldoonCourseExperience() {
     }
   }, [courseId]);
 
+  // Refresh progress numbers without unmounting the page (keeps the student inside the practice flow).
+  const refreshProgress = useCallback(async () => {
+    if (!courseId) return;
+    try {
+      const { data: response } = await api.get(`/guuldoon/courses/${courseId}/experience`, {
+        params: { _state: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      setData(response.data as Experience);
+    } catch {
+      // Progress numbers refresh on the next full load.
+    }
+  }, [courseId]);
+
   useEffect(() => { void loadExperience(); }, [loadExperience]);
 
   useEffect(() => {
@@ -375,7 +389,7 @@ export function GuuldoonCourseExperience() {
           passMeter={data.passMeter}
           chapters={data.chapters}
           initialChapterId={openChapter}
-          onProgressChanged={loadExperience}
+          onProgressChanged={refreshProgress}
         />
       )}
 
