@@ -403,6 +403,11 @@ export async function parseAndValidateGuuldoonImport(
     enumValue('Resources', row, 'type', lists.resourceType, SERVER_RESOURCE_TYPES);
     enumValue('Resources', row, 'language', lists.language, SERVER_LANGUAGES);
     enumValue('Resources', row, 'direction', lists.direction, SERVER_DIRECTIONS);
+    const resourceFigures = splitList(row.figure_files);
+    if (resourceFigures.length && !zip) add({ sheet: 'Resources', row: row.__row, id: str(row.resource_id), field: 'figure_files', message: 'figure_files are listed but no figures ZIP was uploaded', severity: 'error' });
+    for (const filename of resourceFigures) {
+      if (zip && !zip.files.has(path.basename(filename).toLowerCase())) add({ sheet: 'Resources', row: row.__row, id: str(row.resource_id), field: 'figure_files', message: `Figure file "${filename}" was not found in ZIP`, severity: 'error' });
+    }
   }
 
   const questionFirst = new Map<string, Row>();
@@ -749,11 +754,14 @@ function isValidRow(parsed: ParsedGuuldoonImport, sheet: ImportSheet, row: Row):
 }
 
 async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): Promise<Map<string, string>> {
-  const used = new Set(
-    parsed.rows.Questions
+  const used = new Set([
+    ...parsed.rows.Questions
       .filter(row => isValidRow(parsed, 'Questions', row))
       .flatMap(row => splitList(row.figure_files).map(name => path.basename(name).toLowerCase())),
-  );
+    ...parsed.rows.Resources
+      .filter(row => isValidRow(parsed, 'Resources', row))
+      .flatMap(row => splitList(row.figure_files).map(name => path.basename(name).toLowerCase())),
+  ]);
   const urls = new Map<string, string>();
   if (!used.size || !parsed.zip) return urls;
   const directory = path.join(process.cwd(), 'uploads', 'guuldoon', courseId);
@@ -768,6 +776,17 @@ async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): P
     urls.set(key, `/uploads/guuldoon/${courseId}/${filename}`);
   }
   return urls;
+}
+
+// Lesson text references figures by ZIP filename; swap them for the stored URLs.
+function inlineFigureUrls(content: string, names: string[], urls: Map<string, string>): string {
+  let result = content;
+  for (const name of names) {
+    const base = path.basename(name);
+    const url = urls.get(base.toLowerCase());
+    if (url) result = result.split(base).join(url);
+  }
+  return result;
 }
 
 function splitAccepted(value: unknown): string[] {
@@ -881,6 +900,7 @@ export async function commitGuuldoonImport(
     return wasExisting ? 'updated' : 'created';
   });
 
+  const figureUrls = await persistFigures(courseId, parsed);
   for (const row of parsed.rows.Resources) await safeWrite('Resources', row, async () => {
     const id = str(row.resource_id);
     const existing = await GuuldoonResource.exists({ course: courseObjectId, externalId: id });
@@ -898,7 +918,8 @@ export async function commitGuuldoonImport(
         language: lower(row.language),
         direction: lower(row.direction),
         offlineAvailable: bool(row.offline_available),
-        contentText: str(row.content_text),
+        contentText: inlineFigureUrls(str(row.content_text), splitList(row.figure_files), figureUrls),
+        figureFiles: splitList(row.figure_files).map(name => figureUrls.get(path.basename(name).toLowerCase()) || '').filter(Boolean),
       } },
       { upsert: true },
     );
@@ -907,7 +928,6 @@ export async function commitGuuldoonImport(
 
   const examRows = await GuuldoonExam.find({ course: courseObjectId }).select('_id externalId').lean();
   const examMap = new Map(examRows.filter(item => item.externalId).map(item => [String(item.externalId), item._id]));
-  const figureUrls = await persistFigures(courseId, parsed);
 
   // First pass creates/updates question bodies so parent/similar references can resolve in any order.
   for (const row of parsed.rows.Questions) await safeWrite('Questions', row, async () => {
@@ -1018,8 +1038,8 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
     },
     {
       name: 'Resources',
-      headers: ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text'],
-      example: ['example','PHY12_RES001','PHY12','PHY12_CH01','note','1.1 Ohm Law','','',10,12,'en','ltr',true,'Ohm law states that voltage equals current multiplied by resistance. $V = IR$.'],
+      headers: ['row_status','resource_id','subject_id','chapter_id','type','title','url','file_name','page_from','page_to','language','direction','offline_available','content_text','figure_files'],
+      example: ['example','PHY12_RES001','PHY12','PHY12_CH01','note','1.1 Ohm Law','','',10,12,'en','ltr',true,'Ohm law states that voltage equals current multiplied by resistance. V = IR.','book_p010.jpg;book_p011.jpg'],
     },
     {
       name: 'Questions',
