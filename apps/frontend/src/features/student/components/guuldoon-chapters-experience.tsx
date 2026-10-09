@@ -348,6 +348,38 @@ const calloutMeta: Record<string, { label: string; icon: string; className: stri
   try: { label: 'Isku day', icon: '🧪', className: 'border-rose-500/40 bg-rose-500/10' },
 };
 
+const summaryPalette = [
+  { band: 'from-emerald-500 to-teal-400', soft: 'border-emerald-500/30 bg-emerald-500/[.07]', text: 'text-emerald-500' },
+  { band: 'from-sky-500 to-indigo-400', soft: 'border-sky-500/30 bg-sky-500/[.07]', text: 'text-sky-500' },
+  { band: 'from-violet-500 to-fuchsia-400', soft: 'border-violet-500/30 bg-violet-500/[.07]', text: 'text-violet-500' },
+  { band: 'from-amber-500 to-orange-400', soft: 'border-amber-500/30 bg-amber-500/[.07]', text: 'text-amber-500' },
+  { band: 'from-rose-500 to-pink-400', soft: 'border-rose-500/30 bg-rose-500/[.07]', text: 'text-rose-500' },
+];
+
+const isSummarySection = (section: { title: string }) => /^chapter summary/i.test(section.title.trim());
+
+function SummaryHero() {
+  return (
+    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-600 via-teal-500 to-sky-500 p-5 text-white shadow-lg shadow-emerald-600/20 sm:p-7">
+      <div aria-hidden="true" className="absolute -right-6 -top-6 h-28 w-28 rounded-full bg-white/15 blur-sm" />
+      <div aria-hidden="true" className="absolute -bottom-10 left-1/3 h-24 w-24 rounded-full bg-amber-300/25 blur-md" />
+      <p className="relative text-[11px] font-black uppercase tracking-[.2em] text-white/80">⭐ Xusuusnow</p>
+      <h3 className="relative mt-1 text-2xl font-black leading-tight sm:text-3xl">Waxyaabaha la xifdiyo</h3>
+      <p className="relative mt-2 max-w-xl text-sm font-medium text-white/90">Kuwa sanadaha leh waa la weydiiyay imtixaanadii hore. Kuwa kale waxay ku jiraan buugga, waxaana laga yaabaa inay soo baxaan imtixaanka dambe.</p>
+    </div>
+  );
+}
+
+function YearChips({ years }: { years: string[] }) {
+  if (!years.length) return <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2.5 py-1 text-[11px] font-black text-sky-500">🔮 Laga yaabo imtixaanka dambe</span>;
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2.5 py-1 text-[11px] font-black text-amber-600">🔥 {years.length > 1 ? years.length + ' jeer la weydiiyay' : 'La weydiiyay'}</span>
+      {years.map(year => <span key={year} className="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-1 text-[11px] font-black tabular-nums">{year}</span>)}
+    </span>
+  );
+}
+
 function LessonBody({ content, highlights, visible, onOpen }: {
   content: string;
   highlights: LessonHighlight[];
@@ -365,6 +397,45 @@ function LessonBody({ content, highlights, visible, onOpen }: {
         if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ul>;
         if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ol>;
         if (block.tag === 'figure' && block.lines[0]) return <InlineFigure key={index} src={block.lines[0].trim()} caption={block.title} />;
+        if (block.tag === 'stats') {
+          const tiles = block.lines.map(line => line.split(' | '));
+          return (
+            <div key={index} className="grid grid-cols-3 gap-2">
+              {tiles.map(([value, label], i) => (
+                <div key={i} className={'rounded-2xl bg-gradient-to-br p-3 text-center text-white shadow ' + summaryPalette[i % summaryPalette.length].band}>
+                  <strong className="block text-2xl font-black tabular-nums sm:text-3xl">{value}</strong>
+                  <span className="block text-[11px] font-semibold leading-tight text-white/90">{label}</span>
+                </div>
+              ))}
+            </div>
+          );
+        }
+        if (block.tag === 'memorize' || block.tag === 'fact' || (block.tag === 'formula' && /\s\|(\s|$)/.test(block.title))) {
+          const [name, yearText = ''] = block.title.split(/\s\|\s?/);
+          const years = yearText.split(',').map(item => item.trim()).filter(Boolean);
+          const tone = summaryPalette[index % summaryPalette.length];
+          const formula = block.tag === 'formula';
+          return (
+            <article key={index} className={'overflow-hidden rounded-2xl border ' + tone.soft}>
+              <div className={'h-1.5 bg-gradient-to-r ' + tone.band} />
+              <div className="p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <h5 className={'flex min-w-0 items-center gap-2 text-base font-black ' + tone.text}><span aria-hidden="true">{formula ? '🧮' : block.tag === 'fact' ? '📌' : '🧠'}</span><span className="min-w-0">{name}</span></h5>
+                  <YearChips years={years} />
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {block.lines.map((line, i) => formula
+                    ? i === 0
+                      ? <p key={i} dir="ltr" className="overflow-x-auto rounded-xl bg-[var(--color-surface-primary)] px-3 py-2.5 text-center font-mono text-lg font-black sm:text-xl">{inline(line)}</p>
+                      : <p key={i} className="text-sm leading-6 text-[var(--color-text-secondary)]">{inline(line)}</p>
+                    : line.startsWith('- ')
+                      ? <div key={i} className="flex gap-2"><span aria-hidden="true" className={tone.text}>●</span><span className="min-w-0 flex-1"><QuestionBody text={line.slice(2)} render={inline} /></span></div>
+                      : <div key={i} className="font-semibold"><QuestionBody text={line} render={inline} /></div>)}
+                </div>
+              </div>
+            </article>
+          );
+        }
         const meta = calloutMeta[block.tag] || calloutMeta.note;
         return (
           <aside key={index} className={'rounded-2xl border-l-4 p-4 ' + meta.className}>
@@ -450,7 +521,9 @@ export function GuuldoonChaptersExperience({
     setError('');
     try {
       const { data } = await api.get('/guuldoon/courses/' + courseId + '/chapters/' + chapter.id + '/lesson');
-      const payload = data.data as LessonPayload;
+      const raw = data.data as LessonPayload;
+      const ordered = [...raw.sections.filter(section => !isSummarySection(section)), ...raw.sections.filter(isSummarySection)].map((section, i) => ({ ...section, order: i + 1 }));
+      const payload: LessonPayload = { ...raw, sections: ordered };
       let nextIndex: number | null = null;
       if (page) {
         const match = payload.sections.findIndex(section => {
@@ -750,6 +823,13 @@ export function GuuldoonChaptersExperience({
               {lesson.sections.length ? (
                 <div className="mt-5 space-y-2">
                   {lesson.sections.map((section, index) => (
+                    isSummarySection(section) ? (
+                      <button key={section.id} type="button" onClick={() => setSectionIndex(index)} className="flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-500 to-sky-500 p-4 text-left text-white shadow-lg shadow-emerald-600/20 transition hover:brightness-110">
+                        <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 text-lg">⭐</span>
+                        <div className="min-w-0 flex-1"><p className="truncate text-sm font-black">Chapter summary</p><p className="mt-1 text-xs text-white/85">Waxyaabaha la xifdiyo · sanadaha la weydiiyay</p></div>
+                        <ChevronRight size={18} />
+                      </button>
+                    ) : (
                     <button key={section.id} type="button" onClick={() => setSectionIndex(index)} className="flex w-full items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]/45 p-4 text-left transition hover:border-emerald-500/30 hover:bg-emerald-500/[.06]">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-xs font-black text-emerald-500">{section.order}</span>
                       <div className="min-w-0 flex-1">
@@ -758,6 +838,7 @@ export function GuuldoonChaptersExperience({
                       </div>
                       <ChevronRight size={18} className="text-[var(--color-text-tertiary)]" />
                     </button>
+                    )
                   ))}
                 </div>
               ) : <div className="mt-5 rounded-2xl border border-dashed p-7 text-center text-sm text-[var(--color-text-tertiary)]">Qoraalka qaybaha casharka wali laguma darin content_text.</div>}
@@ -777,14 +858,16 @@ export function GuuldoonChaptersExperience({
                   <button onClick={() => setSectionIndex(null)} className="rounded-xl border px-3 py-2 text-xs font-bold">Qaybaha</button>
                 </div>
 
-                <div className="mt-5 flex flex-wrap gap-2 text-[10px] font-bold">
+                {isSummarySection(section) && <div className="mt-5"><SummaryHero /></div>}
+
+                <div className={'mt-5 flex-wrap gap-2 text-[10px] font-bold ' + (isSummarySection(section) ? 'hidden' : 'flex')}>
                   {(Object.keys(relationMeta) as Relation[]).map(relation => (
                     <span key={relation} className={'rounded-full px-2.5 py-1 ' + relationMeta[relation].className}>{relationMeta[relation].label}</span>
                   ))}
                 </div>
 
                 <div dir={section.direction === 'rtl' || section.language === 'ar' ? 'rtl' : section.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-5">
-                  <LessonBody content={section.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={section.highlights || []} visible={highlightsVisible} onOpen={setHighlightPopup} />
+                  <LessonBody content={section.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={isSummarySection(section) ? [] : section.highlights || []} visible={highlightsVisible} onOpen={setHighlightPopup} />
                 </div>
 
                 <div className="mt-7 grid grid-cols-2 gap-2 sm:flex sm:justify-between">
