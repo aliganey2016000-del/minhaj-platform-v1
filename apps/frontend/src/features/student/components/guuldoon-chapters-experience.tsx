@@ -37,6 +37,7 @@ export type GuuldoonStudentChapter = {
   attempts: number;
   started?: boolean;
   questionCount: number;
+  practiceCount?: number;
   yearCount?: number;
   yearCounts?: { year: number; count: number }[];
   outsideBook?: boolean;
@@ -60,6 +61,9 @@ type Question = {
   answerStatus: 'verified' | 'pending';
   examYear?: number | null;
   bookRef?: { bookId?: string; pageFrom?: number; pageTo?: number };
+  answerDisplay?: string;
+  explanation?: string;
+  answerVerified?: boolean;
 };
 
 type LessonHighlight = {
@@ -93,6 +97,7 @@ type Feedback = {
   marked: boolean;
   correct: boolean | null;
   answerStatus: 'verified' | 'pending';
+  answerDisplay?: string;
   explanation?: string;
   explanationStatus?: 'verified' | 'draft';
   explainerAudioUrl?: string;
@@ -241,7 +246,7 @@ function QuestionBody({ text, render }: { text: string; render: (value: string) 
   );
 }
 
-function AnswerReveal({ answer, fromBook }: { answer: string; fromBook: boolean }) {
+function AnswerReveal({ answer, fromBook, note }: { answer: string; fromBook: boolean; note?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <span className="mt-1.5 block">
@@ -251,11 +256,29 @@ function AnswerReveal({ answer, fromBook }: { answer: string; fromBook: boolean 
       {open && (
         <span className="mt-2 block rounded-xl border-l-4 border-emerald-500 bg-emerald-500/10 px-3 py-2 text-sm font-semibold">
           <span className="block text-[10px] font-black uppercase tracking-wide text-emerald-600">{fromBook ? 'Jawaabta buugga' : 'Jawaabta'}</span>
-          <FormulaText text={answer} />
+          <span className="block whitespace-pre-line"><FormulaText text={answer} /></span>
+          {note && <span className="mt-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">{note}</span>}
         </span>
       )}
     </span>
   );
+}
+
+const isTrueFalse = (question: Question) => question.type === 'mcq' && question.options?.length === 2 && question.options[0] === 'True' && question.options[1] === 'False';
+
+function matchParts(question: Question) {
+  const options = question.options || [];
+  return {
+    lefts: options.filter(item => item.startsWith('L|')).map(item => item.slice(2)),
+    rights: options.filter(item => item.startsWith('R|')).map(item => item.slice(2)),
+  };
+}
+
+const isMatchQuestion = (question: Question) => question.type === 'match' && matchParts(question).lefts.length >= 2;
+
+function QuestionFigures({ question }: { question: Question }) {
+  const files = question.figureFiles?.length ? question.figureFiles : question.figureUrl ? [question.figureUrl] : [];
+  return <>{files.map((figure, index) => <div key={figure + index} className="mt-3"><InlineFigure src={figure} caption={files.length > 1 ? 'Sawir ' + (index + 1) : ''} /></div>)}</>;
 }
 
 function InlineFigure({ src, caption }: { src: string; caption: string }) {
@@ -371,7 +394,7 @@ export function GuuldoonChaptersExperience({
 }: Props) {
   const [filter, setFilter] = useState<Filter>('order');
   const [openChapterId, setOpenChapterId] = useState<string | null>(initialChapterId || chapters[0]?.id || null);
-  const [mode, setMode] = useState<'list' | 'lesson' | 'year' | 'practice'>('list');
+  const [mode, setMode] = useState<'list' | 'lesson' | 'year' | 'hub' | 'practice'>('list');
   const [activeChapter, setActiveChapter] = useState<GuuldoonStudentChapter | null>(null);
   const [lesson, setLesson] = useState<LessonPayload | null>(null);
   const [sectionIndex, setSectionIndex] = useState<number | null>(null);
@@ -381,6 +404,9 @@ export function GuuldoonChaptersExperience({
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [feedback, setFeedback] = useState<Record<string, Feedback>>({});
+  const [hubTab, setHubTab] = useState<'understand' | 'past'>('understand');
+  const [understandQuestions, setUnderstandQuestions] = useState<Question[]>([]);
+  const [practiceSource, setPracticeSource] = useState<'understand' | 'past'>('past');
   const [loading, setLoading] = useState(false);
   const [answering, setAnswering] = useState(false);
   const [error, setError] = useState('');
@@ -450,7 +476,7 @@ export function GuuldoonChaptersExperience({
     setError('');
     try {
       const { data } = await api.get('/guuldoon/courses/' + courseId + '/chapters/' + chapter.id + '/questions', {
-        params: { year, limit: 200 },
+        params: { year, limit: 200, review: 1 },
       });
       setActiveChapter(chapter);
       setYearCounts(data.data.yearCounts || chapter.yearCounts || []);
@@ -464,14 +490,14 @@ export function GuuldoonChaptersExperience({
     }
   };
 
-  const startPractice = async (chapter: GuuldoonStudentChapter, supplied?: Question[]) => {
+  const startPractice = async (chapter: GuuldoonStudentChapter, supplied?: Question[], source: 'understand' | 'past' = 'past') => {
     setLoading(true);
     setError('');
     try {
       let rows: Question[] = supplied || [];
       if (!supplied) {
         const { data } = await api.get('/guuldoon/courses/' + courseId + '/chapters/' + chapter.id + '/questions', {
-          params: { limit: 30 },
+          params: { limit: 60 },
         });
         rows = (data.data.questions || []) as Question[];
       }
@@ -480,6 +506,7 @@ export function GuuldoonChaptersExperience({
         return;
       }
       setActiveChapter(chapter);
+      setPracticeSource(source);
       setQuestions(rows);
       setQuestionIndex(0);
       setAnswers({});
@@ -492,8 +519,36 @@ export function GuuldoonChaptersExperience({
     }
   };
 
+  const openHub = async (chapter: GuuldoonStudentChapter) => {
+    setLoading(true);
+    setError('');
+    try {
+      const { data } = await api.get('/guuldoon/courses/' + courseId + '/chapters/' + chapter.id + '/questions', {
+        params: { kind: 'practice', limit: 200 },
+      });
+      const rows = (data.data.questions || []) as Question[];
+      setUnderstandQuestions(rows);
+      setHubTab(rows.length ? 'understand' : 'past');
+      setActiveChapter(chapter);
+      setMode('hub');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Tababarka lama furi karin.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isReady = (question: Question) => {
+    const value = answers[question._id];
+    if (isMatchQuestion(question)) {
+      const expected = matchParts(question).lefts.length;
+      return Array.isArray(value) && value.length === expected && value.every(item => Number.isInteger(item) && item >= 0);
+    }
+    return value !== undefined && String(value).trim() !== '';
+  };
+
   const submitAnswer = async (question: Question) => {
-    if (answers[question._id] === undefined || answering) return;
+    if (!isReady(question) || answering) return;
     setAnswering(true);
     setError('');
     try {
@@ -542,7 +597,7 @@ export function GuuldoonChaptersExperience({
                 </div>
                 <div>
                   <h2 className="text-xl font-black">Cutubyada</h2>
-                  <p className="mt-1 text-xs leading-5 text-emerald-50/70">Akhri → Tababar → Su’aalaha sannadaha.</p>
+                  <p className="mt-1 text-xs leading-5 text-emerald-50/70">Akhri → Su’aalaha sannadaha → Tababar.</p>
                 </div>
               </div>
             </div>
@@ -647,19 +702,19 @@ export function GuuldoonChaptersExperience({
                         </div>
 
                         <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]/35 p-3">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sm font-black text-sky-500">2</span>
-                          <div className="min-w-0 flex-1"><p className="text-sm font-black">{chapter.started ? 'Sii wad tababarka' : 'Tababar'}</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{chapter.questionCount} su’aalood</p></div>
-                          <button onClick={() => void startPractice(chapter)} className="rounded-xl border border-sky-500/30 px-3 py-2 text-xs font-black text-sky-500">Bilow</button>
-                        </div>
-
-                        <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]/35 p-3">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-black text-amber-500">3</span>
-                          <div className="min-w-0 flex-1"><p className="text-sm font-black">Su’aalaha sanad kasta</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{years.length ? years.length + ' sano, dooro sanad si aad u aragto sidii loo weydiiyay' : 'Su’aalo published ah wali ma jiraan.'}</p></div>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-sm font-black text-amber-500">2</span>
+                          <div className="min-w-0 flex-1"><p className="text-sm font-black">Su’aalaha sanad kasta</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{years.length ? years.length + ' sano · su’aalaha iyo jawaabaha saxda ah' : 'Su’aalo published ah wali ma jiraan.'}</p></div>
                           <button
                             disabled={!years.length}
                             onClick={() => void loadYearQuestions(chapter, years[0].year)}
                             className="rounded-xl border border-amber-500/30 px-3 py-2 text-xs font-black text-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
-                          >Dooro</button>
+                          >Fur</button>
+                        </div>
+
+                        <div className="flex items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]/35 p-3">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sm font-black text-sky-500">3</span>
+                          <div className="min-w-0 flex-1"><p className="text-sm font-black">{chapter.started ? 'Sii wad tababarka' : 'Tababar'}</p><p className="text-[11px] text-[var(--color-text-tertiary)]">Fahamka cutubka ({chapter.practiceCount || 0}) · imtixaanadii hore ({chapter.questionCount})</p></div>
+                          <button onClick={() => void openHub(chapter)} className="rounded-xl border border-sky-500/30 px-3 py-2 text-xs font-black text-sky-500">Bilow</button>
                         </div>
                       </div>
                     </div>
@@ -737,7 +792,7 @@ export function GuuldoonChaptersExperience({
                   {!isLast ? (
                     <button onClick={() => setSectionIndex(index => Math.min(lesson.sections.length - 1, (index || 0) + 1))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white">Qaybta xigta <ChevronRight size={16} /></button>
                   ) : (
-                    <button disabled={!activeChapter} onClick={() => activeChapter && void startPractice(activeChapter)} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">Bilow tababarka</button>
+                    <button disabled={!activeChapter} onClick={() => activeChapter && void openHub(activeChapter)} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">Bilow tababarka</button>
                   )}
                 </div>
               </article>
@@ -778,14 +833,65 @@ export function GuuldoonChaptersExperience({
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
                   <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-emerald-500">{selectedYear} · Su’aal {question.number}</span>
                   <span className="rounded-full bg-slate-500/10 px-2.5 py-1">{question.marks} dhibcood</span>
-                  {(question.figureUrl || question.figureFiles?.length) && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-500"><ImageIcon size={12} /> Sawir leh</span>}
                   <span className="rounded-full bg-violet-500/10 px-2.5 py-1 text-violet-500">{question.type.toUpperCase()}</span>
                 </div>
                 <p dir={question.direction === 'rtl' || question.language === 'ar' ? 'rtl' : 'auto'} className="mt-3 text-sm font-semibold leading-6"><FormulaText text={question.textSo} /></p>
-                <button onClick={() => void startPractice(activeChapter, [question])} className="mt-4 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white">Ka jawaab</button>
+                <QuestionFigures question={question} />
+                {question.type === 'mcq' && question.options?.length ? (
+                  <ol className="mt-3 space-y-1.5 text-sm">
+                    {question.options.map((option, index) => <li key={index} className="rounded-xl bg-[var(--color-surface-tertiary)]/50 px-3 py-2"><b className="mr-1.5">{String.fromCharCode(65 + index)}.</b><FormulaText text={option} /></li>)}
+                  </ol>
+                ) : null}
+                {question.answerDisplay
+                  ? <AnswerReveal answer={question.answerDisplay} fromBook={false} note={[question.explanation, question.answerVerified === false ? 'Jawaabtan wali lama xaqiijin.' : ''].filter(Boolean).join(' ')} />
+                  : <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">Jawaabta wali lama gelin.</p>}
               </article>
             ))}
           </div>
+        </div>
+      )}
+
+      {mode === 'hub' && activeChapter && (
+        <div className="space-y-4">
+          <div className="student-glass-card flex flex-wrap items-center gap-3 rounded-[24px] p-4">
+            <button onClick={backToList} className="inline-flex items-center gap-2 text-sm font-black"><ArrowLeft size={17} /> Cutubyada</button>
+            <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[.16em] text-emerald-500">Tababar</p><h2 className="truncate font-black">{activeChapter.title}</h2></div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1" role="tablist">
+            {([['understand', 'Fahamka cutubka'], ['past', 'Imtixaanadii hore']] as const).map(([value, label]) => (
+              <button key={value} role="tab" aria-selected={hubTab === value} onClick={() => setHubTab(value)} className={'rounded-xl px-3 py-2.5 text-sm font-black ' + (hubTab === value ? 'bg-emerald-600 text-white' : 'text-[var(--color-text-secondary)]')}>{label}</button>
+            ))}
+          </div>
+
+          {hubTab === 'understand' ? (
+            <div className="student-glass-card rounded-[26px] p-5">
+              <h3 className="text-lg font-black">Fahamka cutubka</h3>
+              <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Su’aalo ka kooban qaybaha ugu muhiimsan casharka: MCQ, True/False, Matching iyo jawaab gaaban. Jawaabta waa la hubiyaa isla markiiba.</p>
+              {understandQuestions.length ? (
+                <>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+                    {[
+                      ['MCQ', understandQuestions.filter(question => question.type === 'mcq' && !isTrueFalse(question)).length],
+                      ['True / False', understandQuestions.filter(isTrueFalse).length],
+                      ['Matching', understandQuestions.filter(question => question.type === 'match').length],
+                      ['Jawaab gaaban', understandQuestions.filter(question => question.type === 'fill').length],
+                    ].map(([label, count]) => (
+                      <div key={String(label)} className="rounded-xl bg-emerald-500/10 p-3"><strong className="block text-lg text-emerald-500">{count}</strong><span className="text-[10px] text-[var(--color-text-tertiary)]">{label}</span></div>
+                    ))}
+                  </div>
+                  <button onClick={() => void startPractice(activeChapter, understandQuestions, 'understand')} className="mt-5 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white">Bilow</button>
+                </>
+              ) : <p className="mt-4 rounded-2xl border border-dashed p-5 text-center text-sm text-[var(--color-text-tertiary)]">Su’aalaha fahamka cutubkan wali lama diyaarin.</p>}
+            </div>
+          ) : (
+            <div className="student-glass-card rounded-[26px] p-5">
+              <h3 className="text-lg font-black">Imtixaanadii hore</h3>
+              <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Su’aalihii imtixaanadii hore ee cutubkan; ka jawaab, hubi, kuna dar Pass Meter-kaaga.</p>
+              <p className="mt-4 text-sm font-bold">{activeChapter.questionCount} su’aalood · {activeChapter.yearCount || activeChapter.yearCounts?.length || 0} sano</p>
+              <button disabled={!activeChapter.questionCount} onClick={() => void startPractice(activeChapter, undefined, 'past')} className="mt-5 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white disabled:opacity-40">Bilow</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -793,18 +899,18 @@ export function GuuldoonChaptersExperience({
         <div className="space-y-4">
           <div className="student-glass-card flex flex-wrap items-center justify-between gap-3 rounded-[24px] p-4">
             <button onClick={backToList} className="inline-flex items-center gap-2 text-sm font-black"><ArrowLeft size={17} /> Cutubyada</button>
-            <div className="min-w-0 flex-1 text-center"><p className="text-[10px] font-black uppercase tracking-[.16em] text-emerald-500">Tababar</p><h2 className="truncate font-black">{activeChapter.title}</h2></div>
+            <div className="min-w-0 flex-1 text-center"><p className="text-[10px] font-black uppercase tracking-[.16em] text-emerald-500">{practiceSource === 'understand' ? 'Fahamka cutubka' : 'Imtixaanadii hore'}</p><h2 className="truncate font-black">{activeChapter.title}</h2></div>
             <span className="text-xs font-bold text-[var(--color-text-tertiary)]">{questionIndex + 1}/{questions.length}</span>
           </div>
 
           <article className="student-glass-card rounded-[28px] p-5 sm:p-7">
             <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
-              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-500">{currentQuestion.examYear || '—'} · Su’aal {currentQuestion.number} · {currentQuestion.marks} dhibcood</span>
-              <span className="rounded-full bg-violet-500/10 px-3 py-1 text-violet-500">{currentQuestion.type.toUpperCase()}</span>
+              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-500">{practiceSource === 'understand' ? 'Su’aal ' + currentQuestion.number : (currentQuestion.examYear || '—') + ' · Su’aal ' + currentQuestion.number + ' · ' + currentQuestion.marks + ' dhibcood'}</span>
+              <span className="rounded-full bg-violet-500/10 px-3 py-1 text-violet-500">{isTrueFalse(currentQuestion) ? 'TRUE / FALSE' : currentQuestion.type.toUpperCase()}</span>
             </div>
 
             <h3 dir={currentQuestion.direction === 'rtl' || currentQuestion.language === 'ar' ? 'rtl' : 'auto'} className="mt-5 text-lg font-black leading-8"><FormulaText text={currentQuestion.textSo} /></h3>
-            {(currentQuestion.figureFiles?.length ? currentQuestion.figureFiles : currentQuestion.figureUrl ? [currentQuestion.figureUrl] : []).map((figure, index) => <img key={figure + index} src={figure} alt="" className="mt-4 max-h-72 rounded-xl object-contain" />)}
+            <QuestionFigures question={currentQuestion} />
 
             {currentQuestion.type === 'mcq' && currentQuestion.options?.length ? (
               <div className="mt-5 grid gap-3">
@@ -814,15 +920,48 @@ export function GuuldoonChaptersExperience({
                   </button>
                 ))}
               </div>
+            ) : isMatchQuestion(currentQuestion) ? (
+              <div className="mt-5 space-y-3">
+                {matchParts(currentQuestion).lefts.map((left, leftIndex) => {
+                  const chosen = Array.isArray(answers[currentQuestion._id]) ? (answers[currentQuestion._id] as number[])[leftIndex] : undefined;
+                  const rights = matchParts(currentQuestion).rights;
+                  return (
+                    <div key={leftIndex} className="rounded-2xl border border-[var(--color-border-subtle)] p-3">
+                      <p className="text-sm font-semibold"><b className="mr-1.5">{leftIndex + 1}.</b><FormulaText text={left} /></p>
+                      <select
+                        disabled={!!currentFeedback}
+                        value={chosen === undefined || chosen < 0 ? '' : String(chosen)}
+                        onChange={event => setAnswers(current => {
+                          const next = Array.isArray(current[currentQuestion._id]) ? [...(current[currentQuestion._id] as number[])] : [];
+                          while (next.length < rights.length && next.length < matchParts(currentQuestion).lefts.length) next.push(-1);
+                          next[leftIndex] = Number(event.target.value);
+                          return { ...current, [currentQuestion._id]: next };
+                        })}
+                        className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2.5 text-sm"
+                        aria-label={'Dooro isku xirka ' + (leftIndex + 1)}
+                      >
+                        <option value="">Dooro…</option>
+                        {rights.map((right, rightIndex) => <option key={rightIndex} value={rightIndex}>{right}</option>)}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
-              <textarea disabled={!!currentFeedback} value={String(answers[currentQuestion._id] ?? '')} onChange={event => setAnswers(current => ({ ...current, [currentQuestion._id]: event.target.value }))} rows={5} placeholder="Ku qor jawaabtaada..." className="mt-5 w-full rounded-2xl border border-[var(--color-border-default)] bg-transparent p-4 text-sm outline-none focus:border-emerald-500" />
+              <textarea disabled={!!currentFeedback} value={String(answers[currentQuestion._id] ?? '')} onChange={event => setAnswers(current => ({ ...current, [currentQuestion._id]: event.target.value }))} rows={currentQuestion.type === 'fill' ? 2 : 5} placeholder="Ku qor jawaabtaada..." className="mt-5 w-full rounded-2xl border border-[var(--color-border-default)] bg-transparent p-4 text-sm outline-none focus:border-emerald-500" />
             )}
 
             {!currentFeedback ? (
-              <button disabled={answering || answers[currentQuestion._id] === undefined} onClick={() => void submitAnswer(currentQuestion)} className="mt-5 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50">{answering ? 'Waa la hubinayaa...' : 'Gudbi jawaabta'}</button>
+              <button disabled={answering || !isReady(currentQuestion)} onClick={() => void submitAnswer(currentQuestion)} className="mt-5 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50">{answering ? 'Waa la hubinayaa...' : 'Gudbi jawaabta'}</button>
             ) : (
               <div className={'mt-5 rounded-2xl border p-4 ' + (currentFeedback.marked ? currentFeedback.correct ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-red-500/30 bg-red-500/10' : 'border-amber-500/30 bg-amber-500/10')}>
                 <p className="font-black">{currentFeedback.marked ? currentFeedback.correct ? '✓ Sax' : '✕ Khalad' : 'Jawaab la xaqiijin doonaa'}</p>
+                {currentFeedback.answerDisplay && currentFeedback.marked && !currentFeedback.correct && (
+                  <div className="mt-2">
+                    <p className="text-[10px] font-black uppercase tracking-wide text-[var(--color-text-tertiary)]">Jawaabta saxda ah</p>
+                    <p className="mt-1 whitespace-pre-line text-sm font-semibold leading-6"><FormulaText text={currentFeedback.answerDisplay} /></p>
+                  </div>
+                )}
                 {currentFeedback.explanation && (
                   <div className="mt-2">
                     <p className="text-[10px] font-black uppercase tracking-wide text-[var(--color-text-tertiary)]">{currentFeedback.explanationStatus === 'draft' ? 'Sharaxaad qabyo' : 'Sharaxaad'}</p>
