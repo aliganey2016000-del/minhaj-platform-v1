@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { buildAnswerSpec, isAnswerSpec, parseNumber } from './guuldoon-marking.service';
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
@@ -443,7 +444,17 @@ export async function parseAndValidateGuuldoonImport(
       const optionField = ['option_a', 'option_b', 'option_c', 'option_d'][optionIndex];
       if (optionIndex >= 0 && !str(row[optionField])) add({ sheet: 'Questions', row: row.__row, id, field: optionField, message: `${optionField} is required because it is the verified answer`, severity: 'error' });
     }
-    if (answerStatus === 'verified' && type === 'fill' && !answer) add({ sheet: 'Questions', row: row.__row, id, field: 'correct_answer', message: 'Verified fill question requires correct_answer', severity: 'error' });
+    const answerType = lower(row.answer_type);
+    const acceptedAnswers = splitAccepted(row.accepted_answers);
+    if (answerStatus === 'verified' && type === 'fill' && !answer && !acceptedAnswers.length) add({ sheet: 'Questions', row: row.__row, id, field: 'correct_answer', message: 'Verified fill question requires correct_answer or accepted_answers', severity: 'error' });
+    if (answerType && !['text', 'numeric'].includes(answerType)) add({ sheet: 'Questions', row: row.__row, id, field: 'answer_type', message: 'answer_type must be text or numeric', severity: 'error' });
+    if (answerType && type === 'mcq') add({ sheet: 'Questions', row: row.__row, id, field: 'answer_type', message: 'answer_type is ignored for MCQ questions', severity: 'warning' });
+    if (answerType === 'numeric' && type !== 'mcq') {
+      if (answer && !parseNumber(answer)) add({ sheet: 'Questions', row: row.__row, id, field: 'correct_answer', message: 'Numeric correct_answer must be a number such as 9.81, 1/2 or 5x10^-3 (optionally followed by a unit)', severity: 'error' });
+      if (!answer && answerStatus === 'verified') add({ sheet: 'Questions', row: row.__row, id, field: 'correct_answer', message: 'Verified numeric question requires correct_answer', severity: 'error' });
+    }
+    if (answerType === 'text' && type !== 'mcq' && answerStatus === 'verified' && !answer && !acceptedAnswers.length) add({ sheet: 'Questions', row: row.__row, id, field: 'accepted_answers', message: 'Verified text-answer question requires correct_answer or accepted_answers', severity: 'error' });
+    if (str(row.tolerance_pct) !== '' && (!Number.isFinite(Number(row.tolerance_pct)) || Number(row.tolerance_pct) < 0 || Number(row.tolerance_pct) > 50)) add({ sheet: 'Questions', row: row.__row, id, field: 'tolerance_pct', message: 'tolerance_pct must be between 0 and 50', severity: 'error' });
     if (!splitList(row.topic_tags).length) add({ sheet: 'Questions', row: row.__row, id, field: 'topic_tags', message: 'No topic_tags supplied; Pass Meter analytics will be less useful', severity: 'warning' });
     if (!str(row.explainer_text) && !str(row.explainer_audio)) add({ sheet: 'Questions', row: row.__row, id, field: 'explainer_text', message: 'No explanation text or audio supplied', severity: 'warning' });
     if (!str(row.similar_question_1) && !str(row.similar_question_2)) add({ sheet: 'Questions', row: row.__row, id, field: 'similar_question_1', message: 'No similar questions supplied', severity: 'warning' });
@@ -759,6 +770,10 @@ async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): P
   return urls;
 }
 
+function splitAccepted(value: unknown): string[] {
+  return str(value).split('|').map(item => item.trim()).filter(Boolean);
+}
+
 function importedAnswer(row: Row): unknown {
   const type = lower(row.type);
   const raw = str(row.correct_answer);
@@ -766,6 +781,14 @@ function importedAnswer(row: Row): unknown {
     const index = ['A', 'B', 'C', 'D'].indexOf(raw.toUpperCase());
     return index >= 0 ? index : raw;
   }
+  const spec = buildAnswerSpec({
+    answerType: str(row.answer_type),
+    correctAnswer: raw,
+    acceptedAnswers: splitAccepted(row.accepted_answers),
+    tolerancePct: str(row.tolerance_pct) === '' ? null : Number(row.tolerance_pct),
+    unit: str(row.unit),
+  });
+  if (spec) return spec;
   return raw || undefined;
 }
 
@@ -901,7 +924,8 @@ export async function commitGuuldoonImport(
     const options = [row.option_a, row.option_b, row.option_c, row.option_d].map(str).filter(value => value !== '');
     const type = lower(row.type);
     const answerStatus = lower(row.answer_status) === 'verified' ? 'verified' : 'pending';
-    const markingMode = answerStatus === 'verified' && ['mcq', 'fill'].includes(type) ? 'auto' : 'manual';
+    const answerKey = importedAnswer(row);
+    const markingMode = answerStatus === 'verified' && (['mcq', 'fill'].includes(type) || isAnswerSpec(answerKey)) ? 'auto' : 'manual';
     const figures = splitList(row.figure_files).map(name => figureUrls.get(path.basename(name).toLowerCase()) || '').filter(Boolean);
     const filter = existing ? { _id: existing._id } : { course: courseObjectId, externalId: id };
     await GuuldoonQuestion.updateOne(filter, { $set: {
@@ -923,7 +947,7 @@ export async function commitGuuldoonImport(
       chapterId: str(row.chapter_id),
       topicTags: [...new Set(splitList(row.topic_tags).map(normalizedTag).filter(Boolean))],
       resourceExternalId: str(row.resource_id),
-      answer: importedAnswer(row),
+      answer: answerKey,
       answerStatus,
       markingMode,
       explainerAudioUrl: str(row.explainer_audio),
@@ -999,8 +1023,8 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
     },
     {
       name: 'Questions',
-      headers: ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'],
-      example: ['example','PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','en','ltr','If $R = 5\\Omega$ and $I = 2A$, find $V$.','',2,'2V','5V','10V','20V','C','verified','ohms-law;resistance','circuit_01.png','PHY12_RES001','Use $V = IR$.','',10,12,'Ohm law states that voltage equals current multiplied by resistance.','direct','','',''],
+      headers: ['row_status','question_id','exam_id','chapter_id','parent_id','number','type','language','direction','text','text_en','marks','option_a','option_b','option_c','option_d','correct_answer','answer_type','accepted_answers','tolerance_pct','unit','answer_status','topic_tags','figure_files','resource_id','explainer_text','explainer_audio','book_page_from','book_page_to','book_anchor_text','book_relation','similar_question_1','similar_question_2','notes'],
+      example: ['example','PHY12_2021_Q01','PHY12_EX2021','PHY12_CH01','',1,'mcq','en','ltr','If $R = 5\\Omega$ and $I = 2A$, find $V$.','',2,'2V','5V','10V','20V','C','','','','','verified','ohms-law;resistance','circuit_01.png','PHY12_RES001','Use $V = IR$.','',10,12,'Ohm law states that voltage equals current multiplied by resistance.','direct','','',''],
     },
     {
       name: 'Glossary',

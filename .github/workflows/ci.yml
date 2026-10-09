@@ -122,6 +122,9 @@ jobs:
       - name: Guuldoon learning core regression
         run: npx ts-node --files src/__tests__/guuldoon-learning-core.e2e.ts
 
+      - name: Guuldoon deterministic marking engine
+        run: npx ts-node --files src/__tests__/guuldoon-marking.e2e.ts
+
       - name: Guuldoon universal Excel importer regression
         run: npx ts-node --files src/__tests__/guuldoon-universal-import.e2e.ts
 

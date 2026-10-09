@@ -19,6 +19,8 @@ import GuuldoonChapter from '../../models/guuldoon-chapter.model';
 import GuuldoonResource from '../../models/guuldoon-resource.model';
 import GuuldoonGlossary from '../../models/guuldoon-glossary.model';
 import GuuldoonSubject from '../../models/guuldoon-subject.model';
+import GuuldoonUnmatchedAnswer from '../../models/guuldoon-unmatched-answer.model';
+import { gradeAnswer, isAnswerSpec, isAutoMarkable, normalizeText } from '../../services/guuldoon-marking.service';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../../utils/api-error';
@@ -96,19 +98,6 @@ async function loadStudentAccess(req: Request, courseId: string, requireEnrollme
 async function loadAdminCourse(req: Request, courseId: string) {
   if (req.user?.role !== 'admin') throw new ForbiddenError('Super Admin access required');
   return loadGlobalCourse(courseId, false);
-}
-
-function normalizedAnswer(value: unknown): string {
-  if (typeof value === 'string') return value.trim().replace(/\s+/g, ' ').toLowerCase();
-  if (Array.isArray(value)) return JSON.stringify(value.map(item => typeof item === 'string' ? item.trim().toLowerCase() : item));
-  if (value && typeof value === 'object') {
-    const ordered = Object.keys(value as Record<string, unknown>).sort().reduce<Record<string, unknown>>((acc, key) => {
-      acc[key] = (value as Record<string, unknown>)[key];
-      return acc;
-    }, {});
-    return JSON.stringify(ordered);
-  }
-  return JSON.stringify(value);
 }
 
 function safeQuestion(question: any) {
@@ -518,9 +507,10 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
   if (!publishedExam) throw new NotFoundError('Guuldoon question');
   const submitted = req.body?.answer;
   const timeMs = Math.max(0, Math.min(60 * 60 * 1000, Number(req.body?.timeMs) || 0));
-  const markingMode = question.markingMode || (['mcq', 'fill'].includes(question.type) ? 'auto' : 'manual');
-  const marked = question.answerStatus === 'verified' && markingMode === 'auto' && question.answer !== undefined;
-  const correct = marked ? normalizedAnswer(submitted) === normalizedAnswer(question.answer) : null;
+  const markingMode = question.markingMode || (isAutoMarkable(question.type, question.answer) ? 'auto' : 'manual');
+  const marked = question.answerStatus === 'verified' && markingMode === 'auto' && isAutoMarkable(question.type, question.answer);
+  const grade = marked ? gradeAnswer(question.type, question.answer, submitted) : null;
+  const correct = grade ? grade.correct : null;
 
   await GuuldoonAttempt.create({
     user: req.user!.userId,
@@ -532,6 +522,10 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     answer: submitted,
     timeMs,
   });
+
+  if (marked && correct === false && isAnswerSpec(question.answer) && question.answer.kind === 'text') {
+    await recordUnmatchedAnswer(String(course._id), String(question._id), submitted);
+  }
 
   if (marked && correct === false) {
     await GuuldoonMistake.findOneAndUpdate(
@@ -564,6 +558,7 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
   return ApiResponse.success(res, {
     marked,
     correct,
+    reason: grade && !grade.correct ? grade.reason : undefined,
     answerStatus: question.answerStatus,
     markingMode,
     explanation: question.explainerText || '',
@@ -706,6 +701,68 @@ router.get('/admin/exams/:examId/questions', asyncHandler(async (req, res) => {
   return ApiResponse.success(res, questions);
 }));
 
+async function recordUnmatchedAnswer(courseId: string, questionId: string, submitted: unknown) {
+  const normalized = normalizeText(submitted).slice(0, 200);
+  if (!normalized) return;
+  try {
+    await GuuldoonUnmatchedAnswer.updateOne(
+      { question: questionId, normalized },
+      {
+        $setOnInsert: { course: courseId, sample: String(submitted).trim().slice(0, 200), status: 'pending' },
+        $inc: { count: 1 },
+        $set: { lastSeenAt: new Date() },
+      },
+      { upsert: true },
+    );
+  } catch {
+    // Learning the answer list is best-effort and must never block marking.
+  }
+}
+
+router.get('/admin/courses/:courseId/unmatched-answers', asyncHandler(async (req, res) => {
+  const course = await loadAdminCourse(req, req.params.courseId);
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
+  const rows = await GuuldoonUnmatchedAnswer.find({ course: course._id, status: 'pending' })
+    .sort({ count: -1, lastSeenAt: -1 })
+    .limit(limit)
+    .populate('question', 'textSo textEn externalId number chapterId')
+    .lean();
+  return ApiResponse.success(res, rows.map((row: any) => ({
+    id: String(row._id),
+    answer: row.sample,
+    count: row.count,
+    lastSeenAt: row.lastSeenAt,
+    question: row.question ? { id: String(row.question._id), externalId: row.question.externalId || '', number: row.question.number, text: row.question.textSo, chapterId: row.question.chapterId } : null,
+  })));
+}));
+
+router.post('/admin/unmatched-answers/:id/:decision', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin') throw new ForbiddenError('Super Admin access required');
+  const decision = req.params.decision;
+  if (!['accept', 'reject'].includes(decision)) throw new BadRequestError('Decision must be accept or reject');
+  const row = await GuuldoonUnmatchedAnswer.findById(objectId(req.params.id, 'unmatched answer ID'));
+  if (!row) throw new NotFoundError('Unmatched answer');
+  if (row.status !== 'pending') throw new ConflictError('This answer was already reviewed');
+  if (decision === 'accept') {
+    const question = await GuuldoonQuestion.findById(row.question).select('+answer');
+    if (!question) throw new NotFoundError('Guuldoon question');
+    const current: unknown = question.answer;
+    if (!(isAnswerSpec(current) && current.kind === 'text') && !(typeof current === 'string' && question.type === 'fill')) {
+      throw new BadRequestError('Only text answer keys can accept extra answers');
+    }
+    const accepted = isAnswerSpec(current) && current.kind === 'text' ? current.accepted : [String(current)];
+    if (!accepted.some(item => normalizeText(item) === row.normalized)) accepted.push(row.sample);
+    question.answer = { kind: 'text', accepted };
+    question.markModified('answer');
+    await question.save();
+  }
+  row.status = decision === 'accept' ? 'accepted' : 'rejected';
+  row.decidedBy = new mongoose.Types.ObjectId(req.user!.userId);
+  row.decidedAt = new Date();
+  await row.save();
+  return ApiResponse.success(res, { id: String(row._id), status: row.status }, decision === 'accept' ? 'Answer accepted' : 'Answer rejected');
+}));
+
 router.post('/admin/exams/:examId/questions/bulk', asyncHandler(async (req, res) => {
   if (req.user?.role !== 'admin') throw new ForbiddenError('Super Admin access required');
   const exam = await GuuldoonExam.findById(objectId(req.params.examId, 'exam ID')).lean();
@@ -724,8 +781,8 @@ router.post('/admin/exams/:examId/questions/bulk', asyncHandler(async (req, res)
     if (!String(row.textSo || '').trim()) throw new BadRequestError(`Question ${number}: Somali question text required`);
     if (!validChapters.has(chapterId)) throw new BadRequestError(`Question ${number}: chapterId does not exist in this course`);
     const answerStatus = row.answerStatus === 'verified' ? 'verified' : 'pending';
-    const markingMode = answerStatus === 'verified' && ['mcq', 'fill'].includes(type) ? 'auto' : 'manual';
-    if (answerStatus === 'verified' && markingMode === 'auto' && row.answer === undefined) throw new BadRequestError(`Question ${number}: verified auto-marked questions require an answer`);
+    const markingMode = answerStatus === 'verified' && isAutoMarkable(type, row.answer) ? 'auto' : 'manual';
+    if (answerStatus === 'verified' && ['mcq', 'fill'].includes(type) && row.answer === undefined) throw new BadRequestError(`Question ${number}: verified auto-marked questions require an answer`);
 
     return {
       updateOne: {
