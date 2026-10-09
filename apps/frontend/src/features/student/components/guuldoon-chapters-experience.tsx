@@ -210,15 +210,15 @@ function HighlightedText({ text, highlights, visible, onOpen }: {
   return <>{output}</>;
 }
 
-const ANSWER_PATTERN = /\s*\((?:Answers?|Ans)[:.]\s*([\s\S]+)\)\s*$/i;
+const ANSWER_PATTERN = /\s*\((Answers?|Ans|Solution)[:.]\s*([\s\S]+)\)\s*$/i;
 
-function splitAnswer(text: string): { question: string; answer: string } {
+function splitAnswer(text: string): { question: string; answer: string; fromBook: boolean } {
   const match = ANSWER_PATTERN.exec(text);
-  if (!match) return { question: text, answer: '' };
-  return { question: text.slice(0, match.index).trim(), answer: match[1].trim() };
+  if (!match) return { question: text, answer: '', fromBook: false };
+  return { question: text.slice(0, match.index).trim(), answer: match[2].trim(), fromBook: match[1].toLowerCase() !== 'solution' };
 }
 
-function AnswerReveal({ answer }: { answer: string }) {
+function AnswerReveal({ answer, fromBook }: { answer: string; fromBook: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <span className="mt-1.5 block">
@@ -227,7 +227,7 @@ function AnswerReveal({ answer }: { answer: string }) {
       </button>
       {open && (
         <span className="mt-2 block rounded-xl border-l-4 border-emerald-500 bg-emerald-500/10 px-3 py-2 text-sm font-semibold">
-          <span className="block text-[10px] font-black uppercase tracking-wide text-emerald-600">Jawaabta buugga</span>
+          <span className="block text-[10px] font-black uppercase tracking-wide text-emerald-600">{fromBook ? 'Jawaabta buugga' : 'Jawaabta'}</span>
           <FormulaText text={answer} />
         </span>
       )}
@@ -239,14 +239,15 @@ function InlineFigure({ src, caption }: { src: string; caption: string }) {
   const [open, setOpen] = useState(false);
   const [zoom, setZoom] = useState(false);
   return (
-    <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3">
+    <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-2.5">
       <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-2 text-left text-sm font-black text-sky-500">
         <ImageIcon size={16} aria-hidden="true" />
         <span className="flex-1">{open ? 'Qari sawirka' : 'Muuji sawirka'}{caption ? ' · ' + caption : ''}</span>
       </button>
       {open && (
-        <button type="button" onClick={() => setZoom(true)} className="mt-3 block w-full overflow-hidden rounded-xl bg-white" aria-label={'Weyneey sawirka ' + caption}>
-          <img src={src} alt={caption} loading="lazy" className="mx-auto w-full" />
+        <button type="button" onClick={() => setZoom(true)} className="mt-3 block w-full overflow-hidden rounded-xl bg-white shadow-sm" aria-label={'Taabo si aad u weyneyso sawirka ' + caption}>
+          <img src={src} alt={caption} loading="lazy" className="mx-auto min-h-40 w-full object-contain" />
+          <span className="block bg-sky-500/10 py-1 text-center text-[11px] font-bold text-sky-500">Taabo si aad u weyneyso</span>
         </button>
       )}
       {zoom && (
@@ -314,18 +315,22 @@ function LessonBody({ content, highlights, visible, onOpen }: {
       {blocks.map((block, index) => {
         if (block.kind === 'h2') return <h4 key={index} className="mt-8 flex items-center gap-2 border-b border-emerald-500/30 pb-2 text-lg font-black text-emerald-600 first:mt-0 sm:text-xl"><span className="h-5 w-1.5 rounded-full bg-emerald-500" />{inline(block.text)}</h4>;
         if (block.kind === 'h3') return <h5 key={index} className="mt-5 text-base font-black text-[var(--color-text-primary)] sm:text-lg">{inline(block.text)}</h5>;
-        if (block.kind === 'p') { const { question, answer } = splitAnswer(block.text); return <p key={index}>{inline(question)}{answer && <AnswerReveal answer={answer} />}</p>; }
-        if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span>{(() => { const { question, answer } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} />}</>; })()}</span></li>)}</ul>;
-        if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span>{(() => { const { question, answer } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} />}</>; })()}</span></li>)}</ol>;
+        if (block.kind === 'p') { const { question, answer, fromBook } = splitAnswer(block.text); return <p key={index}>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</p>; }
+        if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span>{(() => { const { question, answer, fromBook } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</>; })()}</span></li>)}</ul>;
+        if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span>{(() => { const { question, answer, fromBook } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</>; })()}</span></li>)}</ol>;
         if (block.tag === 'figure' && block.lines[0]) return <InlineFigure key={index} src={block.lines[0].trim()} caption={block.title} />;
         const meta = calloutMeta[block.tag] || calloutMeta.note;
         return (
           <aside key={index} className={'rounded-2xl border-l-4 p-4 ' + meta.className}>
             <p className="mb-2 text-xs font-black uppercase tracking-wide"><span aria-hidden="true">{meta.icon} </span>{meta.label}{block.title ? ' · ' + block.title : ''}</p>
             <div className="space-y-1.5">
-              {block.lines.map((line, i) => line.startsWith('- ')
-                ? <p key={i} className="flex gap-2"><span aria-hidden="true">•</span><span>{inline(line.slice(2))}</span></p>
-                : <p key={i} className={block.tag === 'formula' ? 'font-mono text-[.95em]' : ''} dir={block.tag === 'formula' ? 'ltr' : undefined}>{inline(line)}</p>)}
+              {block.lines.map((line, i) => {
+                const bullet = line.startsWith('- ');
+                const { question, answer, fromBook } = block.tag === 'formula' ? { question: line, answer: '', fromBook: false } : splitAnswer(bullet ? line.slice(2) : line);
+                return bullet
+                  ? <p key={i} className="flex gap-2"><span aria-hidden="true">•</span><span>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</span></p>
+                  : <p key={i} className={block.tag === 'formula' ? 'font-mono text-[.95em]' : ''} dir={block.tag === 'formula' ? 'ltr' : undefined}>{inline(question)}{answer && <AnswerReveal answer={answer} fromBook={fromBook} />}</p>;
+              })}
             </div>
           </aside>
         );
