@@ -9,6 +9,7 @@ export interface IGuuldoonAttempt extends Document {
   correct: boolean | null;
   answer: unknown;
   timeMs: number;
+  retry?: boolean;
   createdAt: Date;
 }
 
@@ -21,6 +22,7 @@ const schema = new Schema<IGuuldoonAttempt>({
   correct: { type: Boolean, default: null },
   answer: { type: Schema.Types.Mixed, default: null },
   timeMs: { type: Number, min: 0, max: 60 * 60 * 1000, default: 0 },
+  retry: { type: Boolean, default: false },
 }, { timestamps: { createdAt: true, updatedAt: false } });
 
 schema.index({ user: 1, course: 1, createdAt: -1 });
