@@ -235,28 +235,24 @@ function AnswerReveal({ answer }: { answer: string }) {
   );
 }
 
-function LessonFigures({ figures }: { figures: string[] }) {
+function InlineFigure({ src, caption }: { src: string; caption: string }) {
   const [open, setOpen] = useState(false);
-  const [zoom, setZoom] = useState<string | null>(null);
-  if (!figures.length) return null;
+  const [zoom, setZoom] = useState(false);
   return (
-    <div className="mt-4">
-      <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="inline-flex items-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 px-3.5 py-2 text-xs font-black text-sky-500">
-        <ImageIcon size={14} /> {open ? 'Qari sawirada buugga' : 'Sawirada buugga (' + figures.length + ' bog)'}
+    <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3">
+      <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-2 text-left text-sm font-black text-sky-500">
+        <ImageIcon size={16} aria-hidden="true" />
+        <span className="flex-1">{open ? 'Qari sawirka' : 'Muuji sawirka'}{caption ? ' · ' + caption : ''}</span>
       </button>
       {open && (
-        <div className="mt-3 grid gap-3">
-          {figures.map((figure, index) => (
-            <button key={figure} type="button" onClick={() => setZoom(figure)} className="overflow-hidden rounded-2xl border bg-white text-left" aria-label={'Fur sawirka ' + (index + 1)}>
-              <img src={figure} alt={'Bog buugga ' + (index + 1)} loading="lazy" className="w-full" />
-            </button>
-          ))}
-        </div>
+        <button type="button" onClick={() => setZoom(true)} className="mt-3 block w-full overflow-hidden rounded-xl bg-white" aria-label={'Weyneey sawirka ' + caption}>
+          <img src={src} alt={caption} loading="lazy" className="mx-auto w-full" />
+        </button>
       )}
       {zoom && (
-        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[80] overflow-auto bg-black/90 p-3" onClick={() => setZoom(null)}>
-          <button type="button" className="fixed right-3 top-3 z-[81] rounded-full bg-white px-4 py-2 text-sm font-black text-black" onClick={() => setZoom(null)}>Xidh</button>
-          <img src={zoom} alt="" className="mx-auto mt-12 w-[220%] max-w-none sm:w-full sm:max-w-3xl" onClick={event => event.stopPropagation()} />
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[80] overflow-auto bg-black/90 p-3" onClick={() => setZoom(false)}>
+          <button type="button" className="fixed right-3 top-3 z-[81] rounded-full bg-white px-4 py-2 text-sm font-black text-black" onClick={() => setZoom(false)}>Xidh</button>
+          <img src={src} alt={caption} className="mx-auto mt-14 w-[200%] max-w-none sm:w-full sm:max-w-3xl" onClick={event => event.stopPropagation()} />
         </div>
       )}
     </div>
@@ -321,6 +317,7 @@ function LessonBody({ content, highlights, visible, onOpen }: {
         if (block.kind === 'p') { const { question, answer } = splitAnswer(block.text); return <p key={index}>{inline(question)}{answer && <AnswerReveal answer={answer} />}</p>; }
         if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span>{(() => { const { question, answer } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} />}</>; })()}</span></li>)}</ul>;
         if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span>{(() => { const { question, answer } = splitAnswer(item); return <>{inline(question)}{answer && <AnswerReveal answer={answer} />}</>; })()}</span></li>)}</ol>;
+        if (block.tag === 'figure' && block.lines[0]) return <InlineFigure key={index} src={block.lines[0].trim()} caption={block.title} />;
         const meta = calloutMeta[block.tag] || calloutMeta.note;
         return (
           <aside key={index} className={'rounded-2xl border-l-4 p-4 ' + meta.className}>
@@ -702,8 +699,6 @@ export function GuuldoonChaptersExperience({
                     <span key={relation} className={'rounded-full px-2.5 py-1 ' + relationMeta[relation].className}>{relationMeta[relation].label}</span>
                   ))}
                 </div>
-
-                <LessonFigures key={section.id} figures={section.figureFiles || []} />
 
                 <div dir={section.direction === 'rtl' || section.language === 'ar' ? 'rtl' : section.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-5">
                   <LessonBody content={section.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={section.highlights || []} visible={highlightsVisible} onOpen={setHighlightPopup} />

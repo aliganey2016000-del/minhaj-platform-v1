@@ -778,6 +778,17 @@ async function persistFigures(courseId: string, parsed: ParsedGuuldoonImport): P
   return urls;
 }
 
+// Lesson text references figures by ZIP filename; swap them for the stored URLs.
+function inlineFigureUrls(content: string, names: string[], urls: Map<string, string>): string {
+  let result = content;
+  for (const name of names) {
+    const base = path.basename(name);
+    const url = urls.get(base.toLowerCase());
+    if (url) result = result.split(base).join(url);
+  }
+  return result;
+}
+
 function splitAccepted(value: unknown): string[] {
   return str(value).split('|').map(item => item.trim()).filter(Boolean);
 }
@@ -907,7 +918,7 @@ export async function commitGuuldoonImport(
         language: lower(row.language),
         direction: lower(row.direction),
         offlineAvailable: bool(row.offline_available),
-        contentText: str(row.content_text),
+        contentText: inlineFigureUrls(str(row.content_text), splitList(row.figure_files), figureUrls),
         figureFiles: splitList(row.figure_files).map(name => figureUrls.get(path.basename(name).toLowerCase()) || '').filter(Boolean),
       } },
       { upsert: true },
