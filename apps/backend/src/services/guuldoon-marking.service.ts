@@ -80,11 +80,15 @@ function spellingLimit(length: number): number {
   return 0;
 }
 
+function stripArticle(value: string): string {
+  return value.replace(/^(?:the|a|an)\s+(?=\S)/, '');
+}
+
 export function gradeText(submitted: unknown, accepted: string[]): GradeResult {
-  const answer = normalizeText(submitted);
+  const answer = stripArticle(normalizeText(submitted));
   if (!answer) return { correct: false, reason: 'empty' };
   for (const candidate of accepted) {
-    const expected = normalizeText(candidate);
+    const expected = stripArticle(normalizeText(candidate));
     if (!expected) continue;
     if (answer === expected) return { correct: true };
     // Numbers must match exactly; spelling tolerance is for words only.
@@ -108,7 +112,7 @@ function plainDigits(value: string): string {
 function toDecimal(raw: string): number {
   let text = raw.replace(/\s+/g, '');
   if (text.includes('.') && text.includes(',')) text = text.replace(/,/g, '');
-  else if (text.includes(',')) text = /^\d{1,3}(,\d{3})+$/.test(text) ? text.replace(/,/g, '') : text.replace(',', '.');
+  else if (text.includes(',')) text = /^[1-9]\d{0,2}(,\d{3})+$/.test(text) ? text.replace(/,/g, '') : text.replace(',', '.');
   return Number(text);
 }
 
@@ -176,7 +180,7 @@ export function gradeNumeric(submitted: unknown, spec: NumericAnswerSpec): Grade
   if (!String(submitted ?? '').trim()) return { correct: false, reason: 'empty' };
   if (!parsed) return { correct: false, reason: 'unparsable' };
   const pct = spec.tolerancePct ?? DEFAULT_TOLERANCE_PCT;
-  const allowed = Math.max(Math.abs(spec.value) * pct / 100, spec.toleranceAbs ?? 0, 1e-9);
+  const allowed = Math.max(Math.abs(spec.value) * pct / 100, spec.toleranceAbs ?? 0, Math.abs(spec.value) * 1e-9, Number.MIN_VALUE);
   if (Math.abs(parsed.value - spec.value) > allowed) return { correct: false, reason: 'value' };
   // A unit is checked only when the key defines one and the student wrote one.
   if (spec.unit && parsed.rest && normalizeUnit(parsed.rest) !== normalizeUnit(spec.unit)) return { correct: false, reason: 'unit' };
