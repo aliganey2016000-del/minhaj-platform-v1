@@ -239,14 +239,15 @@ function InlineFigure({ src, caption }: { src: string; caption: string }) {
   const [open, setOpen] = useState(false);
   const [zoom, setZoom] = useState(false);
   return (
-    <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3">
+    <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-2.5">
       <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-2 text-left text-sm font-black text-sky-500">
         <ImageIcon size={16} aria-hidden="true" />
         <span className="flex-1">{open ? 'Qari sawirka' : 'Muuji sawirka'}{caption ? ' · ' + caption : ''}</span>
       </button>
       {open && (
-        <button type="button" onClick={() => setZoom(true)} className="mt-3 block w-full overflow-hidden rounded-xl bg-white" aria-label={'Weyneey sawirka ' + caption}>
-          <img src={src} alt={caption} loading="lazy" className="mx-auto w-full" />
+        <button type="button" onClick={() => setZoom(true)} className="mt-3 block w-full overflow-hidden rounded-xl bg-white shadow-sm" aria-label={'Taabo si aad u weyneyso sawirka ' + caption}>
+          <img src={src} alt={caption} loading="lazy" className="mx-auto min-h-40 w-full object-contain" />
+          <span className="block bg-sky-500/10 py-1 text-center text-[11px] font-bold text-sky-500">Taabo si aad u weyneyso</span>
         </button>
       )}
       {zoom && (
@@ -323,9 +324,13 @@ function LessonBody({ content, highlights, visible, onOpen }: {
           <aside key={index} className={'rounded-2xl border-l-4 p-4 ' + meta.className}>
             <p className="mb-2 text-xs font-black uppercase tracking-wide"><span aria-hidden="true">{meta.icon} </span>{meta.label}{block.title ? ' · ' + block.title : ''}</p>
             <div className="space-y-1.5">
-              {block.lines.map((line, i) => line.startsWith('- ')
-                ? <p key={i} className="flex gap-2"><span aria-hidden="true">•</span><span>{inline(line.slice(2))}</span></p>
-                : <p key={i} className={block.tag === 'formula' ? 'font-mono text-[.95em]' : ''} dir={block.tag === 'formula' ? 'ltr' : undefined}>{inline(line)}</p>)}
+              {block.lines.map((line, i) => {
+                const bullet = line.startsWith('- ');
+                const { question, answer } = block.tag === 'formula' ? { question: line, answer: '' } : splitAnswer(bullet ? line.slice(2) : line);
+                return bullet
+                  ? <p key={i} className="flex gap-2"><span aria-hidden="true">•</span><span>{inline(question)}{answer && <AnswerReveal answer={answer} />}</span></p>
+                  : <p key={i} className={block.tag === 'formula' ? 'font-mono text-[.95em]' : ''} dir={block.tag === 'formula' ? 'ltr' : undefined}>{inline(question)}{answer && <AnswerReveal answer={answer} />}</p>;
+              })}
             </div>
           </aside>
         );
