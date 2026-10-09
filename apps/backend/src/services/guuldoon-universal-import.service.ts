@@ -396,6 +396,7 @@ export async function parseAndValidateGuuldoonImport(
     if (!(Number(row.duration_min) > 0)) add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'duration_min', message: 'duration_min must be greater than 0', severity: 'error' });
     if (!(Number(row.total_marks) > 0)) add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'total_marks', message: 'total_marks must be greater than 0', severity: 'error' });
     enumValue('Exams', row, 'answer_key_status', lists.answerStatus, SERVER_ANSWER_STATUS);
+    if (str(row.kind) && !['past', 'practice'].includes(lower(row.kind))) add({ sheet: 'Exams', row: row.__row, id: rowId('Exams', row), field: 'kind', message: 'kind must be past or practice', severity: 'error' });
   }
 
   for (const row of rows.Resources) {
@@ -450,6 +451,12 @@ export async function parseAndValidateGuuldoonImport(
       const optionIndex = ['A', 'B', 'C', 'D'].indexOf(answer.toUpperCase());
       const optionField = ['option_a', 'option_b', 'option_c', 'option_d'][optionIndex];
       if (optionIndex >= 0 && !str(row[optionField])) add({ sheet: 'Questions', row: row.__row, id, field: optionField, message: `${optionField} is required because it is the verified answer`, severity: 'error' });
+    }
+    if (type === 'match') {
+      const pairs = [row.option_a, row.option_b, row.option_c, row.option_d].map(str).filter(Boolean);
+      if (pairs.length && (pairs.length < 2 || pairs.some(pair => pair.split(' :: ').length !== 2 || pair.split(' :: ').some(part => !part.trim())))) {
+        add({ sheet: 'Questions', row: row.__row, id, field: 'option_a', message: 'Matching options must be 2-4 pairs written as "left :: right"', severity: 'error' });
+      }
     }
     const answerType = lower(row.answer_type);
     const acceptedAnswers = splitAccepted(row.accepted_answers);
@@ -808,6 +815,19 @@ function inlineFigureUrls(content: string, names: string[], urls: Map<string, st
   return result;
 }
 
+// "left :: right" pairs -> shuffled options ("L|left" items first, then "R|right" items)
+// plus an answer key that lists, for each left item, the index of its right item.
+function buildMatching(questionId: string, pairs: string[]): { options: string[]; answer: number[] } | null {
+  const parsed = pairs.map(pair => pair.split(' :: ').map(part => part.trim()));
+  if (parsed.length < 2 || parsed.some(pair => pair.length !== 2 || !pair[0] || !pair[1])) return null;
+  const order = parsed
+    .map((pair, index) => ({ index, key: crypto.createHash('sha256').update(questionId + '|' + pair[1]).digest('hex') }))
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map(item => item.index);
+  const answer = parsed.map((_pair, leftIndex) => order.indexOf(leftIndex));
+  return { options: [...parsed.map(pair => 'L|' + pair[0]), ...order.map(index => 'R|' + parsed[index][1])], answer };
+}
+
 function splitAccepted(value: unknown): string[] {
   return str(value).split('|').map(item => item.trim()).filter(Boolean);
 }
@@ -915,6 +935,7 @@ export async function commitGuuldoonImport(
       notes: str(row.notes),
       answerKeyStatus: lower(row.answer_key_status) === 'verified' ? 'verified' : 'pending',
       published: bool(row.published),
+      kind: lower(row.kind) === 'practice' ? 'practice' : 'past',
     } }, { upsert: !existing });
     return wasExisting ? 'updated' : 'created';
   });
@@ -960,11 +981,13 @@ export async function commitGuuldoonImport(
       existing = byNumber;
     }
     const wasExisting = !!existing;
-    const options = [row.option_a, row.option_b, row.option_c, row.option_d].map(str).filter(value => value !== '');
+    let options = [row.option_a, row.option_b, row.option_c, row.option_d].map(str).filter(value => value !== '');
     const type = lower(row.type);
+    const matching = type === 'match' ? buildMatching(id, options) : null;
+    if (matching) options = matching.options;
     const answerStatus = lower(row.answer_status) === 'verified' ? 'verified' : 'pending';
-    const answerKey = importedAnswer(row);
-    const markingMode = answerStatus === 'verified' && (['mcq', 'fill'].includes(type) || isAnswerSpec(answerKey)) ? 'auto' : 'manual';
+    const answerKey = matching ? matching.answer : importedAnswer(row);
+    const markingMode = answerStatus === 'verified' && (['mcq', 'fill'].includes(type) || isAnswerSpec(answerKey) || !!matching) ? 'auto' : 'manual';
     const figures = splitList(row.figure_files).map(name => figureUrls.get(path.basename(name).toLowerCase()) || '').filter(Boolean);
     const filter = existing ? { _id: existing._id } : { course: courseObjectId, externalId: id };
     await GuuldoonQuestion.updateOne(filter, { $set: {
@@ -1052,8 +1075,8 @@ export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
     },
     {
       name: 'Exams',
-      headers: ['row_status','exam_id','subject_id','year','duration_min','total_marks','source','answer_key_status','published','notes'],
-      example: ['example','PHY12_EX2021','PHY12',2021,120,100,'National exam','verified',true,'Official key checked'],
+      headers: ['row_status','exam_id','subject_id','year','duration_min','total_marks','source','answer_key_status','published','notes','kind'],
+      example: ['example','PHY12_EX2021','PHY12',2021,120,100,'National exam','verified',true,'Official key checked','past'],
     },
     {
       name: 'Resources',

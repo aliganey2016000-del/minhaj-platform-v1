@@ -11,6 +11,7 @@ export interface IGuuldoonPastExam extends Document {
   notes?: string;
   answerKeyStatus: 'verified' | 'pending';
   published: boolean;
+  kind: 'past' | 'practice';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,6 +27,7 @@ const schema = new Schema<IGuuldoonPastExam>({
   notes: { type: String, default: '' },
   answerKeyStatus: { type: String, enum: ['verified', 'pending'], default: 'pending', index: true },
   published: { type: Boolean, default: false, index: true },
+  kind: { type: String, enum: ['past', 'practice'], default: 'past', index: true },
 }, { timestamps: true });
 
 schema.index({ course: 1, year: 1 }, { unique: true });

@@ -203,6 +203,7 @@ function legacyKey(value: unknown): string {
 export function isAutoMarkable(type: string, answer: unknown): boolean {
   if (answer === undefined || answer === null || answer === '') return false;
   if (isAnswerSpec(answer)) return true;
+  if (type === 'match') return Array.isArray(answer) && answer.length >= 2 && answer.every(item => Number.isInteger(item));
   return type === 'mcq' || type === 'fill';
 }
 
@@ -238,4 +239,24 @@ export function buildAnswerSpec(input: {
     return accepted.length ? { kind: 'text', accepted: [...new Set(accepted)] } : undefined;
   }
   return undefined;
+}
+
+/** Human-readable correct answer for display after the student answers or asks to see it. */
+export function describeAnswer(type: string, key: unknown, options?: string[]): string {
+  if (key === undefined || key === null || key === '') return '';
+  if (isAnswerSpec(key)) {
+    if (key.kind === 'numeric') return `${key.value}${key.unit ? ' ' + key.unit : ''}`;
+    return key.accepted[0] || '';
+  }
+  if (type === 'mcq') {
+    const index = typeof key === 'number' ? key : ['A', 'B', 'C', 'D'].indexOf(String(key).trim().toUpperCase());
+    const text = index >= 0 && options?.[index] ? options[index] : '';
+    return index >= 0 && text ? `${String.fromCharCode(65 + index)}. ${text}` : String(key);
+  }
+  if (type === 'match' && Array.isArray(key) && options) {
+    const lefts = options.filter(item => item.startsWith('L|')).map(item => item.slice(2));
+    const rights = options.filter(item => item.startsWith('R|')).map(item => item.slice(2));
+    return key.map((rightIndex, index) => `${index + 1}. ${lefts[index] ?? ''} → ${rights[Number(rightIndex)] ?? ''}`).join('\n');
+  }
+  return typeof key === 'string' ? key : JSON.stringify(key);
 }

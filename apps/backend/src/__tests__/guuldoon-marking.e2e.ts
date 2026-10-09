@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   buildAnswerSpec,
+  describeAnswer,
   gradeAnswer,
   gradeNumeric,
   gradeText,
@@ -100,3 +101,13 @@ assert.equal(gradeText('An alpha particle', ['alpha particle']).correct, true);
 assert.equal(gradeText('theory', ['Violet']).correct, false);
 
 console.log('Guuldoon deterministic marking engine: numeric, units, text, Arabic, legacy keys and importer keys passed.');
+
+// Matching answers: index list per left item; displayed as pairs.
+assert.equal(isAutoMarkable('match', [1, 0, 2]), true);
+assert.equal(isAutoMarkable('match', 'free text'), false);
+assert.equal(gradeAnswer('match', [1, 0, 2], [1, 0, 2]).correct, true);
+assert.equal(gradeAnswer('match', [1, 0, 2], [0, 1, 2]).correct, false);
+assert.equal(describeAnswer('mcq', 1, ['x', 'y']), 'B. y');
+assert.equal(describeAnswer('match', [1, 0], ['L|a', 'L|b', 'R|p', 'R|q']), '1. a → q\n2. b → p');
+assert.equal(describeAnswer('fill', { kind: 'numeric', value: 5, unit: 'm' }), '5 m');
+console.log('guuldoon matching ok');
