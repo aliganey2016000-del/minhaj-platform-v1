@@ -574,7 +574,7 @@ export function GuuldoonChaptersExperience({
                   ))}
                 </div>
 
-                <div dir={section.direction === 'rtl' || section.language === 'ar' ? 'rtl' : section.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-5 whitespace-pre-wrap text-[15px] leading-8 text-[var(--color-text-primary)] sm:text-base">
+                <div dir={section.direction === 'rtl' || section.language === 'ar' ? 'rtl' : section.direction === 'ltr' ? 'ltr' : 'auto'} className="mt-5 whitespace-pre-wrap text-[15px] leading-7 [overflow-wrap:anywhere] text-[var(--color-text-primary)] sm:text-base">
                   <HighlightedText text={section.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={section.highlights || []} visible={highlightsVisible} onOpen={setHighlightPopup} />
                 </div>
 
