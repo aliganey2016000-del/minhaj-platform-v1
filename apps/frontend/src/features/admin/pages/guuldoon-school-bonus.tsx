@@ -4,7 +4,8 @@
  * School administrator (org_admin): their own school's students and bonus.
  * The server enforces access; the role checks here only choose what to show.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -134,43 +135,92 @@ function RateCell({ school, maxRate, onSaved }: { school: Summary; maxRate: numb
 }
 
 const GUULDOON_GRADES = [8, 12];
+const gradeCount = (school: Summary, grade: number) => (grade === 8 ? school.grade8Students : school.grade12Students);
 const gradeBreakdown = (school: Summary) => school.grades.map((grade) => `G${grade}: ${grade === 8 ? school.grade8Students : school.grade12Students}`).join(' · ');
 
 /**
- * Which grades the school uses Guuldoon for, as checkboxes: tick the grades the school wants,
- * leave the others unticked. Students and the bonus count only the ticked grades.
- * Guuldoon is available for Grade 8 and Grade 12, so "all grades" means both.
+ * The Arday cell: shows the total students of the selected grades. Clicking it opens a menu with
+ * "Dhammaan" and each grade with its student count; tick the grades the school wants and press OK.
+ * Students and the bonus then count only the ticked grades. Guuldoon is available for Grade 8 and 12.
  */
-function GradesCell({ school, onSaved }: { school: Summary; onSaved: () => void }) {
+function StudentsCell({ school, onSaved }: { school: Summary; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<number[]>(school.grades);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const allSelected = GUULDOON_GRADES.every((grade) => school.grades.includes(grade));
-  const save = async (grades: number[]) => {
-    if (grades.length === 0) { setError('Dooro ugu yaraan hal fasal.'); return; }
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+
+  const close = useCallback(() => setOpen(false), []);
+  useEffect(() => {
+    if (!open) return undefined;
+    const outside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!panel.current?.contains(target) && !trigger.current?.contains(target)) close();
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
+    document.addEventListener('mousedown', outside);
+    document.addEventListener('keydown', escape);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('mousedown', outside);
+      document.removeEventListener('keydown', escape);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [open, close]);
+
+  const openMenu = () => {
+    const rect = trigger.current?.getBoundingClientRect();
+    if (rect) setPos({ top: rect.bottom + 6, left: Math.max(8, Math.min(rect.right - 288, window.innerWidth - 296)) });
+    setDraft(school.grades); setError(''); setOpen(true);
+  };
+  const allSelected = GUULDOON_GRADES.every((grade) => draft.includes(grade));
+  const draftTotal = draft.reduce((total, grade) => total + gradeCount(school, grade), 0);
+  const confirm = async () => {
+    if (draft.length === 0) { setError('Dooro ugu yaraan hal fasal.'); return; }
+    const next = GUULDOON_GRADES.filter((grade) => draft.includes(grade));
+    if (next.join() === school.grades.join()) { close(); return; }
     setBusy(true); setError('');
-    try { await api.patch(`/guuldoon-school-bonus/schools/${school.schoolId}/grades`, { grades }); onSaved(); }
+    try { await api.patch(`/guuldoon-school-bonus/schools/${school.schoolId}/grades`, { grades: next }); close(); onSaved(); }
     catch (err: unknown) { setError(errorText(err, 'Unable to save the grades.')); }
     finally { setBusy(false); }
   };
-  const toggle = (grade: number) => void save(GUULDOON_GRADES.filter((item) => (item === grade ? !school.grades.includes(grade) : school.grades.includes(item))));
   const box = 'h-4 w-4 accent-primary-600';
+  const row = 'flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--color-surface-secondary)]';
   return (
-    <fieldset disabled={busy} className="flex flex-col items-end gap-1.5">
-      <legend className="sr-only">Fasalada - {school.name}</legend>
-      <span className="font-medium tabular-nums">{school.students}</span>
-      <label className="flex items-center gap-2 text-xs font-semibold">
-        <input type="checkbox" className={box} checked={allSelected} disabled={allSelected || busy} onChange={() => void save([...GUULDOON_GRADES])} />
-        Dhammaan fasalada
-      </label>
-      {GUULDOON_GRADES.map((grade) => (
-        <label key={grade} className="flex items-center gap-2 text-xs">
-          <input type="checkbox" className={box} checked={school.grades.includes(grade)} onChange={() => toggle(grade)} />
-          Grade {grade}
-        </label>
-      ))}
-      <span className="text-xs text-[var(--color-text-tertiary)]">{gradeBreakdown(school)}</span>
-      {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
-    </fieldset>
+    <>
+      <button ref={trigger} type="button" onClick={openMenu} aria-haspopup="dialog" aria-expanded={open} title="Dooro fasalada" className="ml-auto flex flex-col items-end rounded-lg px-2 py-1 hover:bg-[var(--color-surface-secondary)]">
+        <span className="flex items-center gap-1 font-medium tabular-nums">{school.students}<span aria-hidden="true" className="text-xs text-[var(--color-text-tertiary)]">▾</span></span>
+        {school.grades.length < GUULDOON_GRADES.length && <span className="text-xs text-[var(--color-text-tertiary)]">{school.grades.map((grade) => `Grade ${grade}`).join(' + ')}</span>}
+      </button>
+      {open && createPortal(
+        <div ref={panel} role="dialog" aria-label={`Fasalada - ${school.name}`} style={{ top: pos.top, left: pos.left }} className="fixed z-50 w-72 space-y-3 rounded-2xl border bg-[var(--color-surface-primary)] p-4 shadow-xl">
+          <p className="text-sm font-semibold">{school.name}</p>
+          <div className="space-y-0.5">
+            <label className={`${row} font-semibold`}>
+              <span className="flex items-center gap-2"><input type="checkbox" className={box} checked={allSelected} onChange={() => setDraft(allSelected ? [] : [...GUULDOON_GRADES])} />Dhammaan fasalada</span>
+              <span className="tabular-nums text-[var(--color-text-secondary)]">{GUULDOON_GRADES.reduce((total, grade) => total + gradeCount(school, grade), 0)}</span>
+            </label>
+            {GUULDOON_GRADES.map((grade) => (
+              <label key={grade} className={row}>
+                <span className="flex items-center gap-2"><input type="checkbox" className={box} checked={draft.includes(grade)} onChange={() => setDraft(draft.includes(grade) ? draft.filter((item) => item !== grade) : [...draft, grade])} />Grade {grade}</span>
+                <span className="tabular-nums text-[var(--color-text-secondary)]">{gradeCount(school, grade)}</span>
+              </label>
+            ))}
+          </div>
+          <p className="flex items-center justify-between border-t pt-3 text-sm"><span className="text-[var(--color-text-secondary)]">Wadarta la doortay</span><b className="tabular-nums">{draftTotal}</b></p>
+          {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={close} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-primary-600">Jooji</button>
+            <button type="button" disabled={busy || draft.length === 0} onClick={() => void confirm()} className="rounded-lg bg-primary-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-40">OK</button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -185,7 +235,7 @@ function Schools() {
         {data.schools.map((school) => (
           <tr key={school.schoolId}>
             <td className="px-4 py-3"><p className="font-medium">{school.name}</p>{school.city && <p className="text-xs text-[var(--color-text-tertiary)]">{school.city}</p>}</td>
-            <td className="px-4 py-3"><GradesCell school={school} onSaved={reload} /></td>
+            <td className="px-4 py-3 text-right"><StudentsCell school={school} onSaved={reload} /></td>
             <td className="px-4 py-3 text-right tabular-nums">{school.verifiedSubscriptions}</td>
             <td className="px-4 py-3 text-right tabular-nums">{usd(school.grossUsd)}</td>
             <td className="px-4 py-3"><RateCell school={school} maxRate={data.maxRate} onSaved={reload} /></td>
@@ -363,7 +413,7 @@ function Mine({ page }: { page: SchoolBonusPage }) {
 
 const TITLES: Record<SchoolBonusPage, [string, string]> = {
   overview: ['Guudmar', 'Gunnada iskuulada ka helaan ardaydooda subscription-ka Guuldoon.'],
-  schools: ['Iskuullada', 'Gunno % iyo xogta iskuul kasta. Cell-ka ardayda ayaa leh checkbox-yo: calaamadee fasalada iskuulku rabo, kuwa kale ha jirin; ardayda active ah iyo gunnada waxaa laga xisaabinayaa fasalada la calaamadeeyey oo keliya.'],
+  schools: ['Iskuullada', 'Gunno % iyo xogta iskuul kasta. Guji tirada ardayda si aad u doorato fasalada iskuulku rabo; ardayda active ah iyo gunnada waxaa laga xisaabinayaa fasalada la doortay oo keliya.'],
   payouts: ['Bixinta', 'Gunnada sugaysa in iskuullada la siiyo iyo taariikhda bixinta.'],
   students: ['Ardayda', 'Ardayda iskuulkaaga ee Guuldoon isticmaalaya.'],
   earnings: ['Gunnada', 'Sida gunnadaada loo xisaabiyo iyo wixii laguu bixiyey.'],
