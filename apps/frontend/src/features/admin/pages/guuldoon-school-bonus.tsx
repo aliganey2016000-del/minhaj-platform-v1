@@ -133,36 +133,44 @@ function RateCell({ school, maxRate, onSaved }: { school: Summary; maxRate: numb
   );
 }
 
-const GRADE_OPTIONS = [
-  { value: 'both', label: 'G8 + G12', grades: [8, 12] },
-  { value: '8', label: 'Grade 8 kaliya', grades: [8] },
-  { value: '12', label: 'Grade 12 kaliya', grades: [12] },
-];
+const GUULDOON_GRADES = [8, 12];
 const gradeBreakdown = (school: Summary) => school.grades.map((grade) => `G${grade}: ${grade === 8 ? school.grade8Students : school.grade12Students}`).join(' · ');
 
-/** Which grades the school uses Guuldoon for. Students and the bonus count only these grades. */
+/**
+ * Which grades the school uses Guuldoon for, as checkboxes: tick the grades the school wants,
+ * leave the others unticked. Students and the bonus count only the ticked grades.
+ * Guuldoon is available for Grade 8 and Grade 12, so "all grades" means both.
+ */
 function GradesCell({ school, onSaved }: { school: Summary; onSaved: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const current = school.grades.length === 2 ? 'both' : String(school.grades[0]);
-  const change = async (value: string) => {
-    const option = GRADE_OPTIONS.find((item) => item.value === value);
-    if (!option || value === current) return;
+  const allSelected = GUULDOON_GRADES.every((grade) => school.grades.includes(grade));
+  const save = async (grades: number[]) => {
+    if (grades.length === 0) { setError('Dooro ugu yaraan hal fasal.'); return; }
     setBusy(true); setError('');
-    try { await api.patch(`/guuldoon-school-bonus/schools/${school.schoolId}/grades`, { grades: option.grades }); onSaved(); }
+    try { await api.patch(`/guuldoon-school-bonus/schools/${school.schoolId}/grades`, { grades }); onSaved(); }
     catch (err: unknown) { setError(errorText(err, 'Unable to save the grades.')); }
     finally { setBusy(false); }
   };
+  const toggle = (grade: number) => void save(GUULDOON_GRADES.filter((item) => (item === grade ? !school.grades.includes(grade) : school.grades.includes(item))));
+  const box = 'h-4 w-4 accent-primary-600';
   return (
-    <div className="flex flex-col items-end gap-1">
+    <fieldset disabled={busy} className="flex flex-col items-end gap-1.5">
+      <legend className="sr-only">Fasalada - {school.name}</legend>
       <span className="font-medium tabular-nums">{school.students}</span>
-      <label className="sr-only" htmlFor={`grades-${school.schoolId}`}>Fasalada - {school.name}</label>
-      <select id={`grades-${school.schoolId}`} value={current} disabled={busy} onChange={(event) => void change(event.target.value)} className="rounded-lg border bg-[var(--color-surface-primary)] px-2 py-1 text-xs">
-        {GRADE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
+      <label className="flex items-center gap-2 text-xs font-semibold">
+        <input type="checkbox" className={box} checked={allSelected} disabled={allSelected || busy} onChange={() => void save([...GUULDOON_GRADES])} />
+        Dhammaan fasalada
+      </label>
+      {GUULDOON_GRADES.map((grade) => (
+        <label key={grade} className="flex items-center gap-2 text-xs">
+          <input type="checkbox" className={box} checked={school.grades.includes(grade)} onChange={() => toggle(grade)} />
+          Grade {grade}
+        </label>
+      ))}
       <span className="text-xs text-[var(--color-text-tertiary)]">{gradeBreakdown(school)}</span>
       {error && <span role="alert" className="text-xs text-red-600">{error}</span>}
-    </div>
+    </fieldset>
   );
 }
 
@@ -355,7 +363,7 @@ function Mine({ page }: { page: SchoolBonusPage }) {
 
 const TITLES: Record<SchoolBonusPage, [string, string]> = {
   overview: ['Guudmar', 'Gunnada iskuulada ka helaan ardaydooda subscription-ka Guuldoon.'],
-  schools: ['Iskuullada', 'Gunno % iyo xogta iskuul kasta. Dropdown-ka ardayda ayaa doorta fasalka (G8 + G12, Grade 8 kaliya ama Grade 12 kaliya); ardayda active ah iyo gunnada waxaa laga xisaabinayaa fasalkaas oo keliya.'],
+  schools: ['Iskuullada', 'Gunno % iyo xogta iskuul kasta. Cell-ka ardayda ayaa leh checkbox-yo: calaamadee fasalada iskuulku rabo, kuwa kale ha jirin; ardayda active ah iyo gunnada waxaa laga xisaabinayaa fasalada la calaamadeeyey oo keliya.'],
   payouts: ['Bixinta', 'Gunnada sugaysa in iskuullada la siiyo iyo taariikhda bixinta.'],
   students: ['Ardayda', 'Ardayda iskuulkaaga ee Guuldoon isticmaalaya.'],
   earnings: ['Gunnada', 'Sida gunnadaada loo xisaabiyo iyo wixii laguu bixiyey.'],
