@@ -133,6 +133,10 @@ export interface ISchool extends Document {
   /** A fully custom domain (e.g. "yourschool.edu") an org points its own
    * DNS at, resolved before the platform's <slug>.<base domain> routing. */
   customDomain?: string;
+  /** Share (percent) of each verified Guuldoon subscription paid by this
+   * school's students that the school earns. Unset = platform default
+   * (DEFAULT_SCHOOL_BONUS_RATE). Managed only by the Super Admin. */
+  guuldoonBonusRate?: number | null;
   branding: IBranding;
   examSchedulingRules: IExamSchedulingRules;
   examRoomPlanSettings: IExamRoomPlanSettings;
@@ -332,6 +336,12 @@ const schoolSchema = new Schema<ISchool>(
         validator(v: string) { return !v || !RESERVED_SLUGS.has(v); },
         message: 'This subdomain is reserved for system use and cannot be assigned to an organization.',
       },
+    },
+    guuldoonBonusRate: {
+      type: Number,
+      min: 0,
+      max: 60,
+      default: null,
     },
     customDomain: {
       type: String,

@@ -1,6 +1,7 @@
 import guuldoonRoutes from './guuldoon.routes';
 import guuldoonMediaRoutes from './guuldoon-media.routes';
 import globalSubscriptionRoutes from './global-subscription.routes';
+import guuldoonSchoolBonusRoutes from './guuldoon-school-bonus.routes';
 import { Router } from 'express';
 import authRoutes from './auth.routes';
 import courseRoutes from './course.routes';
@@ -70,6 +71,7 @@ const router = Router();
 router.use('/guuldoon-media', guuldoonMediaRoutes);
 router.use('/guuldoon', guuldoonRoutes);
 router.use('/global-subscriptions', globalSubscriptionRoutes);
+router.use('/guuldoon-school-bonus', guuldoonSchoolBonusRoutes);
 router.use('/auth', authRoutes);
 router.use('/courses', courseRoutes);
 router.use('/students', authMiddleware, requireModulePermission('admissions'), studentRoutes);

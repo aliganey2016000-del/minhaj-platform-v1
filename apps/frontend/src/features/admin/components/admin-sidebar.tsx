@@ -8,7 +8,7 @@ import {
   Globe2, Activity, Award, BadgePercent, BarChart3, BookOpen, Building2,
   CalendarCheck, CalendarClock, CalendarRange, CircleHelp, ClipboardEdit,
   ClipboardList, Compass, CreditCard, Database, FileBarChart, FileCheck2, FileQuestion,
-  FileText, GraduationCap, History, Image, KeyRound, LayoutDashboard, ListChecks, LogOut,
+  FileText, Gift, GraduationCap, History, Image, KeyRound, LayoutDashboard, ListChecks, LogOut,
   Megaphone, MessagesSquare, Newspaper, NotebookPen, Palette, PanelLeftClose, PanelLeftOpen,
   PartyPopper, PieChart, Presentation, Receipt, School, ScrollText, Settings,
   ShieldCheck, Trash2, TrendingUp, User, UserCog, UserRound, Users, Zap,
@@ -22,6 +22,10 @@ type NavEntry = NavLeaf | NavGroup;
 
 function isGroup(entry: NavEntry): entry is NavGroup { return 'children' in entry; }
 function keyForPath(path: string): string { return path.replace(/^\//, ''); }
+/** Guuldoon school-bonus pages: the Super Admin manages schools; a school administrator sees only their own. */
+const SCHOOL_BONUS_ROOT = '/admin/guuldoon/school-bonus';
+const SCHOOL_BONUS_SUPER_ONLY = [`${SCHOOL_BONUS_ROOT}/schools`, `${SCHOOL_BONUS_ROOT}/payouts`];
+const SCHOOL_BONUS_SCHOOL_ONLY = [`${SCHOOL_BONUS_ROOT}/students`, `${SCHOOL_BONUS_ROOT}/earnings`];
 
 const navSections: { title: string; items: NavEntry[] }[] = [
   {
@@ -74,6 +78,16 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     { path: '/admin/global-courses', label: 'Courses', icon: BookOpen },
     { path: '/admin/guuldoon/performance', label: 'Student Performance', icon: TrendingUp },
     { path: '/admin/guuldoon/subscriptions', label: 'Subscriptions & Payments', icon: CreditCard },
+    {
+      key: 'group:school-bonus', label: 'Gunnada Iskuulka', icon: Gift,
+      children: [
+        { path: '/admin/guuldoon/school-bonus', label: 'Guudmar', icon: LayoutDashboard },
+        { path: '/admin/guuldoon/school-bonus/schools', label: 'Iskuullada', icon: School },
+        { path: '/admin/guuldoon/school-bonus/payouts', label: 'Bixinta', icon: CreditCard },
+        { path: '/admin/guuldoon/school-bonus/students', label: 'Ardayda', icon: Users },
+        { path: '/admin/guuldoon/school-bonus/earnings', label: 'Gunnada', icon: Receipt },
+      ],
+    },
     { path: '/admin/guuldoon/devices', label: 'Devices & Access', icon: ShieldCheck },
     { path: '/admin/guuldoon/settings', label: 'Settings', icon: Settings },
   ] },
@@ -235,6 +249,8 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
       if (isGroup(item)) {
         if (item.key && (!isVisible(item.key) || !staffSidebar(item.key))) return null;
         const children = item.children.filter((child) => {
+          if (SCHOOL_BONUS_SUPER_ONLY.includes(child.path) && !isSuperAdmin) return false;
+          if (SCHOOL_BONUS_SCHOOL_ONLY.includes(child.path) && isSuperAdmin) return false;
           const key = keyForPath(child.path);
           return isVisible(key) && staffSidebar(key) && staffRead(key);
         });
@@ -250,7 +266,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
   })).filter((section) => section.items.length > 0);
 
   const isActive = (path: string) => {
-    if (path === '/admin/guuldoon') return location.pathname === path;
+    if (path === '/admin/guuldoon' || path === SCHOOL_BONUS_ROOT) return location.pathname === path;
     if (path === '/admin') return location.pathname === '/admin';
     if (path === '/admin/exams' || path === '/admin/results') return location.pathname === path;
     if (path.includes('?')) return `${location.pathname}${location.search}` === path;
