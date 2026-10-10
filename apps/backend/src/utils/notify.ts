@@ -9,6 +9,7 @@
 import Notification from '../models/notification.model';
 import { emitToUser } from '../realtime/socket';
 import { sendPushToUser } from './web-push';
+import { mapLimit } from './map-limit';
 
 interface NotifyInput {
   userId: string;
@@ -50,5 +51,6 @@ export async function notifyUser({ userId, title, message, type = 'info', link =
 
 /** Same as notifyUser but for a batch of recipients (e.g. every student enrolled in a course). */
 export async function notifyUsers(userIds: string[], data: Omit<NotifyInput, 'userId'>) {
-  await Promise.all(userIds.map((userId) => notifyUser({ ...data, userId })));
+  // Bounded: notifying a whole school must not open thousands of simultaneous writes.
+  await mapLimit(userIds, 25, (userId) => notifyUser({ ...data, userId }));
 }

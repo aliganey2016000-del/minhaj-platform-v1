@@ -143,6 +143,9 @@ jobs:
       - name: Activity Logs org-admin tenant isolation regression
         run: npx ts-node src/__tests__/activity-logs-tenant-scope.e2e.ts
 
+      - name: Bounded fan-out and production e-mail log regression
+        run: npx ts-node --files src/__tests__/ops-fanout-and-email-logs.e2e.ts
+
   backend-schedule-attendance:
     name: Backend schedule, attendance and promotion
     needs: changes
