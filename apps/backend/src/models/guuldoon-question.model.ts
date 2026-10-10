@@ -32,6 +32,8 @@ export interface IGuuldoonQuestion extends Document {
   bookRelation?: 'direct' | 'indirect' | 'similar' | 'derived';
   bookRef?: { bookId?: string; pageFrom?: number; pageTo?: number };
   similarIds: mongoose.Types.ObjectId[];
+  /** Set when a Super Admin edits the question by hand; a later Excel import keeps it. */
+  manuallyEdited?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -70,6 +72,7 @@ const schema = new Schema<IGuuldoonQuestion>({
     pageTo: { type: Number, min: 1 },
   },
   similarIds: [{ type: Schema.Types.ObjectId, ref: 'GuuldoonQuestion' }],
+  manuallyEdited: { type: Boolean, default: false },
 }, { timestamps: true });
 
 schema.index({ exam: 1, number: 1 }, { unique: true });

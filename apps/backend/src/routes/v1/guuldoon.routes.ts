@@ -1,5 +1,6 @@
 import deviceRoutes, { promoteGuuldoonDeviceCookie, requireGuuldoonDevice } from './guuldoon-device.routes';
 import guuldoonImportRoutes from './guuldoon-import.routes';
+import guuldoonBuilderRoutes from './guuldoon-builder.routes';
 import { Router, Request } from 'express';
 import mongoose from 'mongoose';
 import Profile from '../../models/profile.model';
@@ -43,6 +44,7 @@ router.use((req, _res, next) => {
 
 router.use('/devices', deviceRoutes);
 router.use('/admin/import', guuldoonImportRoutes);
+router.use('/admin/builder', guuldoonBuilderRoutes);
 
 function objectId(value: string, label = 'ID'): mongoose.Types.ObjectId {
   if (!mongoose.isValidObjectId(value)) throw new BadRequestError(`Invalid ${label}`);

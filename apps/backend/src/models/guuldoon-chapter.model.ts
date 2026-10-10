@@ -11,6 +11,8 @@ export interface IGuuldoonChapter extends Document {
   titleAr?: string;
   examWeight?: number;
   status: 'draft' | 'published';
+  /** Set when a Super Admin edits the chapter by hand; a later Excel import keeps it. */
+  manuallyEdited?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,6 +28,7 @@ const schema = new Schema<IGuuldoonChapter>({
   titleAr: { type: String, default: '', trim: true },
   examWeight: { type: Number, min: 0, max: 100, default: null },
   status: { type: String, enum: ['draft', 'published'], default: 'draft', index: true },
+  manuallyEdited: { type: Boolean, default: false },
 }, { timestamps: true });
 
 schema.index({ course: 1, externalId: 1 }, { unique: true });

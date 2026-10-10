@@ -1,219 +1,241 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, BookOpen, FileJson, GraduationCap, Plus, Save, Settings2, Tags, UploadCloud } from 'lucide-react';
+import {
+  ArrowLeft, BookOpen, CalendarClock, ClipboardList, FileJson, GraduationCap, Inbox, Languages, ListFilter, MoreVertical, Settings2, UploadCloud,
+} from 'lucide-react';
 import api from '../../../lib/axios';
 import { GuuldoonUnmatchedAnswers } from '../components/guuldoon-unmatched-answers';
+import { accentFor } from '../components/guuldoon-builder/accents';
+import { GuuldoonBuilderChapterCard } from '../components/guuldoon-builder/chapter-card';
+import { Drawer, ExamsPanel, GlossaryPanel, JsonImportPanel, SettingsPanel } from '../components/guuldoon-builder/drawers';
+import { courseTitle, errorMessage, type Overview } from '../components/guuldoon-builder/types';
 
-type Chapter = { id: string; title: string; order: number; status: string; lessons: number };
-type Exam = {
-  _id: string;
-  year: number;
-  durationMin: number;
-  totalMarks: number;
-  answerKeyStatus: 'verified' | 'pending';
-  published: boolean;
-  source?: string;
-};
-type Config = {
-  passTarget: number;
-  targetExamDate?: string | null;
-  chapterWeights: { chapterId: string; examWeight: number }[];
-  glossary: { termSo: string; termEn: string; termAr: string }[];
+type Filter = 'order' | 'important' | 'weak';
+type DrawerKey = 'settings' | 'exams' | 'json' | 'glossary' | 'answers';
+type Toast = { id: number; message: string; tone: 'ok' | 'error' };
+
+const drawerMeta: Record<DrawerKey, { title: string; subtitle: string; icon: JSX.Element }> = {
+  settings: { title: 'Course Settings', subtitle: 'Pass target iyo taariikhda imtixaanka', icon: <Settings2 size={20} /> },
+  exams: { title: 'Imtixaanada hore', subtitle: 'Sannadaha, Publish iyo answer key', icon: <GraduationCap size={20} /> },
+  json: { title: 'Su’aalo JSON', subtitle: 'Ku dar su’aalo gacanta', icon: <FileJson size={20} /> },
+  glossary: { title: 'Glossary', subtitle: 'Ereyada saddex luqadood', icon: <Languages size={20} /> },
+  answers: { title: 'Jawaabaha la dhex-eego', subtitle: 'Jawaabo qoraal ah oo sugaya go’aan', icon: <Inbox size={20} /> },
 };
 
 export function GuuldoonBuilder() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
-  const [course, setCourse] = useState<any>(null);
-  const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [config, setConfig] = useState<Config>({ passTarget: 70, targetExamDate: null, chapterWeights: [], glossary: [] });
-  const [weights, setWeights] = useState<Record<string, number>>({});
-  const [glossaryText, setGlossaryText] = useState('');
-  const [selectedExam, setSelectedExam] = useState<string>('');
-  const [questionsJson, setQuestionsJson] = useState('[]');
-  const [newExam, setNewExam] = useState({ year: 2025, durationMin: 120, totalMarks: 100, answerKeyStatus: 'pending' as 'verified' | 'pending', source: '', published: false });
-  const [saving, setSaving] = useState(false);
+  const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [filter, setFilter] = useState<Filter>('order');
+  const [openChapter, setOpenChapter] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [drawer, setDrawer] = useState<DrawerKey | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const toastTimer = useRef<number>();
 
+  // The first load shows a spinner; later refreshes (after an edit) update in place so the page never flashes.
   const load = useCallback(async () => {
     if (!courseId) return;
-    setLoading(true);
-    setError('');
     try {
-      const { data } = await api.get(`/guuldoon/admin/courses/${courseId}/config`);
-      const payload = data.data;
-      setCourse(payload.course);
-      setChapters(payload.chapters || []);
-      setExams(payload.exams || []);
-      const nextConfig = payload.config || { passTarget: 70, targetExamDate: null, chapterWeights: [], glossary: [] };
-      setConfig(nextConfig);
-      setWeights(Object.fromEntries((nextConfig.chapterWeights || []).map((row: any) => [row.chapterId, Number(row.examWeight)])));
-      setGlossaryText(JSON.stringify(nextConfig.glossary || [], null, 2));
-      if (payload.exams?.[0]?._id) setSelectedExam(current => current || payload.exams[0]._id);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Guuldoon Builder lama soo rari karin.');
+      const { data } = await api.get(`/guuldoon/admin/builder/courses/${courseId}`);
+      setOverview(data.data);
+      setError('');
+    } catch (err) {
+      setError(errorMessage(err, 'Guuldoon Builder lama soo rari karin.'));
     } finally {
       setLoading(false);
     }
   }, [courseId]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
-  const totalWeight = useMemo(() => chapters.reduce((sum, chapter) => sum + Number(weights[chapter.id] || 0), 0), [chapters, weights]);
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onPointer = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onPointer); document.removeEventListener('keydown', onKey); };
+  }, [menuOpen]);
 
-  const saveConfig = async () => {
-    if (!courseId) return;
-    setSaving(true);
-    setError('');
-    setMessage('');
-    try {
-      let glossary: Config['glossary'] = [];
-      try { glossary = JSON.parse(glossaryText || '[]'); } catch { throw new Error('Glossary JSON ma saxna.'); }
-      await api.put(`/guuldoon/admin/courses/${courseId}/config`, {
-        passTarget: config.passTarget,
-        targetExamDate: config.targetExamDate || null,
-        chapterWeights: chapters.map(chapter => ({ chapterId: chapter.id, examWeight: Number(weights[chapter.id] || 0) })),
-        glossary,
-      });
-      setMessage('Guuldoon settings waa la keydiyey.');
-      await load();
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Save failed');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const notify = useCallback((message: string, tone: 'ok' | 'error' = 'ok') => {
+    window.clearTimeout(toastTimer.current);
+    setToast({ id: Date.now(), message, tone });
+    toastTimer.current = window.setTimeout(() => setToast(null), 3200);
+  }, []);
 
-  const createExam = async () => {
-    if (!courseId) return;
-    setSaving(true);
-    setError('');
-    try {
-      const { data } = await api.post(`/guuldoon/admin/courses/${courseId}/exams`, newExam);
-      setSelectedExam(data.data._id);
-      setMessage(`Imtixaanka ${newExam.year} waa la abuuray.`);
-      await load();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Imtixaanka lama abuuri karin.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const toggleExam = async (exam: Exam, field: 'published' | 'answerKeyStatus') => {
-    setError('');
-    try {
-      await api.patch(`/guuldoon/admin/exams/${exam._id}`, field === 'published'
-        ? { published: !exam.published }
-        : { answerKeyStatus: exam.answerKeyStatus === 'verified' ? 'pending' : 'verified' });
-      await load();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Exam update failed');
-    }
-  };
-
-  const importQuestions = async () => {
-    if (!selectedExam) {
-      setError('Marka hore dooro sanad imtixaan.');
-      return;
-    }
-    setSaving(true);
-    setError('');
-    setMessage('');
-    try {
-      const questions = JSON.parse(questionsJson);
-      if (!Array.isArray(questions)) throw new Error('JSON-ku waa inuu noqdaa array su’aalo ah.');
-      const { data } = await api.post(`/guuldoon/admin/exams/${selectedExam}/questions/bulk`, { questions });
-      setMessage(`${data.data.imported} su'aalood ayaa la import-gareeyey.`);
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Question import failed');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const chapters = useMemo(() => {
+    const rows = [...(overview?.chapters || [])];
+    if (filter === 'important') rows.sort((a, b) => b.examWeight - a.examWeight || a.order - b.order);
+    if (filter === 'weak') rows.sort((a, b) => (a.avgMastery ?? 101) - (b.avgMastery ?? 101) || a.order - b.order);
+    return rows;
+  }, [overview, filter]);
 
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-500/20 border-t-primary-500" /></div>;
+  if (!overview || !courseId) {
+    return (
+      <div className="space-y-4 p-4 sm:p-6">
+        <button onClick={() => navigate('/admin/global-courses')} className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-tertiary)]"><ArrowLeft size={15} /> Guuldoon Courses</button>
+        <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error || 'Course lama helin.'} <button className="underline" onClick={() => { setLoading(true); void load(); }}>Mar kale isku day</button></div>
+      </div>
+    );
+  }
+
+  const imported = overview.mode === 'imported';
+  const { stats, course } = overview;
+  const weightOk = Math.abs(stats.totalWeight - 100) <= 0.5;
+  const targetDate = overview.config.targetExamDate ? new Date(overview.config.targetExamDate) : null;
+  const daysLeft = targetDate ? Math.ceil((targetDate.getTime() - Date.now()) / 86400000) : null;
+
+  const openDrawer = (key: DrawerKey) => { setMenuOpen(false); setDrawer(key); };
+  const closeDrawer = () => { setDrawer(null); void load(); };
+
+  const menuItem = (icon: JSX.Element, tone: string, title: string, description: string, onClick: () => void, badge?: number) => (
+    <button key={title} type="button" role="menuitem" onClick={onClick} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-[var(--color-surface-tertiary)]">
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${tone}`}>{icon}</span>
+      <span className="min-w-0 flex-1"><span className="block text-sm font-black">{title}</span><span className="block truncate text-xs text-[var(--color-text-tertiary)]">{description}</span></span>
+      {badge ? <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-black text-white">{badge}</span> : null}
+    </button>
+  );
+  const groupLabel = (label: string) => <p className="px-3 pb-1 pt-3 text-[10px] font-black uppercase tracking-[.14em] text-[var(--color-text-tertiary)]">{label}</p>;
 
   return (
-    <div className="space-y-5 p-4 sm:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <div className="mx-auto max-w-5xl space-y-5 p-4 sm:p-6">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <button onClick={() => navigate('/admin/global-courses')} className="mb-2 inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-tertiary)]"><ArrowLeft size={15} /> Guuldoon Courses</button>
-          <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Guuldoon Builder · Grade {course?.globalGrade}</p>
-          <h1 className="mt-1 text-2xl font-black">{course?.title?.en || 'Course'}</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Question-first exam preparation: chapters, historical weights, past papers, answer verification and glossary.</p>
+          <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Guuldoon · Grade {course.grade}</p>
+          <h1 className="mt-1 break-words text-2xl font-black sm:text-3xl">{courseTitle(course.title)}</h1>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs font-black">
+            <span className={'rounded-full px-3 py-1 ' + (course.status === 'published' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-500/15')}>{course.status === 'published' ? '● Published' : 'Draft'}</span>
+            <span className="rounded-full bg-sky-500/10 px-3 py-1 text-sky-500">{course.students} arday</span>
+            {targetDate && <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1 text-amber-500"><CalendarClock size={13} /> Imtixaanka: {targetDate.toLocaleDateString()}{daysLeft !== null && daysLeft >= 0 ? ` · ${daysLeft} maalmood` : ''}</span>}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => navigate(`/admin/global-courses/${courseId}/import`)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white"><UploadCloud size={17} /> Import Full Course</button>
-          <button onClick={() => navigate(`/admin/courses/${courseId}/builder`)} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-bold"><BookOpen size={17} /> Chapters & Lessons</button>
+
+        <div className="relative shrink-0" ref={menuRef}>
+          <button type="button" onClick={() => setMenuOpen(open => !open)} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Menu-ga dejinta" className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+            <MoreVertical size={20} />
+            {stats.unmatchedPending > 0 && <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{stats.unmatchedPending}</span>}
+          </button>
+          {menuOpen && (
+            <div role="menu" className="absolute right-0 top-[52px] z-30 w-[300px] max-w-[calc(100vw-2rem)] rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-2xl">
+              {groupLabel('Xogta course-ka')}
+              {menuItem(<UploadCloud size={17} />, 'bg-emerald-500/10 text-emerald-500', 'Import Full Course', 'Excel-ka cutubyada, su’aalaha, glossary', () => navigate(`/admin/global-courses/${courseId}/import`))}
+              {!imported && menuItem(<BookOpen size={17} />, 'bg-sky-500/10 text-sky-500', 'Chapters & Lessons', 'Casharrada Course Builder-ka', () => navigate(`/admin/courses/${courseId}/builder`))}
+              {groupLabel('Dejinta')}
+              {menuItem(<Settings2 size={17} />, 'bg-violet-500/10 text-violet-500', 'Course Settings', 'Pass target iyo taariikhda imtixaanka', () => openDrawer('settings'))}
+              {menuItem(<GraduationCap size={17} />, 'bg-sky-500/10 text-sky-500', 'Imtixaanada hore', 'Sannadaha, Publish, answer key', () => openDrawer('exams'))}
+              {!imported && menuItem(<FileJson size={17} />, 'bg-emerald-500/10 text-emerald-500', 'Su’aalo JSON', 'Ku dar su’aalo gacanta', () => openDrawer('json'))}
+              {menuItem(<Languages size={17} />, 'bg-amber-500/10 text-amber-500', 'Glossary', `${overview.glossary.terms.length} eray`, () => openDrawer('glossary'))}
+              {groupLabel('Ardayda')}
+              {menuItem(<Inbox size={17} />, 'bg-rose-500/10 text-rose-500', 'Jawaabaha la dhex-eego', 'Jawaabo qoraal ah oo sugaya go’aan', () => openDrawer('answers'), stats.unmatchedPending)}
+            </div>
+          )}
         </div>
       </header>
 
-      {error && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</div>}
-      {message && <div role="status" className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600">{message}</div>}
-
-      <section className="grid gap-4 xl:grid-cols-[.8fr_1.2fr]">
-        <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-          <div className="flex items-center gap-2"><Settings2 className="text-emerald-600" size={20} /><h2 className="font-black">Course Settings</h2></div>
-          <label className="mt-4 block text-xs font-bold">Pass Meter Target
-            <input type="number" min="0" max="100" value={config.passTarget} onChange={e => setConfig(current => ({ ...current, passTarget: Number(e.target.value) }))} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" />
-          </label>
-          <label className="mt-3 block text-xs font-bold">Target Exam Date
-            <input type="date" value={config.targetExamDate ? String(config.targetExamDate).slice(0, 10) : ''} onChange={e => setConfig(current => ({ ...current, targetExamDate: e.target.value || null }))} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2.5 text-sm" />
-          </label>
-          <div className="mt-4 rounded-xl bg-[var(--color-surface-tertiary)] p-3 text-xs"><strong>Rule:</strong> Pass Meter = chapter mastery × exam weight. Question tags ayaa miisaanka automatic ka caawinaya haddii manual weights aan la dejin.</div>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-          <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Tags className="text-emerald-600" size={20} /><h2 className="font-black">Chapter Exam Weights</h2></div><span className={`rounded-full px-3 py-1 text-xs font-black ${Math.abs(totalWeight - 100) <= .5 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>{totalWeight.toFixed(1)}%</span></div>
-          <div className="mt-4 space-y-2">{chapters.length === 0 ? <p className="text-sm text-[var(--color-text-tertiary)]">Marka hore chapters ku samee Course Builder-ka.</p> : chapters.map((chapter, index) => (
-            <div key={chapter.id} className="grid grid-cols-[1fr_100px] items-center gap-3 rounded-xl border border-[var(--color-border-subtle)] p-3">
-              <div><p className="text-sm font-bold">{index + 1}. {chapter.title}</p><p className="text-[11px] text-[var(--color-text-tertiary)]">{chapter.lessons} lessons · {chapter.status}</p></div>
-              <label className="text-xs font-bold"><span className="sr-only">Weight</span><div className="relative"><input type="number" min="0" max="100" step=".1" value={weights[chapter.id] ?? 0} onChange={e => setWeights(current => ({ ...current, [chapter.id]: Number(e.target.value) }))} className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 pr-7 text-sm" /><span className="absolute right-2 top-2.5 text-xs">%</span></div></label>
+      <section aria-label="Kooban" className="grid items-center gap-5 overflow-hidden rounded-[26px] bg-gradient-to-br from-emerald-800 via-teal-800 to-sky-900 p-5 text-white sm:grid-cols-[auto_1fr]">
+        <div className="flex items-center gap-4">
+          <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-full" style={{ background: `conic-gradient(#6ee7b7 ${Math.min(100, stats.passMeter)}%, rgba(255,255,255,.18) 0)` }}>
+            <div className="flex h-[88px] w-[88px] flex-col items-center justify-center rounded-full bg-emerald-950 text-center">
+              <strong className="text-2xl leading-none">{stats.passMeter}%</strong>
+              <span className="mt-1 text-[10px] text-white/60">Celcelis</span>
             </div>
-          ))}</div>
+          </div>
+          <div className="sm:hidden"><p className="text-sm font-black">Pass Meter ardayda</p><p className="text-xs text-white/70">Target: {overview.config.passTarget}%</p></div>
+        </div>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {[
+            [stats.chapters, 'Cutub'],
+            [stats.questions, 'Su’aalo'],
+            [stats.pastExams, 'Sanad imtixaan'],
+            [`${overview.config.passTarget}%`, 'Target'],
+          ].map(([value, label]) => (
+            <div key={String(label)} className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2.5">
+              <strong className="block text-xl tabular-nums">{value}</strong>
+              <span className="text-[11px] text-white/70">{label}</span>
+            </div>
+          ))}
         </div>
       </section>
 
-      <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-        <div className="flex items-center gap-2"><GraduationCap className="text-emerald-600" size={20} /><h2 className="font-black">Past Exams / Safarka Wakhtiga</h2></div>
-        <div className="mt-4 grid gap-3 md:grid-cols-6">
-          <input type="number" value={newExam.year} onChange={e => setNewExam(current => ({ ...current, year: Number(e.target.value) }))} placeholder="Year" className="rounded-xl border bg-transparent px-3 py-2 text-sm" />
-          <input type="number" value={newExam.durationMin} onChange={e => setNewExam(current => ({ ...current, durationMin: Number(e.target.value) }))} placeholder="Minutes" className="rounded-xl border bg-transparent px-3 py-2 text-sm" />
-          <input type="number" value={newExam.totalMarks} onChange={e => setNewExam(current => ({ ...current, totalMarks: Number(e.target.value) }))} placeholder="Marks" className="rounded-xl border bg-transparent px-3 py-2 text-sm" />
-          <select value={newExam.answerKeyStatus} onChange={e => setNewExam(current => ({ ...current, answerKeyStatus: e.target.value as 'verified' | 'pending' }))} className="rounded-xl border bg-transparent px-3 py-2 text-sm"><option value="pending">Pending key</option><option value="verified">Verified key</option></select>
-          <input value={newExam.source} onChange={e => setNewExam(current => ({ ...current, source: e.target.value }))} placeholder="Source" className="rounded-xl border bg-transparent px-3 py-2 text-sm" />
-          <button disabled={saving} onClick={() => void createExam()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-sm font-bold text-white"><Plus size={16} /> Add</button>
+      <section aria-label="Miisaanka cutubyada" className="student-glass-card rounded-[22px] p-4">
+        <div className="mb-2 flex items-center justify-between text-xs font-black">
+          <span>Miisaanka imtixaanka (cutub kasta)</span>
+          <span className={weightOk ? 'text-emerald-500' : 'text-amber-500'}>{stats.totalWeight}%{!weightOk && ' · waa inuu noqdaa 100%'}</span>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{exams.map(exam => (
-          <article key={exam._id} className={`rounded-xl border p-4 ${selectedExam === exam._id ? 'border-emerald-500 bg-emerald-500/5' : 'border-[var(--color-border-subtle)]'}`}>
-            <button onClick={() => setSelectedExam(exam._id)} className="w-full text-left"><div className="flex items-center justify-between"><strong className="text-2xl">{exam.year}</strong><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${exam.published ? 'bg-emerald-500/10 text-emerald-600' : 'bg-slate-500/10'}`}>{exam.published ? 'Published' : 'Draft'}</span></div><p className="mt-2 text-xs">{exam.durationMin} min · {exam.totalMarks} marks</p></button>
-            <div className="mt-3 flex gap-2"><button onClick={() => void toggleExam(exam, 'published')} className="rounded-lg border px-2.5 py-1.5 text-xs font-bold">{exam.published ? 'Unpublish' : 'Publish'}</button><button onClick={() => void toggleExam(exam, 'answerKeyStatus')} className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold ${exam.answerKeyStatus === 'verified' ? 'text-emerald-600' : 'text-amber-600'}`}>{exam.answerKeyStatus}</button></div>
-          </article>
-        ))}</div>
+        <div className="flex h-3 gap-0.5 overflow-hidden rounded-full bg-[var(--color-surface-tertiary)]">
+          {overview.chapters.filter(chapter => chapter.examWeight > 0).map(chapter => (
+            <div key={chapter.id} title={`${chapter.title}: ${chapter.examWeight}%`} className={accentFor(overview.chapters.indexOf(chapter)).solid} style={{ flex: chapter.examWeight }} />
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-text-tertiary)]">
+          {overview.chapters.map((chapter, index) => <span key={chapter.id}><i className={`mr-1.5 inline-block h-2.5 w-2.5 rounded-[3px] align-[-1px] ${accentFor(index).solid}`} />{chapter.order}. {chapter.examWeight}%</span>)}
+        </div>
       </section>
 
-      <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><FileJson className="text-emerald-600" size={20} /><h2 className="font-black">Question Bank · JSON Bulk Import</h2></div><select value={selectedExam} onChange={e => setSelectedExam(e.target.value)} className="rounded-xl border bg-transparent px-3 py-2 text-sm"><option value="">Dooro sanad</option>{exams.map(exam => <option key={exam._id} value={exam._id}>{exam.year}</option>)}</select></div>
-        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">Su'aal kasta waa inuu leeyahay <code>chapterId</code> iyo <code>topicTags</code>. Verified answer wuxuu u baahan yahay <code>answer</code>. Import-ku wuxuu update-gareeyaa question number hore u jiray halkii duplicate laga abuuri lahaa.</p>
-        <textarea value={questionsJson} onChange={e => setQuestionsJson(e.target.value)} rows={12} spellCheck={false} className="mt-4 w-full rounded-xl border border-[var(--color-border-default)] bg-slate-950 p-4 font-mono text-xs text-slate-100 outline-none" />
-        <div className="mt-3 flex flex-wrap gap-2"><button disabled={saving || !selectedExam} onClick={() => void importQuestions()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Import / Update Questions</button><button onClick={() => setQuestionsJson(JSON.stringify([{ number: 1, type: 'mcq', textSo: 'Su’aasha...', options: ['A', 'B', 'C', 'D'], marks: 2, chapterId: chapters[0]?.id || 'CHAPTER_ID', topicTags: ['topic'], answer: 0, answerStatus: 'verified', explainerText: 'Sharaxaad kooban', bookRef: { pageFrom: 10, pageTo: 12 } }], null, 2))} className="rounded-xl border px-4 py-2.5 text-sm font-bold">Load Example</button></div>
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-black">Cutubyada</h2>
+            <p className="text-sm text-[var(--color-text-secondary)]">Sidan ayuu ardaygu u arkaa. Cutub fur si aad u aragto casharrada iyo su’aalaha; ✏️ riix si aad meesha uga saxdo.</p>
+          </div>
+          <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1" role="group" aria-label="Kala soocid">
+            <ListFilter size={15} className="ml-2 shrink-0 text-[var(--color-text-tertiary)]" />
+            {([['order', 'Isku xigga'], ['important', 'Ugu muhiimsan'], ['weak', 'Ardaydu ku liitaan']] as const).map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={'shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-bold ' + (filter === value ? 'bg-emerald-600 text-white' : 'text-[var(--color-text-secondary)]')}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        {imported && (
+          <p className="flex items-start gap-2 rounded-2xl border border-violet-500/25 bg-violet-500/10 px-3 py-2.5 text-xs font-semibold text-[var(--color-text-secondary)]">
+            <ClipboardList size={15} className="mt-0.5 shrink-0 text-violet-500" />
+            <span>Wixii gacanta lagu saxo waxaa lagu calaamadeeyaa <strong className="text-violet-500">La beddelay</strong>. Marka Excel-ka dib loo import-gareeyo, saxitaankaaga lama beddelayo.</span>
+          </p>
+        )}
+
+        {!chapters.length && <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">Cutubyo wali ma jiraan. Isticmaal <strong>Import Full Course</strong> (menu-ga ⋮) si aad u soo geliso.</div>}
+
+        <div className="space-y-3">
+          {chapters.map(chapter => (
+            <GuuldoonBuilderChapterCard
+              key={chapter.id}
+              courseId={courseId}
+              chapter={chapter}
+              index={overview.chapters.indexOf(chapter)}
+              chapters={overview.chapters}
+              open={openChapter === chapter.id}
+              imported={imported}
+              onToggle={() => setOpenChapter(current => current === chapter.id ? null : chapter.id)}
+              onChanged={() => void load()}
+              notify={notify}
+              onOpenLegacyBuilder={() => navigate(`/admin/courses/${courseId}/builder`)}
+            />
+          ))}
+        </div>
       </section>
 
-      {courseId && <GuuldoonUnmatchedAnswers courseId={courseId} />}
+      {drawer && (
+        <Drawer title={drawerMeta[drawer].title} subtitle={drawerMeta[drawer].subtitle} icon={drawerMeta[drawer].icon} onClose={closeDrawer}>
+          {drawer === 'settings' && <SettingsPanel courseId={courseId} overview={overview} onSaved={() => void load()} notify={notify} />}
+          {drawer === 'exams' && <ExamsPanel courseId={courseId} exams={overview.exams} onChanged={() => void load()} notify={notify} />}
+          {drawer === 'json' && <JsonImportPanel exams={overview.exams} chapters={overview.chapters} notify={notify} onImported={() => void load()} />}
+          {drawer === 'glossary' && <GlossaryPanel courseId={courseId} overview={overview} onSaved={() => void load()} notify={notify} />}
+          {drawer === 'answers' && <GuuldoonUnmatchedAnswers courseId={courseId} />}
+        </Drawer>
+      )}
 
-      <section className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-5">
-        <div className="flex items-center gap-2"><BookOpen className="text-emerald-600" size={20} /><h2 className="font-black">Glossary · Soomaali / English / العربية</h2></div>
-        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">JSON array ahaan geli erayada farsamo. Ardaygu wuxuu taaban karaa erayga si uu saddexda luqadood u arko.</p>
-        <textarea value={glossaryText} onChange={e => setGlossaryText(e.target.value)} rows={8} spellCheck={false} className="mt-4 w-full rounded-xl border border-[var(--color-border-default)] bg-slate-950 p-4 font-mono text-xs text-slate-100 outline-none" />
-      </section>
-
-      <div className="sticky bottom-4 flex justify-end">
-        <button disabled={saving || (chapters.length > 0 && Math.abs(totalWeight - 100) > .5)} onClick={() => void saveConfig()} className="inline-flex items-center gap-2 rounded-2xl bg-primary-600 px-5 py-3 text-sm font-black text-white shadow-xl disabled:opacity-50"><Save size={17} /> {saving ? 'Saving...' : 'Save Guuldoon Settings'}</button>
-      </div>
+      {toast && (
+        <div role="status" aria-live="polite" className={'fixed bottom-5 left-1/2 z-[60] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-xl ' + (toast.tone === 'error' ? 'bg-red-600' : 'bg-slate-900')}>
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }
