@@ -10,6 +10,7 @@
 import mongoose from 'mongoose';
 import School from '../models/school.model';
 import Student from '../models/student.model';
+import ClassModel from '../models/class.model';
 import Subscription from '../models/global-subscription.model';
 import Payout from '../models/guuldoon-school-payout.model';
 import { GLOBAL_SUBSCRIPTION_PRICE, bonusAmount, effectiveBonusRate } from '../utils/global-subscription';
@@ -20,7 +21,10 @@ export interface SchoolBonusSummary {
   city: string;
   rate: number;
   usesDefaultRate: boolean;
+  /** Active, approved students in a Grade 8 or Grade 12 class: the Guuldoon target group. */
   students: number;
+  grade8Students: number;
+  grade12Students: number;
   subscribers: number;
   verifiedSubscriptions: number;
   grossUsd: number;
@@ -36,6 +40,8 @@ export async function summarizeSchools(filter: Record<string, unknown> = {}): Pr
   if (!schools.length) return [];
   const ids = schools.map(school => school._id);
   const approved = { status: 'approved', school: { $in: ids } };
+  const targetClasses = await ClassModel.find({ school: { $in: ids }, gradeLevel: { $in: [8, 12] } }).select('_id gradeLevel').lean();
+  const gradeOfClass = new Map(targetClasses.map(row => [String(row._id), row.gradeLevel as number]));
   const [verifiedRows, subscriberRows, students, payouts] = await Promise.all([
     Subscription.aggregate([
       { $match: approved },
@@ -47,9 +53,11 @@ export async function summarizeSchools(filter: Record<string, unknown> = {}): Pr
       { $group: { _id: { school: '$school', user: '$user' } } },
       { $group: { _id: '$_id.school', total: { $sum: 1 } } },
     ]),
+    // Guuldoon's target group: active, approved students whose class is Grade 8 or 12
+    // (the same rule that decides who can open a Guuldoon course).
     Student.aggregate([
-      { $match: { school: { $in: ids }, approvalStatus: 'approved' } },
-      { $group: { _id: '$school', count: { $sum: 1 } } },
+      { $match: { school: { $in: ids }, approvalStatus: 'approved', status: 'active', class: { $in: targetClasses.map(row => row._id) } } },
+      { $group: { _id: { school: '$school', class: '$class' }, count: { $sum: 1 } } },
     ]),
     Payout.aggregate([
       { $match: { school: { $in: ids } } },
@@ -58,7 +66,14 @@ export async function summarizeSchools(filter: Record<string, unknown> = {}): Pr
   ]);
   const verifiedMap = new Map(verifiedRows.map(row => [String(row._id), row.total as number]));
   const subscriberMap = new Map(subscriberRows.map(row => [String(row._id), row.total as number]));
-  const studentMap = new Map(students.map(row => [String(row._id), row.count as number]));
+  const studentMap = new Map<string, { 8: number; 12: number }>();
+  for (const row of students) {
+    const grade = gradeOfClass.get(String(row._id.class));
+    if (grade !== 8 && grade !== 12) continue;
+    const entry = studentMap.get(String(row._id.school)) || { 8: 0, 12: 0 };
+    entry[grade] += row.count as number;
+    studentMap.set(String(row._id.school), entry);
+  }
   const payoutMap = new Map(payouts.map(row => [String(row._id), row.total as number]));
   return schools.map(school => {
     const key = String(school._id);
@@ -72,7 +87,9 @@ export async function summarizeSchools(filter: Record<string, unknown> = {}): Pr
       city: (school as any).city || '',
       rate,
       usesDefaultRate: typeof (school as any).guuldoonBonusRate !== 'number',
-      students: studentMap.get(key) || 0,
+      students: (studentMap.get(key)?.[8] || 0) + (studentMap.get(key)?.[12] || 0),
+      grade8Students: studentMap.get(key)?.[8] || 0,
+      grade12Students: studentMap.get(key)?.[12] || 0,
       subscribers: subscriberMap.get(key) || 0,
       verifiedSubscriptions: verified,
       grossUsd: round2(verified * GLOBAL_SUBSCRIPTION_PRICE),

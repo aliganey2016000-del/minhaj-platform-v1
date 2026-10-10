@@ -12,7 +12,7 @@ export type SchoolBonusPage = 'overview' | 'schools' | 'payouts' | 'students' | 
 
 type Summary = {
   schoolId: string; name: string; city: string; rate: number; usesDefaultRate: boolean;
-  students: number; subscribers: number; verifiedSubscriptions: number;
+  students: number; grade8Students: number; grade12Students: number; subscribers: number; verifiedSubscriptions: number;
   grossUsd: number; bonusUsd: number; paidOutUsd: number; pendingUsd: number;
 };
 type SchoolsData = {
@@ -87,7 +87,7 @@ function SuperOverview() {
   return (
     <>
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Kpi label="Ardayda iskuullada" value={String(totals.students)} />
+        <Kpi label="Ardayda Grade 8 & 12" value={String(totals.students)} hint="Kuwa active ah oo keliya" />
         <Kpi label="Subscription la xaqiijiyey" value={String(totals.verifiedSubscriptions)} hint={`${usd(data.price)} subscription kasta`} />
         <Kpi label="Lacagta la qaaday" value={usd(totals.grossUsd)} />
         <Kpi label="Gunnada iskuullada" value={usd(totals.bonusUsd)} hint={`${usd(totals.pendingUsd)} weli lama bixin`} />
@@ -140,11 +140,11 @@ function Schools() {
   return (
     <>
       <p className="text-sm text-[var(--color-text-secondary)]">Gunnada caadiga ah waa <b>{data.defaultRate}%</b> ee {usd(data.price)} subscription kasta. Iskuul kasta rate gaar ah ayaad u dejin kartaa.</p>
-      <Table head={[{ label: 'Iskuulka' }, { label: 'Arday', right: true }, { label: 'Subscription', right: true }, { label: 'Lacagta', right: true }, { label: 'Gunno %', right: true }, { label: 'Gunno', right: true }, { label: 'Sugaya', right: true }]}>
+      <Table head={[{ label: 'Iskuulka' }, { label: 'Arday G8 + G12', right: true }, { label: 'Subscription', right: true }, { label: 'Lacagta', right: true }, { label: 'Gunno %', right: true }, { label: 'Gunno', right: true }, { label: 'Sugaya', right: true }]}>
         {data.schools.map((school) => (
           <tr key={school.schoolId}>
             <td className="px-4 py-3"><p className="font-medium">{school.name}</p>{school.city && <p className="text-xs text-[var(--color-text-tertiary)]">{school.city}</p>}</td>
-            <td className="px-4 py-3 text-right tabular-nums">{school.students}</td>
+            <td className="px-4 py-3 text-right tabular-nums">{school.students}<p className="text-xs text-[var(--color-text-tertiary)]">G8: {school.grade8Students} &middot; G12: {school.grade12Students}</p></td>
             <td className="px-4 py-3 text-right tabular-nums">{school.verifiedSubscriptions}</td>
             <td className="px-4 py-3 text-right tabular-nums">{usd(school.grossUsd)}</td>
             <td className="px-4 py-3"><RateCell school={school} maxRate={data.maxRate} onSaved={reload} /></td>
@@ -242,7 +242,7 @@ function MineOverview({ data }: { data: MineData }) {
   const { summary } = data;
   return (
     <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Kpi label="Ardayda iskuulkaaga" value={String(summary.students)} hint={`${summary.subscribers} ayaa subscription leh`} />
+      <Kpi label="Ardayda Grade 8 & 12" value={String(summary.students)} hint={`G8: ${summary.grade8Students} · G12: ${summary.grade12Students} · ${summary.subscribers} ayaa subscription leh`} />
       <Kpi label="Subscription la xaqiijiyey" value={String(summary.verifiedSubscriptions)} hint={`${usd(summary.grossUsd)} wadarta`} />
       <Kpi label={`Gunnadaada (${summary.rate}%)`} value={usd(summary.bonusUsd)} hint={`${usd(summary.paidOutUsd)} la bixiyey`} />
       <Kpi strong label="Sugaya bixin" value={usd(summary.pendingUsd)} hint="Waxaa laguu soo diraa Super Admin-ka" />
@@ -322,7 +322,7 @@ function Mine({ page }: { page: SchoolBonusPage }) {
 
 const TITLES: Record<SchoolBonusPage, [string, string]> = {
   overview: ['Guudmar', 'Gunnada iskuulada ka helaan ardaydooda subscription-ka Guuldoon.'],
-  schools: ['Iskuullada', 'Gunno % iyo xogta iskuul kasta.'],
+  schools: ['Iskuullada', 'Gunno % iyo xogta iskuul kasta. Ardaydu waa kuwa active ah ee Grade 8 iyo 12 oo keliya.'],
   payouts: ['Bixinta', 'Gunnada sugaysa in iskuullada la siiyo iyo taariikhda bixinta.'],
   students: ['Ardayda', 'Ardayda iskuulkaaga ee Guuldoon isticmaalaya.'],
   earnings: ['Gunnada', 'Sida gunnadaada loo xisaabiyo iyo wixii laguu bixiyey.'],
