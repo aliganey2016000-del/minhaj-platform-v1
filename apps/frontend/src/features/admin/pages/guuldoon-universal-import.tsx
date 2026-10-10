@@ -39,6 +39,7 @@ type ImportResult = {
   batchId: string;
   created: Record<string, number>;
   updated: Record<string, number>;
+  preserved?: Record<string, number>;
   skipped: number;
   imagesUploaded: number;
   errors: Issue[];
@@ -291,10 +292,11 @@ export function GuuldoonUniversalImport() {
       {result && (
         <section className="rounded-[28px] border border-emerald-500/30 bg-emerald-500/10 p-6">
           <div className="flex items-center gap-3"><CheckCircle2 className="text-emerald-600" size={30} /><div><h2 className="text-xl font-black">Import Completed</h2><p className="text-sm text-[var(--color-text-secondary)]">Batch {result.batchId}</p></div></div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="mt-5 grid gap-3 sm:grid-cols-4">
             <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Created</p><p className="text-2xl font-black">{Object.values(result.created || {}).reduce((a: number, b) => a + Number(b), 0)}</p></div>
             <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Updated</p><p className="text-2xl font-black">{Object.values(result.updated || {}).reduce((a: number, b) => a + Number(b), 0)}</p></div>
             <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Skipped</p><p className="text-2xl font-black">{result.skipped || 0}</p></div>
+            <div className="rounded-xl bg-[var(--color-surface-primary)] p-4"><p className="text-xs text-[var(--color-text-tertiary)]">Kept manual edits</p><p className="text-2xl font-black text-violet-500">{Object.values(result.preserved || {}).reduce((a: number, b) => a + Number(b), 0)}</p></div>
           </div>
           <p className="mt-4 text-sm">Images uploaded: <strong>{result.imagesUploaded || 0}</strong></p>
           <div className="mt-5 flex flex-wrap gap-3"><button onClick={() => navigate('/admin/global-courses')} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-black text-white">View Courses</button><button onClick={() => void downloadErrors(result.batchId)} className="rounded-xl border px-4 py-2.5 text-sm font-bold">Download Error Report</button></div>

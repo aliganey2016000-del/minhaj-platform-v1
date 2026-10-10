@@ -18,6 +18,8 @@ export interface IGuuldoonResource extends Document {
   offlineAvailable: boolean;
   contentText?: string;
   figureFiles?: string[];
+  /** Set when a Super Admin edits the lesson by hand; a later Excel import keeps it. */
+  manuallyEdited?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,6 +40,7 @@ const schema = new Schema<IGuuldoonResource>({
   offlineAvailable: { type: Boolean, default: false },
   contentText: { type: String, default: '' },
   figureFiles: { type: [String], default: [] },
+  manuallyEdited: { type: Boolean, default: false },
 }, { timestamps: true });
 
 schema.index({ course: 1, externalId: 1 }, { unique: true });

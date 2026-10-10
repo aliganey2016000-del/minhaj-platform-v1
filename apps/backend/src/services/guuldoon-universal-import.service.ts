@@ -853,19 +853,24 @@ function importedAnswer(row: Row): unknown {
 export async function commitGuuldoonImport(
   courseId: string,
   parsed: ParsedGuuldoonImport,
-): Promise<{ created: Record<ImportSheet, number>; updated: Record<ImportSheet, number>; skipped: number; importErrors: ImportIssue[]; imagesUploaded: number }> {
+): Promise<{ created: Record<ImportSheet, number>; updated: Record<ImportSheet, number>; preserved: Record<ImportSheet, number>; skipped: number; importErrors: ImportIssue[]; imagesUploaded: number }> {
   const courseObjectId = new mongoose.Types.ObjectId(courseId);
   const created = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
   const updated = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
+  const preserved = Object.fromEntries(SHEETS.map(sheet => [sheet, 0])) as Record<ImportSheet, number>;
   const importErrors: ImportIssue[] = [];
   let skipped = parsed.issues.filter(issue => issue.severity === 'error' && issue.row >= 2).reduce((set, issue) => set.add(issueKey(issue.sheet, issue.row)), new Set<string>()).size + parsed.blockedRows.size;
 
-  const safeWrite = async (sheet: ImportSheet, row: Row, fn: () => Promise<'created' | 'updated'>) => {
+  const safeWrite = async (sheet: ImportSheet, row: Row, fn: () => Promise<'created' | 'updated' | 'preserved'>) => {
     if (!isValidRow(parsed, sheet, row)) return;
     try {
       const result = await fn();
       if (result === 'created') created[sheet] += 1;
-      else updated[sheet] += 1;
+      else if (result === 'preserved') {
+        // A Super Admin fixed this row by hand in the Guuldoon Builder; the Excel must not undo it.
+        preserved[sheet] += 1;
+        importErrors.push({ sheet, row: row.__row, id: rowId(sheet, row), field: '_manual_edit', message: 'Kept the manual edit made in the Guuldoon Builder; the Excel values for this row were not applied.', severity: 'warning' });
+      } else updated[sheet] += 1;
     } catch (error: any) {
       skipped += 1;
       importErrors.push({ sheet, row: row.__row, id: rowId(sheet, row), field: '_db', message: `DB write failed: ${error?.message || 'unknown database error'}`, severity: 'error' });
@@ -899,7 +904,8 @@ export async function commitGuuldoonImport(
     const id = str(row.chapter_id);
     const subject = subjectMap.get(str(row.subject_id));
     if (!subject) throw new Error(`subject_id "${row.subject_id}" was not imported`);
-    const existing = await GuuldoonChapter.exists({ course: courseObjectId, externalId: id });
+    const existing = await GuuldoonChapter.findOne({ course: courseObjectId, externalId: id }).select('_id manuallyEdited').lean();
+    if (existing?.manuallyEdited) return 'preserved';
     await GuuldoonChapter.updateOne(
       { course: courseObjectId, externalId: id },
       { $set: {
@@ -943,7 +949,8 @@ export async function commitGuuldoonImport(
   const figureUrls = await persistFigures(courseId, parsed);
   for (const row of parsed.rows.Resources) await safeWrite('Resources', row, async () => {
     const id = str(row.resource_id);
-    const existing = await GuuldoonResource.exists({ course: courseObjectId, externalId: id });
+    const existing = await GuuldoonResource.findOne({ course: courseObjectId, externalId: id }).select('_id manuallyEdited').lean();
+    if (existing?.manuallyEdited) return 'preserved';
     await GuuldoonResource.updateOne(
       { course: courseObjectId, externalId: id },
       { $set: {
@@ -974,11 +981,13 @@ export async function commitGuuldoonImport(
     const id = str(row.question_id);
     const examId = examMap.get(str(row.exam_id));
     if (!examId) throw new Error(`exam_id "${row.exam_id}" was not imported`);
-    let existing = await GuuldoonQuestion.findOne({ course: courseObjectId, externalId: id }).select('_id externalId');
+    let existing = await GuuldoonQuestion.findOne({ course: courseObjectId, externalId: id }).select('_id externalId manuallyEdited');
+    if (existing?.manuallyEdited) return 'preserved';
     if (!existing) {
-      const byNumber = await GuuldoonQuestion.findOne({ exam: examId, number: Number(row.number) }).select('_id externalId');
+      const byNumber = await GuuldoonQuestion.findOne({ exam: examId, number: Number(row.number) }).select('_id externalId manuallyEdited');
       if (byNumber && byNumber.externalId && String(byNumber.externalId) !== id) throw new Error(`Question number ${row.number} is already linked to question_id "${byNumber.externalId}"`);
       existing = byNumber;
+      if (existing?.manuallyEdited) return 'preserved';
     }
     const wasExisting = !!existing;
     let options = [row.option_a, row.option_b, row.option_c, row.option_d].map(str).filter(value => value !== '');
@@ -1054,7 +1063,7 @@ export async function commitGuuldoonImport(
     return existing ? 'updated' : 'created';
   });
 
-  return { created, updated, skipped, importErrors, imagesUploaded: figureUrls.size };
+  return { created, updated, preserved, skipped, importErrors, imagesUploaded: figureUrls.size };
 }
 
 export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
