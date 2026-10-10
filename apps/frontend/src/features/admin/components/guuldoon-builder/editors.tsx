@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Check, Loader2, Plus, Trash2, X } from 'lucide-react';
+import { LessonBody } from '../../../shared/components/guuldoon-lesson-body';
 import type { AnswerKey, ChapterContent, ChapterRow, LessonRow, QuestionRow } from './types';
 
 export const inputClass = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm font-semibold text-[var(--color-text-primary)] outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60';
@@ -123,6 +124,7 @@ export function LessonEditor({ lesson, saving, error, onSave, onCancel, onDelete
   const [pageFrom, setPageFrom] = useState(lesson?.pageFrom ? String(lesson.pageFrom) : '');
   const [pageTo, setPageTo] = useState(lesson?.pageTo ? String(lesson.pageTo) : '');
   const [clientError, setClientError] = useState('');
+  const [preview, setPreview] = useState(false);
   const showUrl = !lesson || lesson.type !== 'note';
 
   const submit = () => {
@@ -134,9 +136,17 @@ export function LessonEditor({ lesson, saving, error, onSave, onCancel, onDelete
   return (
     <EditorShell title={lesson ? 'Wax ka beddel casharka' : 'Cashar cusub'} error={clientError || error} saving={saving} onSave={submit} onCancel={onCancel} onDelete={onDelete}>
       <Field label="Cinwaanka casharka"><input className={inputClass} value={title} onChange={e => setTitle(e.target.value)} dir="auto" /></Field>
-      <Field label="Qoraalka casharka" hint="Formula waxaa lagu qoraa $V = IR$; erayo muhiim ah **mugdi** ku qor.">
-        <textarea className={`${inputClass} min-h-[160px] leading-6`} value={contentText} onChange={e => setContentText(e.target.value)} dir="auto" />
+      <Field label="Qoraalka casharka" hint="Formula waxaa lagu qoraa $V = IR$; erayo muhiim ah **mugdi** ku qor. Sanduuqyada: > [!goal], > [!example], > [!note].">
+        <textarea className={`${inputClass} min-h-[180px] font-mono text-[13px] leading-6`} value={contentText} onChange={e => setContentText(e.target.value)} dir="auto" />
       </Field>
+      <div>
+        <button type="button" onClick={() => setPreview(value => !value)} aria-expanded={preview} className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/40 px-3 py-1.5 text-xs font-black text-sky-500">{preview ? 'Qari hordhaca' : 'Hordhac: sida ardaygu u arko'}</button>
+        {preview && (
+          <div className="mt-2 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-4">
+            <LessonBody content={contentText || 'Qoraalka casharka wali lama gelin.'} highlights={[]} visible={false} onOpen={() => undefined} />
+          </div>
+        )}
+      </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Bogga ka bilaabma"><input className={inputClass} type="number" min={1} value={pageFrom} onChange={e => setPageFrom(e.target.value)} /></Field>
         <Field label="Bogga ku dhammaada"><input className={inputClass} type="number" min={1} value={pageTo} onChange={e => setPageTo(e.target.value)} /></Field>
