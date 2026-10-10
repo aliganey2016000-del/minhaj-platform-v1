@@ -3,6 +3,7 @@ import { BookOpen, ChevronDown, ExternalLink, Loader2, Pencil, Plus } from 'luci
 import api from '../../../../lib/axios';
 import { accentFor, masteryTone } from './accents';
 import { ChapterEditor, LessonEditor, QuestionEditor } from './editors';
+import { LessonBody, SummaryHero, isSummarySection } from '../../../shared/components/guuldoon-lesson-body';
 import { errorMessage, type ChapterContent, type ChapterRow, type LessonRow, type QuestionRow } from './types';
 
 type Section = 'lessons' | 'years' | 'practice' | null;
@@ -58,22 +59,51 @@ function QuestionCard({ question, years, onEdit }: { question: QuestionRow; year
   );
 }
 
+/** One-line teaser for the collapsed lesson: the text without callout tags, headings or bold markers. */
+function plainPreview(content: string, max = 170): string {
+  const text = content
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.replace(/^>\s?\[!\w+\]\s*/, '').replace(/^>\s?/, '').replace(/^#{1,3}\s+/, '').replace(/^-\s+/, ''))
+    .join(' ')
+    .replace(/\*\*/g, '')
+    .replace(/\$/g, '')
+    .replace(/\{\{fig:[^}]*\}\}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > max ? text.slice(0, max).trimEnd() + '…' : text;
+}
+
 function LessonCard({ lesson, index, onEdit }: { lesson: LessonRow; index: number; onEdit: () => void }) {
+  const [open, setOpen] = useState(false);
+  const accent = accentFor(index);
+  const summary = isSummarySection(lesson);
   const pages = lesson.pageFrom ? `Bogga ${lesson.pageFrom}${lesson.pageTo && lesson.pageTo !== lesson.pageFrom ? '–' + lesson.pageTo : ''}` : '';
+  const preview = plainPreview(lesson.contentText);
   return (
-    <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h4 className="min-w-0 text-sm font-black" dir="auto">{index + 1}. {lesson.title}</h4>
-            {pages && <span className="rounded-md bg-slate-500/10 px-2 py-0.5 text-[10px] font-black">{pages}</span>}
-            {lesson.type !== 'note' && <span className="rounded-md bg-sky-500/10 px-2 py-0.5 text-[10px] font-black text-sky-500">{lesson.type}</span>}
-            {lesson.manuallyEdited && <span className="rounded-md bg-violet-500/10 px-2 py-0.5 text-[10px] font-black text-violet-500">La beddelay</span>}
-          </div>
-          {lesson.contentText && <p className="mt-1.5 line-clamp-3 whitespace-pre-line text-xs leading-5 text-[var(--color-text-secondary)]" dir="auto">{lesson.contentText}</p>}
-        </div>
-        {!lesson.readOnly && <button type="button" onClick={onEdit} aria-label={`Wax ka beddel casharka ${lesson.title}`} className="shrink-0 rounded-xl border border-[var(--color-border-default)] p-2 text-[var(--color-text-tertiary)] hover:border-emerald-500 hover:text-emerald-500"><Pencil size={15} /></button>}
+    <div className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
+      <div className="flex items-start">
+        <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex min-w-0 flex-1 items-start gap-3 p-3 text-left">
+          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${accent.soft} ${accent.text}`}>{summary ? '⭐' : index + 1}</span>
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="min-w-0 break-words text-sm font-black" dir="auto">{lesson.title}</span>
+              {pages && <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-black text-amber-500">{pages}</span>}
+              {lesson.type !== 'note' && <span className="rounded-md bg-sky-500/10 px-2 py-0.5 text-[10px] font-black text-sky-500">{lesson.type}</span>}
+              {lesson.manuallyEdited && <span className="rounded-md bg-violet-500/10 px-2 py-0.5 text-[10px] font-black text-violet-500">La beddelay</span>}
+            </span>
+            {!open && <span className="mt-1 line-clamp-2 block text-xs leading-5 text-[var(--color-text-secondary)]" dir="auto">{preview || 'Qoraalka casharka wali lama gelin.'}</span>}
+          </span>
+          <ChevronDown size={18} className={'mt-1.5 shrink-0 text-[var(--color-text-tertiary)] transition-transform ' + (open ? 'rotate-180' : '')} aria-hidden="true" />
+        </button>
+        {!lesson.readOnly && <button type="button" onClick={onEdit} aria-label={`Wax ka beddel casharka ${lesson.title}`} className="m-3 shrink-0 rounded-xl border border-[var(--color-border-default)] p-2 text-[var(--color-text-tertiary)] hover:border-emerald-500 hover:text-emerald-500"><Pencil size={15} /></button>}
       </div>
+      {open && (
+        <div className="border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary,transparent)] p-4 sm:p-5" dir={lesson.direction === 'rtl' || lesson.language === 'ar' ? 'rtl' : 'auto'}>
+          {summary && <div className="mb-4"><SummaryHero /></div>}
+          <LessonBody content={lesson.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={[]} visible={false} onOpen={() => undefined} />
+        </div>
+      )}
     </div>
   );
 }
