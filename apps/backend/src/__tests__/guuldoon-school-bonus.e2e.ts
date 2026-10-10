@@ -15,6 +15,7 @@ async function main() {
     const { default: Student } = await import('../models/student.model');
     const { default: Profile } = await import('../models/profile.model');
     const { default: Subscription } = await import('../models/global-subscription.model');
+    const { default: ClassModel } = await import('../models/class.model');
     const { generateAccessToken } = await import('../utils/jwt');
     const { bonusAmount, effectiveBonusRate, DEFAULT_SCHOOL_BONUS_RATE } = await import('../utils/global-subscription');
 
@@ -35,18 +36,26 @@ async function main() {
     const headers = (u: any) => ({ Authorization: `Bearer ${generateAccessToken({ userId: String(u._id), role: u.role, organizationId: u.organizationId?.toString(), permissions: [] })}` });
     const orgA = await User.create({ email: 'bonus-org-a@test.local', password: 'Password123!', role: 'org_admin', organizationId: schoolA._id });
     const orgB = await User.create({ email: 'bonus-org-b@test.local', password: 'Password123!', role: 'org_admin', organizationId: schoolB._id });
-    const makeStudent = async (n: number, school: any) => {
+    const mkClass = (school: any, gradeLevel: number) => ClassModel.create({ school: school._id, title: `Grade ${gradeLevel}`, room: String(gradeLevel), gradeLevel });
+    const class12A = await mkClass(schoolA, 12);
+    const class8A = await mkClass(schoolA, 8);
+    const class10A = await mkClass(schoolA, 10);
+    const class12B = await mkClass(schoolB, 12);
+    const makeStudent = async (n: number, school: any, classroom?: any, status = 'active') => {
       const user = await User.create({ email: `bonus-student-${n}@test.local`, password: 'Password123!', role: 'student', organizationId: school._id });
       const profile = await Profile.create({ user: user._id, firstName: `Student${n}`, lastName: 'Test', gender: 'male' });
-      await Student.create({ user: user._id, profile: profile._id, studentId: `BONUS-${n}`, school: school._id, approvalStatus: 'approved' });
+      await Student.create({ user: user._id, profile: profile._id, studentId: `BONUS-${n}`, school: school._id, approvalStatus: 'approved', status, ...(classroom ? { class: classroom._id } : {}) });
       return user;
     };
-    // School A: 4 students. 3 verified (one has two grades -> 4 verified rows), 1 pending, 1 revoked.
-    const a1 = await makeStudent(1, schoolA);
-    const a2 = await makeStudent(2, schoolA);
-    const a3 = await makeStudent(3, schoolA);
-    const a4 = await makeStudent(4, schoolA);
-    const b1 = await makeStudent(5, schoolB);
+    // School A target group (active, Grade 8 or 12): a1 (G12), a2 (G8), a3 (G12).
+    // Not counted: a4 (Grade 10), an inactive Grade 12 student and a student with no class.
+    const a1 = await makeStudent(1, schoolA, class12A);
+    const a2 = await makeStudent(2, schoolA, class8A);
+    const a3 = await makeStudent(3, schoolA, class12A);
+    const a4 = await makeStudent(4, schoolA, class10A);
+    await makeStudent(6, schoolA, class12A, 'inactive');
+    await makeStudent(7, schoolA);
+    const b1 = await makeStudent(5, schoolB, class12B);
     const now = new Date();
     const later = new Date(now.getTime() + 365 * 86400000);
     const sub = (user: any, school: any, grade: number, status: string, ref: string) => Subscription.create({ user: user._id, school: school._id, grade, status, paymentReference: ref, verifiedReference: status === 'approved' ? ref : undefined, startsAt: status === 'approved' ? now : undefined, expiresAt: status === 'approved' ? later : undefined });
@@ -75,7 +84,9 @@ async function main() {
     const rowA = overview.body.data.schools.find((s: any) => s.name === 'Bonus School A');
     assert.equal(rowA.verifiedSubscriptions, 4);
     assert.equal(rowA.subscribers, 3);
-    assert.equal(rowA.students, 4);
+    assert.equal(rowA.students, 3);
+    assert.equal(rowA.grade8Students, 1);
+    assert.equal(rowA.grade12Students, 2);
     assert.equal(rowA.grossUsd, 20);
     assert.equal(rowA.rate, 33);
     assert.equal(rowA.usesDefaultRate, true);
@@ -126,6 +137,7 @@ async function main() {
     assert.equal(mineA.status, 200, JSON.stringify(mineA.body));
     assert.equal(mineA.body.data.summary.name, 'Bonus School A');
     assert.equal(mineA.body.data.summary.verifiedSubscriptions, 4);
+    assert.equal(mineA.body.data.summary.students, 3);
     assert.equal(mineA.body.data.summary.pendingUsd, 0);
     assert.equal(mineA.body.data.payouts.length, 2);
     assert.equal(mineA.body.data.studentsTotal, 5); // 4 approved + 1 pending; revoked is hidden
@@ -134,6 +146,7 @@ async function main() {
     const mineB = await request(app).get(`${root}/mine`).set(headers(orgB));
     assert.equal(mineB.body.data.summary.name, 'Bonus School B');
     assert.equal(mineB.body.data.summary.verifiedSubscriptions, 1);
+    assert.equal(mineB.body.data.summary.students, 1);
     assert.equal(mineB.body.data.summary.bonusUsd, 1.65);
     assert.equal(mineB.body.data.payouts.length, 0);
     assert.ok(!JSON.stringify(mineB.body).includes('Student1'), 'must not leak another school\'s student');
