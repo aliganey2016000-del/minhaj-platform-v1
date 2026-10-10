@@ -4,6 +4,7 @@
  * configure any course; a teacher may only configure/view their own courses.
  */
 
+import { assertStudentsInSchool } from '../utils/tenant-refs';
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import Course from '../models/course.model';
@@ -178,10 +179,21 @@ export const getMyCourseGrade = async (req: Request, res: Response): Promise<Res
 export const setManualGrade = async (req: Request, res: Response): Promise<Response> => {
   const { courseId, studentId } = req.params;
   const { categoryKey, score } = req.body;
-  await loadCourseAndAssertAccess(req, courseId);
+  const course = await loadCourseAndAssertAccess(req, courseId);
 
   if (!categoryKey || typeof score !== 'number' || score < 0 || score > 100) {
     throw new BadRequestError('categoryKey and a score between 0 and 100 are required.');
+  }
+  await assertStudentsInSchool([studentId], course.school);
+
+  // A teacher may not enter scores for a category the school kept hidden from
+  // teachers (the bulk entry sheet already enforces this; this single-entry
+  // endpoint did not).
+  const scheme = await GradingScheme.findOne({ course: courseId }).lean();
+  const category = (scheme?.categories || []).find((c: any) => c.key === categoryKey);
+  if (scheme && !category) throw new BadRequestError('Unknown grading category for this course.');
+  if (req.user?.role === 'teacher' && category?.teacherVisible === false) {
+    throw new ForbiddenError('This grading category is managed by the school administration.');
   }
 
   // A teacher must not be able to write to a category the admin marked
@@ -376,12 +388,14 @@ export const getManualEntryRoster = async (req: Request, res: Response): Promise
 // ---------------------------------------------------------------------------
 export const bulkSetManualGrades = async (req: Request, res: Response): Promise<Response> => {
   const { courseId } = req.params;
-  await loadCourseAndAssertAccess(req, courseId);
+  const courseForEntries = await loadCourseAndAssertAccess(req, courseId);
 
   const { entries } = req.body as { entries?: { studentId: string; slot: ManualEntrySlot; score: number }[] };
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new BadRequestError('At least one entry is required.');
   }
+
+  await assertStudentsInSchool(entries.map((entry) => entry?.studentId), courseForEntries.school);
 
   let scheme = await GradingScheme.findOne({ course: courseId }).lean();
   scheme = await ensureManualEntryCategories(courseId, scheme);

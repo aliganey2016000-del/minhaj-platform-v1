@@ -4,6 +4,7 @@
  * CRUD operations, enrollment, listing.
  */
 
+import { assertClassInSchool, assertTeacherInSchool } from '../utils/tenant-refs';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
@@ -247,6 +248,9 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   }
 
   const resolvedSchool = scope === 'global' ? null : resolveOrgIdForCreate(req, school) || null;
+  // A course may only link a teacher or class of its own school.
+  await assertTeacherInSchool(teacher, resolvedSchool);
+  await assertClassInSchool(classId, resolvedSchool);
   if (category && resolvedSchool) {
     const categoryExists = await CourseCategory.exists({ school: resolvedSchool, slug: String(category).toLowerCase() });
     if (!categoryExists) throw new BadRequestError(`Category "${category}" does not exist for this organization`);
@@ -369,6 +373,10 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
   if (updates.title && (updates.title as any).en) {
     updates.slug = slugify((updates.title as any).en);
   }
+
+  const schoolForRefs = updates.school || existing.school;
+  await assertTeacherInSchool(updates.teacher, schoolForRefs);
+  await assertClassInSchool(updates.class, schoolForRefs);
 
   if (updates.category) {
     const schoolForCategory = updates.school || existing.school;

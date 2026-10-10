@@ -15,6 +15,14 @@ import { BadRequestError, NotFoundError } from '../utils/api-error';
 // GET /api/v1/tenant/:slug/branding — Public branding by slug
 // ---------------------------------------------------------------------------
 
+/** Only the fields the browser needs; internal storage keys never leave the API. */
+function publicBranding(branding?: { logo?: string; themeColor?: string } | null) {
+  return {
+    ...(branding?.logo ? { logo: branding.logo } : {}),
+    ...(branding?.themeColor ? { themeColor: branding.themeColor } : {}),
+  };
+}
+
 export const getBrandingBySlug = async (req: Request, res: Response): Promise<Response> => {
   const { slug } = req.params;
 
@@ -41,7 +49,7 @@ export const getBrandingBySlug = async (req: Request, res: Response): Promise<Re
     institutionType: resolveInstitutionType(school),
     // @deprecated kept for API back-compat — use institutionType
     organizationType: school.organizationType,
-    branding: school.branding || {},
+    branding: publicBranding(school.branding),
     portalUrl: school.customDomain
       ? `https://${school.customDomain}`
       : `https://${school.subdomain || school.slug}.${process.env.BASE_DOMAIN || 'sahaledu.com'}`,
@@ -69,6 +77,7 @@ export const getCurrentBranding = async (req: Request, res: Response): Promise<R
   return ApiResponse.success(res, {
     isMainSite: false,
     ...req.tenant,
+    branding: publicBranding(req.tenant.branding),
     portalUrl: req.tenant.customDomain
       ? `https://${req.tenant.customDomain}`
       : `https://${req.tenant.subdomain || req.tenant.slug}.${baseDomain}`,

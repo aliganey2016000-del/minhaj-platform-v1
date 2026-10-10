@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import Notification from '../models/notification.model';
 import User from '../models/user.model';
 import ApiResponse from '../utils/api-response';
@@ -59,6 +60,14 @@ export const remove = async (req: Request, res: Response) => {
 export const create = async (req: Request, res: Response) => {
   const { user, title, message, type, link } = req.body;
   if (!user || !title || !message) throw new BadRequestError('user, title, and message required');
+  if (!mongoose.isValidObjectId(String(user))) throw new BadRequestError('A valid user is required');
+
+  // Links open inside the app: a relative path only, never an external or
+  // script URL an administrator could use to lure users off the platform.
+  const safeLink = String(link || '');
+  if (safeLink && !/^\/(?!\/)[^\s\\]*$/.test(safeLink)) {
+    throw new BadRequestError('link must be a relative path inside the app, e.g. /student/assignments');
+  }
 
   // This route is gated by adminOnly (admin + org_admin, incl. staff acting
   // as org_admin). The platform admin may notify anyone, but an org_admin
@@ -71,6 +80,6 @@ export const create = async (req: Request, res: Response) => {
     }
   }
 
-  const n = await notifyUser({ userId: user, title, message, type: type || 'info', link: link || '' });
+  const n = await notifyUser({ userId: String(user), title: String(title).slice(0, 200), message: String(message).slice(0, 2000), type: type || 'info', link: safeLink });
   return ApiResponse.created(res, n, 'Notification created');
 };

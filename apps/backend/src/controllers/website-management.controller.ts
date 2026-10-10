@@ -395,7 +395,11 @@ export function schoolSummary(school: any) {
     slug: school.slug,
     subdomain: school.subdomain,
     customDomain: school.customDomain || '',
-    branding: school.branding || {},
+    // Public payload: expose only logo and colour, never internal storage keys.
+    branding: {
+      ...(school.branding?.logo ? { logo: school.branding.logo } : {}),
+      ...(school.branding?.themeColor ? { themeColor: school.branding.themeColor } : {}),
+    },
     address: school.address || '',
     phone: school.phone || '',
     email: school.email || '',
