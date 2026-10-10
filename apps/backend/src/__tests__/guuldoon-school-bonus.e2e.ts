@@ -112,6 +112,43 @@ async function main() {
     assert.equal(reset.body.data.usesDefaultRate, true);
     assert.equal(reset.body.data.bonusUsd, 6.6);
 
+    // ── Grades: a school can be limited to Grade 8 or Grade 12 ──
+    const setGrades = (grades: unknown, user: any = admin) => request(app).patch(`${root}/schools/${schoolA._id}/grades`).set(headers(user)).send({ grades });
+    assert.equal((await setGrades([12], orgA)).status, 403);
+    for (const bad of [[], [10], [8, 12, 8], [8, 8], 'abc', 12, undefined, [null]]) {
+      assert.equal((await setGrades(bad)).status, 400, `grades ${JSON.stringify(bad)}`);
+    }
+    assert.equal((await request(app).patch(`${root}/schools/bad/grades`).set(headers(admin)).send({ grades: [12] })).status, 400);
+    assert.equal((await request(app).patch(`${root}/schools/${new mongoose.Types.ObjectId()}/grades`).set(headers(admin)).send({ grades: [12] })).status, 404);
+    const only12 = await setGrades([12]);
+    assert.equal(only12.status, 200, JSON.stringify(only12.body));
+    assert.deepEqual(only12.body.data.grades, [12]);
+    assert.equal(only12.body.data.students, 2); // a1 and a3; the Grade 8 student a2 is out
+    assert.equal(only12.body.data.grade8Students, 0);
+    assert.equal(only12.body.data.grade12Students, 2);
+    assert.equal(only12.body.data.verifiedSubscriptions, 3); // a1, a2 and a3 Grade 12 rows; a1's Grade 8 row is out
+    assert.equal(only12.body.data.bonusUsd, 4.95);
+    const mine12 = await request(app).get(`${root}/mine`).set(headers(orgA));
+    assert.equal(mine12.body.data.studentsTotal, 4); // 3 approved + the pending Grade 12 request
+    const only8 = await setGrades([8]);
+    assert.deepEqual(only8.body.data.grades, [8]);
+    assert.equal(only8.body.data.students, 1);
+    assert.equal(only8.body.data.verifiedSubscriptions, 1);
+    assert.equal(only8.body.data.bonusUsd, 1.65);
+    assert.equal((await request(app).get(`${root}/mine`).set(headers(orgA))).body.data.studentsTotal, 1);
+    // The other school is untouched, and the order of the list does not matter.
+    const sibling = (await request(app).get(`${root}/schools`).set(headers(admin))).body.data.schools.find((s: any) => s.name === 'Bonus School B');
+    assert.deepEqual(sibling.grades, [8, 12]);
+    assert.equal(sibling.verifiedSubscriptions, 1);
+    const both = await setGrades([12, 8]);
+    assert.deepEqual(both.body.data.grades, [8, 12]);
+    assert.equal(both.body.data.verifiedSubscriptions, 4);
+    await setGrades([12]);
+    const cleared = await setGrades(null);
+    assert.deepEqual(cleared.body.data.grades, [8, 12]);
+    assert.equal(cleared.body.data.students, 3);
+    assert.equal(cleared.body.data.bonusUsd, 6.6);
+
     // ── Payouts: validated, capped at what is owed ──
     const pay = (body: any) => request(app).post(`${root}/payouts`).set(headers(admin)).send(body);
     assert.equal((await pay({ schoolId: String(schoolA._id), amount: 0 })).status, 400);

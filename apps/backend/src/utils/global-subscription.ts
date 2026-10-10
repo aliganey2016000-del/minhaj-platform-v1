@@ -17,3 +17,10 @@ export function effectiveBonusRate(rate?: number | null): number {
 export function bonusAmount(verifiedSubscriptions: number, rate?: number | null): number {
   return Math.round(verifiedSubscriptions * GLOBAL_SUBSCRIPTION_PRICE * effectiveBonusRate(rate)) / 100;
 }
+
+export const GUULDOON_GRADES = [8, 12] as const;
+/** Grades a school covers; unset (or invalid) means both Guuldoon grades. */
+export function effectiveGrades(grades?: number[] | null): number[] {
+  const valid = Array.isArray(grades) ? [...new Set(grades)].filter(grade => grade === 8 || grade === 12).sort((a, b) => a - b) : [];
+  return valid.length ? valid : [...GUULDOON_GRADES];
+}

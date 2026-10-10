@@ -137,6 +137,9 @@ export interface ISchool extends Document {
    * school's students that the school earns. Unset = platform default
    * (DEFAULT_SCHOOL_BONUS_RATE). Managed only by the Super Admin. */
   guuldoonBonusRate?: number | null;
+  /** Grades this school uses Guuldoon for: [8], [12] or [8, 12]. Unset = both. It
+   * decides which students are counted and which subscriptions earn a bonus. */
+  guuldoonGrades?: number[] | null;
   branding: IBranding;
   examSchedulingRules: IExamSchedulingRules;
   examRoomPlanSettings: IExamRoomPlanSettings;
@@ -342,6 +345,14 @@ const schoolSchema = new Schema<ISchool>(
       min: 0,
       max: 60,
       default: null,
+    },
+    guuldoonGrades: {
+      type: [Number],
+      default: undefined,
+      validate: {
+        validator: (value?: number[]) => !value || (value.length >= 1 && value.length <= 2 && new Set(value).size === value.length && value.every(grade => grade === 8 || grade === 12)),
+        message: 'guuldoonGrades must be [8], [12] or [8, 12]',
+      },
     },
     customDomain: {
       type: String,

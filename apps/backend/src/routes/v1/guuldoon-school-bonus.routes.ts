@@ -57,6 +57,19 @@ router.patch('/schools/:id/rate', asyncHandler(async (req, res) => {
   return ApiResponse.success(res, await summarizeSchool(id), 'Bonus rate updated');
 }));
 
+/** Super Admin: choose which grades a school uses Guuldoon for ([8], [12], [8, 12] or null = both). */
+router.patch('/schools/:id/grades', asyncHandler(async (req, res) => {
+  requireSuperAdmin(req.user);
+  const id = objectId(req.params.id, 'school ID');
+  const grades = req.body.grades;
+  const valid = grades === null || (Array.isArray(grades) && grades.length >= 1 && grades.length <= 2 && new Set(grades).size === grades.length && grades.every((grade: unknown) => grade === 8 || grade === 12));
+  if (!valid) throw new BadRequestError('grades must be [8], [12], [8, 12] or null');
+  const update = grades === null ? { $unset: { guuldoonGrades: 1 } } : { $set: { guuldoonGrades: [...grades].sort((a: number, b: number) => a - b) } };
+  const result = await School.updateOne({ _id: id }, update, { runValidators: true });
+  if (result.matchedCount === 0) throw new NotFoundError('School');
+  return ApiResponse.success(res, await summarizeSchool(id), 'Grades updated');
+}));
+
 /** Super Admin: payout history, optionally for one school. */
 router.get('/payouts', asyncHandler(async (req, res) => {
   requireSuperAdmin(req.user);
@@ -94,7 +107,7 @@ router.get('/mine', asyncHandler(async (req, res) => {
   if (!summary) throw new NotFoundError('School');
   const page = pageOf(req.query.page);
   const limit = 50;
-  const filter = { school: schoolId, status: { $in: ['approved', 'pending'] } };
+  const filter = { school: schoolId, status: { $in: ['approved', 'pending'] }, grade: { $in: summary.grades } };
   const [subs, total, payouts] = await Promise.all([
     Subscription.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).select('user grade status startsAt expiresAt createdAt').lean(),
     Subscription.countDocuments(filter),
