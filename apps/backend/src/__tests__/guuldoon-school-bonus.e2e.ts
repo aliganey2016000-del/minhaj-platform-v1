@@ -124,7 +124,7 @@ async function main() {
     assert.equal(only12.status, 200, JSON.stringify(only12.body));
     assert.deepEqual(only12.body.data.grades, [12]);
     assert.equal(only12.body.data.students, 2); // a1 and a3; the Grade 8 student a2 is out
-    assert.equal(only12.body.data.grade8Students, 0);
+    assert.equal(only12.body.data.grade8Students, 1); // per-grade counts ignore the selection, so the menu can show them
     assert.equal(only12.body.data.grade12Students, 2);
     assert.equal(only12.body.data.verifiedSubscriptions, 3); // a1, a2 and a3 Grade 12 rows; a1's Grade 8 row is out
     assert.equal(only12.body.data.bonusUsd, 4.95);

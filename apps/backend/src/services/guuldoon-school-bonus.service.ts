@@ -23,8 +23,9 @@ export interface SchoolBonusSummary {
   usesDefaultRate: boolean;
   /** Grades this school covers; only these count toward students and the bonus. */
   grades: number[];
-  /** Active, approved students in a Grade 8 or Grade 12 class: the Guuldoon target group. */
+  /** Active, approved students in the grades this school covers (the sum of the selected grades below). */
   students: number;
+  /** Active students per grade, regardless of which grades the school covers. */
   grade8Students: number;
   grade12Students: number;
   subscribers: number;
@@ -75,11 +76,12 @@ export async function summarizeSchools(filter: Record<string, unknown> = {}): Pr
   ]);
   const verifiedMap = new Map(verifiedRows.map(row => [String(row._id), row.total as number]));
   const subscriberMap = new Map(subscriberRows.map(row => [String(row._id), row.total as number]));
+  // Active students per grade for every school, whether or not the grade is selected,
+  // so the Super Admin can see the numbers before choosing which grades to include.
   const studentMap = new Map<string, { 8: number; 12: number }>();
   for (const row of students) {
     const grade = gradeOfClass.get(String(row._id.class));
     if (grade !== 8 && grade !== 12) continue;
-    if (!gradesOf.get(String(row._id.school))?.includes(grade)) continue;
     const entry = studentMap.get(String(row._id.school)) || { 8: 0, 12: 0 };
     entry[grade] += row.count as number;
     studentMap.set(String(row._id.school), entry);
@@ -98,7 +100,7 @@ export async function summarizeSchools(filter: Record<string, unknown> = {}): Pr
       rate,
       usesDefaultRate: typeof (school as any).guuldoonBonusRate !== 'number',
       grades: gradesOf.get(key)!,
-      students: (studentMap.get(key)?.[8] || 0) + (studentMap.get(key)?.[12] || 0),
+      students: gradesOf.get(key)!.reduce((total, grade) => total + (studentMap.get(key)?.[grade as 8 | 12] || 0), 0),
       grade8Students: studentMap.get(key)?.[8] || 0,
       grade12Students: studentMap.get(key)?.[12] || 0,
       subscribers: subscriberMap.get(key) || 0,
