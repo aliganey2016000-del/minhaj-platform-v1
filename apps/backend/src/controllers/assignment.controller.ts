@@ -14,6 +14,7 @@
  *   - omitted:     returns all (paginated)
  */
 
+import { assertClassInSchool } from '../utils/tenant-refs';
 import { Request, Response } from 'express';
 import path from 'path';
 import crypto from 'crypto';
@@ -63,6 +64,29 @@ async function assertCanManageAssignment(req: Request, assignmentId: string) {
   return assignment;
 }
 
+/**
+ * Attachment URLs are client-supplied. A stored file may only point at this
+ * organization's own assignment uploads (or an external http(s) link), never
+ * at another school's, or at a private document folder, which students and
+ * teachers could then open through the assignment's material view.
+ */
+function assertSafeAttachments(req: Request, attachments: unknown, alreadyStored: Set<string> = new Set()): void {
+  if (attachments === undefined || attachments === null) return;
+  if (!Array.isArray(attachments) || attachments.length > 25) throw new BadRequestError('attachments must be a list of at most 25 files');
+  const ownFolder = req.user?.organizationId && /^[a-f0-9]{24}$/i.test(req.user.organizationId) ? req.user.organizationId : 'shared';
+  for (const attachment of attachments) {
+    const url = String((attachment as any)?.url || '');
+    if (!url) throw new BadRequestError('Every attachment needs a url');
+    // Attachments the assignment already carries are left alone, so editing an
+    // older assignment (uploaded before folders existed) is never blocked.
+    if (/^https?:\/\//i.test(url) || alreadyStored.has(url)) continue;
+    const allowedPrefix = req.user?.role === 'admin' ? '/uploads/assignments/' : `/uploads/assignments/${ownFolder}/`;
+    if (url.includes('..') || !url.startsWith(allowedPrefix)) {
+      throw new BadRequestError("An attachment must be a file uploaded for your own organization's assignments or an external link");
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // POST / — Create assignment (admin / org_admin / teacher)
 // ---------------------------------------------------------------------------
@@ -73,6 +97,7 @@ export const create = async (req: Request, res: Response) => {
   if (!title || !course || !dueDate) {
     throw new BadRequestError('Title, course, and due date are required');
   }
+  assertSafeAttachments(req, attachments);
 
   // Tenant scope: org_admin must create assignments for courses in their own org.
   // Teacher must create assignments for their own courses.
@@ -91,6 +116,10 @@ export const create = async (req: Request, res: Response) => {
       throw new ForbiddenError('You can only create assignments for courses in your organization');
     }
   }
+
+  // The optional class must belong to the same school as the course.
+  const courseForClass = await Course.findById(course).select('school').lean();
+  await assertClassInSchool(classId, (courseForClass as any)?.school);
 
   const payload = {
     title,
@@ -396,7 +425,11 @@ export const update = async (req: Request, res: Response) => {
   if (dueDate !== undefined) updates.dueDate = dueDate;
   if (totalMarks !== undefined) updates.totalMarks = totalMarks;
   if (allowLateSubmission !== undefined) updates.allowLateSubmission = allowLateSubmission;
-  if (attachments !== undefined) updates.attachments = attachments;
+  if (attachments !== undefined) {
+    const stored = await Assignment.findById(req.params.id).select('attachments').lean();
+    assertSafeAttachments(req, attachments, new Set(((stored as any)?.attachments || []).map((a: any) => String(a.url))));
+    updates.attachments = attachments;
+  }
 
   const item = await Assignment.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true })
     .populate('course', 'title.en slug')
@@ -414,6 +447,7 @@ export const update = async (req: Request, res: Response) => {
 export const updateStatus = async (req: Request, res: Response) => {
   const { status } = req.body;
   if (!status) throw new BadRequestError('Status required');
+  if (!['active', 'inactive'].includes(status)) throw new BadRequestError('Status must be "active" or "inactive"');
   await assertCanManageAssignment(req, req.params.id);
   const item = await Assignment.findByIdAndUpdate(req.params.id, { status }, { new: true }).lean();
   if (!item) throw new NotFoundError('Assignment');
