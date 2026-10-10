@@ -131,6 +131,9 @@ jobs:
       - name: Global subscription payment and access regression
         run: npx ts-node --files src/__tests__/global-subscriptions.e2e.ts
 
+      - name: Guuldoon school bonus regression
+        run: npx ts-node --files src/__tests__/guuldoon-school-bonus.e2e.ts
+
       - name: Global course scope and access regression
         run: npx ts-node --files src/__tests__/global-course-scope.e2e.ts
 
