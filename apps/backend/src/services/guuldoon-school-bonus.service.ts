@@ -13,7 +13,7 @@ import Student from '../models/student.model';
 import ClassModel from '../models/class.model';
 import Subscription from '../models/global-subscription.model';
 import Payout from '../models/guuldoon-school-payout.model';
-import { GLOBAL_SUBSCRIPTION_PRICE, bonusAmount, effectiveBonusRate } from '../utils/global-subscription';
+import { GLOBAL_SUBSCRIPTION_PRICE, bonusAmount, effectiveBonusRate, effectiveGrades } from '../utils/global-subscription';
 
 export interface SchoolBonusSummary {
   schoolId: string;
@@ -21,6 +21,8 @@ export interface SchoolBonusSummary {
   city: string;
   rate: number;
   usesDefaultRate: boolean;
+  /** Grades this school covers; only these count toward students and the bonus. */
+  grades: number[];
   /** Active, approved students in a Grade 8 or Grade 12 class: the Guuldoon target group. */
   students: number;
   grade8Students: number;
@@ -36,10 +38,17 @@ export interface SchoolBonusSummary {
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export async function summarizeSchools(filter: Record<string, unknown> = {}): Promise<SchoolBonusSummary[]> {
-  const schools = await School.find(filter).select('name city guuldoonBonusRate').sort({ name: 1 }).limit(1000).lean();
+  const schools = await School.find(filter).select('name city guuldoonBonusRate guuldoonGrades').sort({ name: 1 }).limit(1000).lean();
   if (!schools.length) return [];
   const ids = schools.map(school => school._id);
-  const approved = { status: 'approved', school: { $in: ids } };
+  const gradesOf = new Map(schools.map(school => [String(school._id), effectiveGrades((school as any).guuldoonGrades)]));
+  // Schools covering both grades match on school alone; a school limited to one grade also matches that grade.
+  const bothGrades = schools.filter(school => gradesOf.get(String(school._id))!.length === 2).map(school => school._id);
+  const oneGrade = schools.filter(school => gradesOf.get(String(school._id))!.length === 1);
+  const approved = {
+    status: 'approved',
+    $or: [{ school: { $in: bothGrades } }, ...oneGrade.map(school => ({ school: school._id, grade: gradesOf.get(String(school._id))![0] }))],
+  };
   const targetClasses = await ClassModel.find({ school: { $in: ids }, gradeLevel: { $in: [8, 12] } }).select('_id gradeLevel').lean();
   const gradeOfClass = new Map(targetClasses.map(row => [String(row._id), row.gradeLevel as number]));
   const [verifiedRows, subscriberRows, students, payouts] = await Promise.all([
@@ -70,6 +79,7 @@ export async function summarizeSchools(filter: Record<string, unknown> = {}): Pr
   for (const row of students) {
     const grade = gradeOfClass.get(String(row._id.class));
     if (grade !== 8 && grade !== 12) continue;
+    if (!gradesOf.get(String(row._id.school))?.includes(grade)) continue;
     const entry = studentMap.get(String(row._id.school)) || { 8: 0, 12: 0 };
     entry[grade] += row.count as number;
     studentMap.set(String(row._id.school), entry);
@@ -87,6 +97,7 @@ export async function summarizeSchools(filter: Record<string, unknown> = {}): Pr
       city: (school as any).city || '',
       rate,
       usesDefaultRate: typeof (school as any).guuldoonBonusRate !== 'number',
+      grades: gradesOf.get(key)!,
       students: (studentMap.get(key)?.[8] || 0) + (studentMap.get(key)?.[12] || 0),
       grade8Students: studentMap.get(key)?.[8] || 0,
       grade12Students: studentMap.get(key)?.[12] || 0,
