@@ -77,7 +77,7 @@ router.post('/tutor/chat', authMiddleware, aiLimiter, asyncHandler(aiController.
 
 // POST /api/v1/ai/tutor/voice-note — stores a recorded voice message (no
 // transcription — see controller comment for why), field name "file"
-router.post('/tutor/voice-note', authMiddleware, audioUpload.single('file'), asyncHandler(aiController.uploadVoiceNote));
+router.post('/tutor/voice-note', authMiddleware, aiLimiter, audioUpload.single('file'), asyncHandler(aiController.uploadVoiceNote));
 
 // GET /api/v1/ai/tutor/voice-note/:filename — stream it back for playback
 router.get('/tutor/voice-note/:filename', authMiddleware, asyncHandler(aiController.getVoiceNote));
