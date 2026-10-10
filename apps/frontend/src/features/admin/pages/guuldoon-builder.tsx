@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, BookOpen, CalendarClock, ClipboardList, FileJson, GraduationCap, Inbox, Languages, ListFilter, MoreVertical, Settings2, UploadCloud,
 } from 'lucide-react';
@@ -25,11 +25,13 @@ const drawerMeta: Record<DrawerKey, { title: string; subtitle: string; icon: JSX
 export function GuuldoonBuilder() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<Filter>('order');
-  const [openChapter, setOpenChapter] = useState<string | null>(null);
+  const [openChapter, setOpenChapter] = useState<string | null>(searchParams.get('chapter'));
+  const returnSection = searchParams.get('section') === 'lessons' ? 'lessons' : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -216,6 +218,8 @@ export function GuuldoonBuilder() {
               onChanged={() => void load()}
               notify={notify}
               onOpenLegacyBuilder={() => navigate(`/admin/courses/${courseId}/builder`)}
+              onOpenLesson={lessonId => navigate(`/admin/global-courses/${courseId}/guuldoon-builder/chapters/${encodeURIComponent(chapter.id)}/lessons/${lessonId}`)}
+              initialSection={chapter.id === searchParams.get('chapter') ? returnSection : null}
             />
           ))}
         </div>

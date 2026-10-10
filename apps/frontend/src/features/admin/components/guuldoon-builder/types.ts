@@ -88,6 +88,7 @@ export type QuestionRow = {
 
 export type ChapterContent = {
   chapterId: string;
+  chapter: { id: string; title: string; order: number };
   lessons: LessonRow[];
   questions: QuestionRow[];
   exams: { id: string; year: number; kind: 'past' | 'practice'; published: boolean; answerKeyStatus: 'verified' | 'pending' }[];

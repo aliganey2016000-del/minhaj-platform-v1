@@ -160,6 +160,8 @@ async function main() {
     // ── Chapter content: lessons, per-year questions and practice ───────────
     const content = await request(app).get(`${base}/courses/${course._id}/chapters/ARB12_CH01`).set(adminHeaders);
     assert.equal(content.status, 200, JSON.stringify(content.body));
+    assert.equal(content.body.data.chapter.title, 'Nominal sentence');
+    assert.equal(content.body.data.chapter.order, 1);
     assert.equal(content.body.data.lessons.length, 2);
     assert.equal(content.body.data.questions.length, 2);
     const mcq = content.body.data.questions.find((item: any) => item.type === 'mcq');
