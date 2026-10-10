@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, ChevronDown, ExternalLink, Loader2, Pencil, Plus } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, ChevronDown, ChevronRight, ExternalLink, Loader2, Pencil, Plus } from 'lucide-react';
 import api from '../../../../lib/axios';
 import { accentFor, masteryTone } from './accents';
 import { ChapterEditor, LessonEditor, QuestionEditor } from './editors';
-import { LessonBody, SummaryHero, isSummarySection } from '../../../shared/components/guuldoon-lesson-body';
+import { isSummarySection } from '../../../shared/components/guuldoon-lesson-body';
 import { errorMessage, type ChapterContent, type ChapterRow, type LessonRow, type QuestionRow } from './types';
 
 type Section = 'lessons' | 'years' | 'practice' | null;
@@ -24,6 +24,9 @@ type Props = {
   onChanged: () => void;
   notify: (message: string, tone?: 'ok' | 'error') => void;
   onOpenLegacyBuilder: () => void;
+  onOpenLesson: (lessonId: string) => void;
+  /** Set when returning from a lesson page, so the chapter reopens on its lessons. */
+  initialSection?: Section;
 };
 
 const builderBase = '/guuldoon/admin/builder';
@@ -59,61 +62,42 @@ function QuestionCard({ question, years, onEdit }: { question: QuestionRow; year
   );
 }
 
-/** One-line teaser for the collapsed lesson: the text without callout tags, headings or bold markers. */
-function plainPreview(content: string, max = 170): string {
-  const text = content
-    .replace(/\r/g, '')
-    .split('\n')
-    .map(line => line.replace(/^>\s?\[!\w+\]\s*/, '').replace(/^>\s?/, '').replace(/^#{1,3}\s+/, '').replace(/^-\s+/, ''))
-    .join(' ')
-    .replace(/\*\*/g, '')
-    .replace(/\$/g, '')
-    .replace(/\{\{fig:[^}]*\}\}/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text.length > max ? text.slice(0, max).trimEnd() + '…' : text;
-}
-
-function LessonCard({ lesson, index, onEdit }: { lesson: LessonRow; index: number; onEdit: () => void }) {
-  const [open, setOpen] = useState(false);
+function LessonCard({ lesson, index, onOpen, onEdit }: { lesson: LessonRow; index: number; onOpen: () => void; onEdit: () => void }) {
   const accent = accentFor(index);
   const summary = isSummarySection(lesson);
   const pages = lesson.pageFrom ? `Bogga ${lesson.pageFrom}${lesson.pageTo && lesson.pageTo !== lesson.pageFrom ? '–' + lesson.pageTo : ''}` : '';
-  const preview = plainPreview(lesson.contentText);
+  const body = (
+    <>
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${accent.soft} ${accent.text}`}>{summary ? '⭐' : index + 1}</span>
+      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="min-w-0 break-words text-sm font-black" dir="auto">{lesson.title}</span>
+        {pages && <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-black text-amber-500">{pages}</span>}
+        {lesson.type !== 'note' && <span className="rounded-md bg-sky-500/10 px-2 py-0.5 text-[10px] font-black text-sky-500">{lesson.type}</span>}
+        {lesson.manuallyEdited && <span className="rounded-md bg-violet-500/10 px-2 py-0.5 text-[10px] font-black text-violet-500">La beddelay</span>}
+      </span>
+    </>
+  );
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
-      <div className="flex items-start">
-        <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex min-w-0 flex-1 items-start gap-3 p-3 text-left">
-          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${accent.soft} ${accent.text}`}>{summary ? '⭐' : index + 1}</span>
-          <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-center gap-1.5">
-              <span className="min-w-0 break-words text-sm font-black" dir="auto">{lesson.title}</span>
-              {pages && <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-black text-amber-500">{pages}</span>}
-              {lesson.type !== 'note' && <span className="rounded-md bg-sky-500/10 px-2 py-0.5 text-[10px] font-black text-sky-500">{lesson.type}</span>}
-              {lesson.manuallyEdited && <span className="rounded-md bg-violet-500/10 px-2 py-0.5 text-[10px] font-black text-violet-500">La beddelay</span>}
-            </span>
-            {!open && <span className="mt-1 line-clamp-2 block text-xs leading-5 text-[var(--color-text-secondary)]" dir="auto">{preview || 'Qoraalka casharka wali lama gelin.'}</span>}
-          </span>
-          <ChevronDown size={18} className={'mt-1.5 shrink-0 text-[var(--color-text-tertiary)] transition-transform ' + (open ? 'rotate-180' : '')} aria-hidden="true" />
+    <div className="flex items-center rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]">
+      {lesson.readOnly ? (
+        <div className="flex min-w-0 flex-1 items-center gap-3 p-3">{body}</div>
+      ) : (
+        <button type="button" onClick={onOpen} aria-label={`Fur casharka ${lesson.title}`} className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left">
+          {body}
+          <ChevronRight size={18} className="shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
         </button>
-        {!lesson.readOnly && <button type="button" onClick={onEdit} aria-label={`Wax ka beddel casharka ${lesson.title}`} className="m-3 shrink-0 rounded-xl border border-[var(--color-border-default)] p-2 text-[var(--color-text-tertiary)] hover:border-emerald-500 hover:text-emerald-500"><Pencil size={15} /></button>}
-      </div>
-      {open && (
-        <div className="border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary,transparent)] p-4 sm:p-5" dir={lesson.direction === 'rtl' || lesson.language === 'ar' ? 'rtl' : 'auto'}>
-          {summary && <div className="mb-4"><SummaryHero /></div>}
-          <LessonBody content={lesson.contentText || 'Qoraalka casharka wali lama gelin.'} highlights={[]} visible={false} onOpen={() => undefined} />
-        </div>
       )}
+      {!lesson.readOnly && <button type="button" onClick={onEdit} aria-label={`Wax ka beddel casharka ${lesson.title}`} className="m-3 ml-0 shrink-0 rounded-xl border border-[var(--color-border-default)] p-2 text-[var(--color-text-tertiary)] hover:border-emerald-500 hover:text-emerald-500"><Pencil size={15} /></button>}
     </div>
   );
 }
 
-export function GuuldoonBuilderChapterCard({ courseId, chapter, index, chapters, open, imported, onToggle, onChanged, notify, onOpenLegacyBuilder }: Props) {
+export function GuuldoonBuilderChapterCard({ courseId, chapter, index, chapters, open, imported, onToggle, onChanged, notify, onOpenLegacyBuilder, onOpenLesson, initialSection = null }: Props) {
   const accent = accentFor(index);
   const [content, setContent] = useState<ChapterContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [section, setSection] = useState<Section>(null);
+  const [section, setSection] = useState<Section>(initialSection);
   const [year, setYear] = useState<number | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [saving, setSaving] = useState(false);
@@ -133,6 +117,9 @@ export function GuuldoonBuilderChapterCard({ courseId, chapter, index, chapters,
   }, [courseId, chapter.id]);
 
   useEffect(() => { if (open) void loadContent(content !== null); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const articleRef = useRef<HTMLElement>(null);
+  useEffect(() => { if (initialSection) articleRef.current?.scrollIntoView({ block: 'start' }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (!open) { setSection(null); setEditing(null); setEditError(''); } }, [open]);
 
@@ -188,7 +175,7 @@ export function GuuldoonBuilderChapterCard({ courseId, chapter, index, chapters,
   const editPen = 'shrink-0 rounded-xl border border-[var(--color-border-default)] p-2 text-[var(--color-text-tertiary)] hover:border-emerald-500 hover:text-emerald-500';
 
   return (
-    <article className="student-glass-card overflow-hidden rounded-[24px]">
+    <article ref={articleRef} className="student-glass-card scroll-mt-4 overflow-hidden rounded-[24px]">
       {editing?.kind === 'chapter' ? (
         <div className="p-4">
           <ChapterEditor
@@ -263,7 +250,7 @@ export function GuuldoonBuilderChapterCard({ courseId, chapter, index, chapters,
                       onDelete={() => void run(() => api.delete(`${builderBase}/lessons/${lesson.id}`), 'Casharka waa la tirtiray')}
                     />
                   ) : (
-                    <LessonCard key={lesson.id} lesson={lesson} index={lessonIndex} onEdit={() => { setEditError(''); setEditing({ kind: 'lesson', id: lesson.id }); }} />
+                    <LessonCard key={lesson.id} lesson={lesson} index={lessonIndex} onOpen={() => onOpenLesson(lesson.id)} onEdit={() => { setEditError(''); setEditing({ kind: 'lesson', id: lesson.id }); }} />
                   ))}
                   {!content.lessons.length && editing?.kind !== 'lesson' && <p className="py-2 text-xs text-[var(--color-text-tertiary)]">Cashar wali looma gelin cutubkan.</p>}
                   {editing?.kind === 'lesson' && editing.id === 'new' && (

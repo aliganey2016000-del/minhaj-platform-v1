@@ -261,6 +261,7 @@ router.get('/courses/:courseId/chapters/:chapterId', asyncHandler(async (req, re
 
   return ApiResponse.success(res, {
     chapterId: chapter.id,
+    chapter: { id: chapter.id, title: chapterTitle(chapter), order: chapter.doc.order },
     lessons,
     questions: questions.map((question: any) => ({
       id: String(question._id),
