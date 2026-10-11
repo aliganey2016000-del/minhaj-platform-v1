@@ -180,7 +180,7 @@ type LessonBlock =
   | { kind: 'h3'; text: string }
   | { kind: 'p'; text: string }
   | { kind: 'ul'; items: string[] }
-  | { kind: 'ol'; items: string[] }
+  | { kind: 'ol'; items: string[]; numbers: number[] }
   | { kind: 'table'; table: TableData }
   | { kind: 'callout'; tag: string; title: string; lines: string[] };
 
@@ -255,6 +255,30 @@ function LessonTable({ table, render }: { table: TableData; render: (value: stri
   );
 }
 
+/**
+ * Questions and steps written as "1. ... 2. ... 3. ..." run together in one paragraph (line breaks lost or
+ * mixed with sub-parts like "(a) ..."). The paragraph is a list when it opens with a number and the numbers
+ * then count up (a missing number, e.g. a lost "8.", is tolerated); the real numbers are kept so a list
+ * continuing from "11." still reads 11, 12, 13.
+ */
+function splitNumberedItems(text: string): { numbers: number[]; items: string[] } | null {
+  const marker = /(?:^|\s)(\d{1,3})\.\s+(?=\S)/g;
+  const found: { number: number; index: number; end: number }[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = marker.exec(text))) {
+    const number = Number(match[1]);
+    if (!found.length) {
+      if (match.index !== 0) return null;
+    } else if (number <= found[found.length - 1].number || number > found[found.length - 1].number + 3) {
+      continue;
+    }
+    found.push({ number, index: match.index, end: match.index + match[0].length });
+  }
+  if (found.length < 2) return null;
+  const items = found.map((entry, position) => text.slice(entry.end, position + 1 < found.length ? found[position + 1].index : text.length).trim());
+  return items.every(Boolean) ? { numbers: found.map(entry => entry.number), items } : null;
+}
+
 function parseLesson(content: string): LessonBlock[] {
   const blocks: LessonBlock[] = [];
   content.replace(/\r/g, '').split(/\n{2,}/).forEach(raw => {
@@ -295,13 +319,18 @@ function parseLesson(content: string): LessonBlock[] {
     } else if (lines.every(line => /^- /.test(line))) {
       blocks.push({ kind: 'ul', items: lines.map(line => line.slice(2)) });
     } else if (lines.every(line => /^\d+\.\s/.test(line))) {
-      blocks.push({ kind: 'ol', items: lines.map(line => line.replace(/^\d+\.\s/, '')) });
+      // Each line is an item, unless a line itself holds several run-together numbered items.
+      const parts = lines.map(line => splitNumberedItems(line) ?? { numbers: [Number(/^(\d+)\./.exec(line)?.[1])], items: [line.replace(/^\d+\.\s/, '')] });
+      blocks.push({ kind: 'ol', items: parts.flatMap(part => part.items), numbers: parts.flatMap(part => part.numbers) });
     } else if (chunk.startsWith('### ')) {
       blocks.push({ kind: 'h3', text: chunk.slice(4) });
     } else if (chunk.startsWith('## ')) {
       blocks.push({ kind: 'h2', text: chunk.slice(3) });
     } else {
-      blocks.push({ kind: 'p', text: chunk.replace(/\n/g, ' ') });
+      const flat = chunk.replace(/\n/g, ' ');
+      const numbered = splitNumberedItems(flat);
+      if (numbered) blocks.push({ kind: 'ol', items: numbered.items, numbers: numbered.numbers });
+      else blocks.push({ kind: 'p', text: flat });
     }
   });
   return blocks;
@@ -363,7 +392,7 @@ export function LessonBody<H extends HighlightBase>({ content, highlights, visib
         if (block.kind === 'p') return <div key={index}><QuestionBody text={block.text} render={inline} /></div>;
         if (block.kind === 'table') return <LessonTable key={index} table={block.table} render={inline} />;
         if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ul>;
-        if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ol>;
+        if (block.kind === 'ol') return <ol key={index} className="space-y-2.5">{block.items.map((item, i) => <li key={i} value={block.numbers[i]} className="flex gap-3"><span className="mt-0.5 flex h-7 min-w-[1.75rem] shrink-0 items-center justify-center rounded-full bg-emerald-500/15 px-1.5 text-xs font-black tabular-nums text-emerald-600">{block.numbers[i]}</span><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ol>;
         if (block.tag === 'figure' && block.lines[0]) return <InlineFigure key={index} src={block.lines[0].trim()} caption={block.title} />;
         if (block.tag === 'stats') {
           const tiles = block.lines.map(line => line.split(' | '));
