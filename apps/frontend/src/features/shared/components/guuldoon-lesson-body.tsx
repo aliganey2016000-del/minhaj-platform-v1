@@ -181,7 +181,79 @@ type LessonBlock =
   | { kind: 'p'; text: string }
   | { kind: 'ul'; items: string[] }
   | { kind: 'ol'; items: string[] }
+  | { kind: 'table'; table: TableData }
   | { kind: 'callout'; tag: string; title: string; lines: string[] };
+
+type TableData = { header: string[] | null; rows: string[][] };
+
+const isTableLine = (line: string) => line.trim().startsWith('|');
+const isSeparatorCell = (cell: string) => /^\s*:?-{2,}:?\s*$/.test(cell);
+const splitCells = (line: string) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+
+/** Markdown pipe table, one row per line. A separator row (|---|---|) marks the row above it as the header. */
+function parseTable(lines: string[]): TableData {
+  const rows = lines.map(splitCells);
+  if (rows.length > 1 && rows[1].length > 0 && rows[1].every(isSeparatorCell)) return { header: rows[0], rows: rows.slice(2) };
+  return { header: null, rows: rows.filter(row => !row.every(isSeparatorCell)) };
+}
+
+/**
+ * A whole table collapsed onto one line ("| A | B | |---|---| | 1 | 2 |"), which is what a lesson looks
+ * like when its line breaks were lost. The shape is regular: header, one joint, separator, one joint, rows.
+ */
+function parseFlatTable(line: string): TableData | null {
+  const tokens = line.trim().split('|').slice(1, -1).map(token => token.trim());
+  const first = tokens.findIndex(isSeparatorCell);
+  const columns = first - 1;
+  if (columns < 1 || tokens.slice(first, first + columns).some(token => !isSeparatorCell(token))) return null;
+  const rest = tokens.slice(first + columns + 1);
+  if (rest.length % (columns + 1) !== columns) return null;
+  const rows: string[][] = [];
+  for (let at = 0; at < rest.length; at += columns + 1) rows.push(rest.slice(at, at + columns));
+  return { header: tokens.slice(0, columns), rows };
+}
+
+/** Splits callout lines into plain lines and tables so a table inside a box is drawn as a table. */
+function groupCalloutLines(lines: string[]): Array<{ line: string } | { table: TableData }> {
+  const out: Array<{ line: string } | { table: TableData }> = [];
+  let run: string[] = [];
+  const flush = () => { if (run.length) { out.push({ table: parseTable(run) }); run = []; } };
+  for (const line of lines) {
+    if (isTableLine(line)) run.push(line);
+    else { flush(); out.push({ line }); }
+  }
+  flush();
+  return out;
+}
+
+function LessonTable({ table, render }: { table: TableData; render: (value: string) => ReactNode }) {
+  const columns = Math.max(table.header?.length || 0, ...table.rows.map(row => row.length));
+  const pad = (row: string[]) => Array.from({ length: columns }, (_, index) => row[index] ?? '');
+  return (
+    <div role="region" aria-label="Table" tabIndex={0} className="overflow-x-auto rounded-2xl border border-emerald-500/30 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400">
+      <table className="min-w-full border-collapse text-left text-sm leading-6 sm:text-[15px]">
+        {table.header && (
+          <thead>
+            <tr className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white">
+              {pad(table.header).map((cell, index) => <th key={index} scope="col" className="border-l border-white/20 px-3 py-2.5 text-xs font-black first:border-l-0 sm:text-sm">{render(cell)}</th>)}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {table.rows.map((row, rowIndex) => (
+            <tr key={rowIndex} className={rowIndex % 2 ? 'bg-emerald-500/[.07]' : 'bg-[var(--color-surface-primary)]'}>
+              {pad(row).map((cell, index) => (
+                <td key={index} className={'border-l border-t border-emerald-500/15 px-3 py-2.5 align-top first:border-l-0 ' + (index === 0 ? 'font-bold' : '')}>
+                  {cell ? render(cell) : <span aria-hidden="true" className="block h-5 min-w-[3.5rem]" />}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function parseLesson(content: string): LessonBlock[] {
   const blocks: LessonBlock[] = [];
@@ -194,6 +266,32 @@ function parseLesson(content: string): LessonBlock[] {
       const tag = /^\[!(\w+)\]\s*(.*)$/.exec(body[0] || '');
       if (tag) blocks.push({ kind: 'callout', tag: tag[1].toLowerCase(), title: tag[2].trim(), lines: body.slice(1) });
       else blocks.push({ kind: 'callout', tag: 'note', title: '', lines: body });
+    } else if (lines.some(isTableLine)) {
+      // Tables inside a paragraph: consecutive "|" lines are the table, the rest stays text around it.
+      let text: string[] = [];
+      let table: string[] = [];
+      const flushText = () => {
+        if (!text.length) return;
+        const joined = text.join(' ');
+        if (text.length === 1 && joined.startsWith('### ')) blocks.push({ kind: 'h3', text: joined.slice(4) });
+        else if (text.length === 1 && joined.startsWith('## ')) blocks.push({ kind: 'h2', text: joined.slice(3) });
+        else blocks.push({ kind: 'p', text: joined });
+        text = [];
+      };
+      const flushTable = () => { if (table.length) { blocks.push({ kind: 'table', table: parseTable(table) }); table = []; } };
+      lines.forEach(line => {
+        if (isTableLine(line)) {
+          flushText();
+          const flat = table.length === 0 && line.includes('|--') ? parseFlatTable(line) : null;
+          if (flat) blocks.push({ kind: 'table', table: flat });
+          else table.push(line);
+        } else {
+          flushTable();
+          text.push(line);
+        }
+      });
+      flushTable();
+      flushText();
     } else if (lines.every(line => /^- /.test(line))) {
       blocks.push({ kind: 'ul', items: lines.map(line => line.slice(2)) });
     } else if (lines.every(line => /^\d+\.\s/.test(line))) {
@@ -263,6 +361,7 @@ export function LessonBody<H extends HighlightBase>({ content, highlights, visib
         if (block.kind === 'h2') return <h4 key={index} className="mt-8 flex items-center gap-2 border-b border-emerald-500/30 pb-2 text-lg font-black text-emerald-600 first:mt-0 sm:text-xl"><span className="h-5 w-1.5 rounded-full bg-emerald-500" />{inline(block.text)}</h4>;
         if (block.kind === 'h3') return <h5 key={index} className="mt-5 text-base font-black text-[var(--color-text-primary)] sm:text-lg">{inline(block.text)}</h5>;
         if (block.kind === 'p') return <div key={index}><QuestionBody text={block.text} render={inline} /></div>;
+        if (block.kind === 'table') return <LessonTable key={index} table={block.table} render={inline} />;
         if (block.kind === 'ul') return <ul key={index} className="space-y-2 pl-1">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" /><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ul>;
         if (block.kind === 'ol') return <ol key={index} className="space-y-2">{block.items.map((item, i) => <li key={i} className="flex gap-3"><span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-600">{i + 1}</span><span className="min-w-0 flex-1"><QuestionBody text={item} render={inline} /></span></li>)}</ol>;
         if (block.tag === 'figure' && block.lines[0]) return <InlineFigure key={index} src={block.lines[0].trim()} caption={block.title} />;
@@ -310,7 +409,9 @@ export function LessonBody<H extends HighlightBase>({ content, highlights, visib
           <aside key={index} className={'rounded-2xl border-l-4 p-4 ' + meta.className}>
             <p className="mb-2 text-xs font-black uppercase tracking-wide"><span aria-hidden="true">{meta.icon} </span>{meta.label}{block.title ? ' · ' + block.title : ''}</p>
             <div className="space-y-1.5">
-              {block.lines.map((line, i) => {
+              {groupCalloutLines(block.lines).map((segment, i) => {
+                if ('table' in segment) return <LessonTable key={i} table={segment.table} render={inline} />;
+                const line = segment.line;
                 const bullet = line.startsWith('- ');
                 if (block.tag === 'formula') return <p key={i} className="font-mono text-[.95em]" dir="ltr">{inline(line)}</p>;
                 return bullet
