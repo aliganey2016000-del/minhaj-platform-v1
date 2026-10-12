@@ -37,3 +37,11 @@ Admin to verify by hand, exactly as before.
 SMS formats differ per provider; if a confirmation does not carry the reference, the payer's number
 or a `$` amount, it simply stays for manual review. A direct merchant-API integration (for example
 WaafiPay) is the fully automatic alternative and needs merchant credentials.
+
+## Troubleshooting
+- Super Admin can open `GET /api/v1/global-subscriptions/sms-webhook/recent` (logged in) to see the last 20
+  forwarded messages and whether each one is `matched` or `unmatched`. If a payment is missing there, the
+  forwarder did not deliver it; if it is `unmatched`, compare the number and amount with the student's request.
+- The backend logs one line per delivery (`[SMS-WEBHOOK] stored=... matched=...`, never the message text).
+- Only the first `$` amount in a message counts as the payment; the balance ("haraagagu waa $7.1") is ignored.
+- Payloads with unescaped line breaks, plain text and form data are accepted.

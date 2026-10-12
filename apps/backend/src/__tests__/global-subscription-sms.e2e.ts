@@ -24,7 +24,8 @@ async function main() {
     assert.equal(phoneCore('252-615-123-456'), '615123456');
     assert.equal(referenceKey('tx-12 34ab'), 'TX1234AB');
     const evc = parseSms('[-EVCPlus-] Waxaad $5.00 ka heshay 252615123456, Tix: TX123456 Haraaga $20.50');
-    assert.equal(evc.amountUsd, 20.5, 'largest marked amount');
+    assert.equal(evc.amountUsd, 5, 'the first marked amount is the payment, the later one is the balance');
+    assert.equal(parseSms('[-EVCPLUS-] waxaad $5 ka heshay 0615328006, Tar: 13/10/26 00:06:37 haraagagu waa $7.1.').amountUsd, 5);
     assert.ok(evc.refTokens.includes('TX123456') && evc.phones.includes('615123456'));
     assert.equal(parseSms('Waxaad ka heshay 5 SLSH 30,000 TX123456').amountUsd, null, 'no dollar marker, no amount');
     assert.equal(parseSms('You received USD 5 from 0615123456').amountUsd, 5);
@@ -119,7 +120,26 @@ async function main() {
     res = await request(app).post(`${root}/requests`).set(headers(s8)).send({ grade: 12, paymentReference: 'TX-MANUAL-1' }).expect(201);
     assert.equal(res.body.data.status, 'pending');
 
-    // 8. Garbage input is harmless.
+    // 8. A real EVC message: payment first, balance later ($7.1 must not count), with unescaped line breaks in the JSON.
+    const s9 = await mkStudent();
+    await register(s9, '+252615328006').expect(201);
+    const lowSms = '{"from":"192","text":"[-EVCPLUS-] waxaad $1 ka heshay 0615328006, Tar: 13/10/26 00:06:37 haraagagu waa $7.1.\nLa soo deg App-ka WAAFI\nhttp://onelink.to/waafi","receivedAt":' + Date.now() + '}';
+    res = await request(app).post(hook).set('X-Webhook-Secret', secret).set('Content-Type', 'application/json').send(lowSms).expect(200);
+    assert.equal(res.body.data.matched, false, 'the balance is not the payment');
+    const realSms = '{"from":"192","text":"[-EVCPLUS-] waxaad $5 ka heshay 0615328006, Tar: 13/10/26 00:06:37 haraagagu waa $7.1.\nLa soo deg App-ka WAAFI\nhttp://onelink.to/waafi","receivedAt":' + (Date.now() + 1000) + '}';
+    res = await request(app).post(hook).set('X-Webhook-Secret', secret).set('Content-Type', 'application/json').send(realSms).expect(200);
+    assert.equal(res.body.data.matched, true, 'unescaped line breaks no longer cause a 400');
+    assert.equal((await Subscription.findOne({ user: s9._id }) as any).status, 'approved');
+    // Plain text and form bodies are accepted too.
+    await request(app).post(hook).set('X-Webhook-Secret', secret).set('Content-Type', 'text/plain').send('waxaad $5 ka heshay 0615999000').expect(200);
+
+    // 9. Super Admin can see what was forwarded; nobody else can.
+    res = await request(app).get(`${hook}/recent`).set(headers(admin)).expect(200);
+    assert.ok(res.body.data.length > 0 && res.body.data[0].body);
+    await request(app).get(`${hook}/recent`).set(headers(s9)).expect(403);
+    await request(app).get(`${hook}/recent`).expect(401);
+
+    // 10. Garbage input is harmless.
     await request(app).post(hook).set('X-Webhook-Secret', secret).send({}).expect(200);
     await request(app).post(hook).set('X-Webhook-Secret', secret).send({ body: '   ' }).expect(200);
 

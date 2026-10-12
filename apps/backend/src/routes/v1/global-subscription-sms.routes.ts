@@ -2,7 +2,9 @@ import crypto from 'crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
-import { NotFoundError, UnauthorizedError } from '../../utils/api-error';
+import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../utils/api-error';
+import { authMiddleware } from '../../middleware/auth.middleware';
+import PaymentSms from '../../models/payment-sms.model';
 import ApiResponse from '../../utils/api-response';
 import { handleIncomingSms } from '../../services/guuldoon-sms-payment.service';
 
@@ -35,7 +37,16 @@ router.post('/', limiter, asyncHandler(async (req, res) => {
     body: pick(body, ['body', 'message', 'text', 'content', 'sms']),
     receivedAt: pick(body, ['receivedAt', 'timestamp', 'date']) ?? (typeof body.receivedAt === 'number' ? body.receivedAt : undefined),
   });
+  // No message text in the logs: only what happened.
+  console.log(`[SMS-WEBHOOK] stored=${result.stored} matched=${result.matched}${'ambiguous' in result && result.ambiguous ? ' ambiguous' : ''}${'duplicate' in result && result.duplicate ? ' duplicate' : ''}`);
   return ApiResponse.success(res, result);
+}));
+
+/** Super Admin: the most recent forwarded messages and whether each one activated a subscription (to debug the forwarder). */
+router.get('/recent', authMiddleware, asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'admin' || req.user.isStaff) throw new ForbiddenError('Only Super Admin can view forwarded payment messages');
+  const rows = await PaymentSms.find().sort({ createdAt: -1 }).limit(20).select('from body receivedAt amountUsd phones status createdAt').lean();
+  return ApiResponse.success(res, rows);
 }));
 
 export default router;
