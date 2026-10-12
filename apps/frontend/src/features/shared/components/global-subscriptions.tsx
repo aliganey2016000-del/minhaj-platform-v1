@@ -4,6 +4,31 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
 type Subscription = { _id: string; grade: number; amount: number; currency: string; paymentReference: string; status: string; expiresAt?: string; user?: { email: string }; school?: { name: string } };
+type SmsRow = { _id: string; from?: string; body: string; receivedAt?: string; amountUsd?: number | null; phones?: string[]; status: 'matched' | 'unmatched' };
+/** Super Admin: the latest payment SMS messages forwarded to the server and whether each activated a subscription. */
+function RecentSms() {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<SmsRow[] | null>(null);
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    setError('');
+    try { const { data } = await api.get('/global-subscriptions/sms-webhook/recent'); setRows(data.data || []); }
+    catch (err: any) { setError(err.response?.data?.message || 'Unable to load forwarded messages'); }
+  }, []);
+  return <div className="space-y-3 rounded-xl border border-[var(--color-border-subtle)] p-3">
+    <button type="button" onClick={() => { const next = !open; setOpen(next); if (next) void load(); }} className="text-sm font-semibold">{open ? 'Qari' : 'Eeg'} fariimaha SMS ee la helay (auto-verify)</button>
+    {open && <>
+      <button type="button" onClick={() => void load()} className="ml-3 rounded-lg border px-3 py-1 text-xs">Refresh</button>
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {rows && rows.length === 0 && <p className="text-sm">Wali SMS lama helin. Hubi app-ka SMS Forwarder iyo secret-ka.</p>}
+      {rows?.map(row => <article key={row._id} className="rounded-lg border border-[var(--color-border-subtle)] p-2 text-sm">
+        <p className="flex flex-wrap items-center gap-2"><b>{row.status === 'matched' ? 'Furay subscription' : 'Lama furin'}</b><span className="text-xs">{row.from || '-'} · {row.receivedAt ? new Date(row.receivedAt).toLocaleString() : '-'} · {row.amountUsd != null ? `$${row.amountUsd}` : 'lacag lama helin'}{row.phones?.length ? ` · ${row.phones.join(', ')}` : ''}</span></p>
+        <p className="mt-1 break-words text-xs text-[var(--color-text-secondary)]">{row.body}</p>
+      </article>)}
+    </>}
+  </div>;
+}
+
 export function GlobalSubscriptions() {
   const { user } = useAuth();
   const isStudent = user?.role === 'student';
@@ -58,6 +83,7 @@ export function GlobalSubscriptions() {
         {isAdmin && <div className="flex flex-wrap items-center gap-2">{row.status === 'pending' && <><button disabled={busy} onClick={() => review(row, 'approve')} className="rounded-lg bg-primary-600 px-3 py-2 text-sm text-white">Verify $5 received</button><button disabled={busy} onClick={() => review(row, 'reject')} className="rounded-lg border px-3 py-2 text-sm">Reject</button></>}{row.status === 'approved' && <button disabled={busy} onClick={() => review(row, 'revoke')} className="rounded-lg border px-3 py-2 text-sm text-red-600">Revoke</button>}</div>}
       </article>;
     })}</div>}
+    {isAdmin && <RecentSms />}
     {!isStudent && <div className="flex gap-3"><button disabled={page === 1 || loading} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page}</span><button disabled={rows.length < 50 || loading || (total > 0 && page * 50 >= total)} onClick={() => setPage(page + 1)}>Next</button></div>}
   </section>;
 }

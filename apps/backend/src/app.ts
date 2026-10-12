@@ -1,6 +1,7 @@
 import express from 'express';
 import { ForbiddenError } from './utils/api-error';
 import path from 'path';
+import { smsWebhookBodyParser } from './utils/sms-body-parser';
 import { verifyAccessToken } from './utils/jwt';
 import { PRIVATE_UPLOAD_PREFIXES, UPLOADS_ROOT, setUploadHeaders } from './utils/upload-safety';
 import cors from 'cors';
@@ -76,6 +77,7 @@ app.use(addApiVersionHeader);
 // Authentication rate limiting below keys failed attempts by account and IP,
 // so the request body must be parsed before those limiters run.
 app.use(requestTimeout());
+app.use('/api/v1/global-subscriptions/sms-webhook', smsWebhookBodyParser);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());

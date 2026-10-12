@@ -23,7 +23,7 @@ export function referenceKey(value: string): string {
 }
 
 /**
- * Extracts what a confirmation SMS proves: the USD amount (only when marked with $ or USD),
+ * Extracts what a confirmation SMS proves: the USD amount paid (the first amount marked with $ or USD),
  * the alphanumeric tokens that could be a transaction reference, and the phone numbers in it.
  * Amounts without a currency marker are ignored so shilling payments are never mistaken for dollars.
  */
@@ -36,7 +36,8 @@ export function parseSms(body: string): ParsedSms {
   }
   const refTokens = [...new Set((body.toUpperCase().match(/[A-Z0-9]+/g) || []).filter((token) => token.length >= MIN_REFERENCE_LENGTH && token.length <= 60))];
   const phones = [...new Set((body.match(/\+?\d[\d\s-]{6,}\d/g) || []).map(phoneCore).filter((core) => core.length >= 7 && core.length <= 12))];
-  return { amountUsd: amounts.length ? Math.max(...amounts) : null, refTokens, phones };
+  // The first marked amount is the payment; later ones are the balance ("haraagagu waa $7.1").
+  return { amountUsd: amounts.length ? amounts[0] : null, refTokens, phones };
 }
 
 const isDuplicateKey = (error: any): boolean => error?.code === 11000 || /E11000|duplicate key|UNIQUE constraint/i.test(String(error?.message || ''));
