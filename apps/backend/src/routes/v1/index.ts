@@ -137,8 +137,31 @@ router.use('/activity', learningActivityRoutes);
 router.use('/gradebook-courses', gradebookCoursesRoutes);
 router.use('/gradebook/:courseId', gradebookRoutes);
 router.use('/', teacherAssignmentGradingRoutes);
-router.get('/health', (_req, res) => {
-  const dbConnected = mongoose.connection.readyState === 1;
+/**
+ * True only when the database really answers. `readyState` stays 1 for a while after a server stops
+ * responding (stopped container, network cut, disk full), so an actual ping decides, with a short
+ * timeout so a hung database cannot hang the health check too.
+ */
+async function databaseAnswers(timeoutMs = 2000): Promise<boolean> {
+  const connection = mongoose.connection;
+  if (connection.readyState !== 1 || !connection.db) return false;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      connection.db.admin().ping(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('database ping timed out')), timeoutMs); }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+router.get('/health', async (_req, res) => {
+  const linked = mongoose.connection.readyState === 1;
+  const dbConnected = await databaseAnswers();
   const statusCode = dbConnected ? 200 : 503;
   res.status(statusCode).json({
     success: dbConnected,
@@ -148,7 +171,7 @@ router.get('/health', (_req, res) => {
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
       version: '1.0.0',
-      database: dbConnected ? 'connected' : 'disconnected',
+      database: dbConnected ? 'connected' : linked ? 'unresponsive' : 'disconnected',
     },
     errors: null,
   });

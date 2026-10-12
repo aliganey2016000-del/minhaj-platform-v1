@@ -108,6 +108,25 @@ async function main() {
       delete (mongoose.connection as any).readyState;
     }
 
+    // A database that is linked but no longer answers (stopped, cut off, full disk) must also fail the
+    // check, otherwise the platform keeps routing traffic to an API that cannot serve anything.
+    const patchedAdmin = mongoose.connection.db as any;
+    const realAdmin = patchedAdmin.admin;
+    patchedAdmin.admin = () => ({ ping: () => new Promise(() => undefined) });
+    try {
+      const started = Date.now();
+      res = await request(app).get('/api/v1/health');
+      assert(res.status === 503 && res.body?.data?.database === 'unresponsive', `hung DB -> 503/unresponsive (got ${res.status}/${res.body?.data?.database})`);
+      assert(Date.now() - started < 4000, 'a hung database does not hang the health check (bounded by the ping timeout)');
+      patchedAdmin.admin = () => ({ ping: () => Promise.reject(new Error('connection refused')) });
+      res = await request(app).get('/api/v1/health');
+      assert(res.status === 503 && res.body?.data?.database === 'unresponsive', `failing ping -> 503/unresponsive (got ${res.status}/${res.body?.data?.database})`);
+    } finally {
+      patchedAdmin.admin = realAdmin;
+    }
+    res = await request(app).get('/api/v1/health');
+    assert(res.status === 200 && res.body?.data?.database === 'connected', `answering DB is healthy again (got ${res.status})`);
+
     section('1: repairStudentRegistrationIndex does not throw on duplicates (non-strict)');
     const studentregistrations = mongoose.connection.collection('studentregistrations');
     // The repair function's own job is migrating away from the old sparse
