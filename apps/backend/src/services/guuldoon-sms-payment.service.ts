@@ -49,35 +49,46 @@ async function approve(subscription: any, sms: any) {
   try {
     const approved = await Subscription.findOneAndUpdate(
       { _id: subscription._id, status: 'pending' },
-      { $set: { status: 'approved', autoVerified: true, startsAt: now, expiresAt: subscriptionExpiry(now), verifiedReference: subscription.paymentReference, reviewedAt: now } },
+      { $set: { status: 'approved', autoVerified: true, startsAt: now, expiresAt: subscriptionExpiry(now), verifiedReference: `SMS-${sms._id}`, reviewedAt: now } },
       { new: true, runValidators: true },
     );
     if (!approved) return null;
     await PaymentSms.updateOne({ _id: sms._id }, { $set: { status: 'matched', subscription: approved._id } });
     return approved;
   } catch (error: any) {
-    if (isDuplicateKey(error)) return null; // this payment reference was already verified for another subscription
+    if (isDuplicateKey(error)) return null; // this SMS already activated another subscription
     throw error;
   }
 }
 
-/** True only when the SMS carries the student's reference, the wallet number they paid from, and at least $5. */
-function proves(subscription: any, sms: { refTokens: string[]; phones: string[]; amountUsd?: number | null }): boolean {
-  const reference = referenceKey(String(subscription.paymentReference || ''));
-  const payer = phoneCore(String(subscription.payerPhone || ''));
-  return reference.length >= MIN_REFERENCE_LENGTH
-    && payer.length >= 7
-    && sms.refTokens.includes(reference)
-    && sms.phones.includes(payer)
-    && amountSufficient(sms.amountUsd);
+/** The merchant's own wallet number (it appears in confirmation SMS messages and must never identify a payer). */
+export function merchantCore(env: NodeJS.ProcessEnv = process.env): string {
+  return phoneCore(env.GUULDOON_MERCHANT_NUMBER || '');
 }
 
-/** Called when a student submits a request: checks recently received SMS messages for the payment. */
+/** A confirmation SMS only counts for a request made up to this long after the money arrived. */
+const SMS_BEFORE_REQUEST_MS = 30 * 60 * 1000;
+
+/**
+ * True when the SMS shows a payment of at least $5 from the wallet number the student registered,
+ * received no earlier than 30 minutes before the request was made.
+ */
+function proves(subscription: any, sms: { phones: string[]; amountUsd?: number | null; receivedAt?: Date }): boolean {
+  const payer = phoneCore(String(subscription.payerPhone || ''));
+  if (payer.length < 7 || payer === merchantCore()) return false;
+  const requestedAt = new Date(subscription.createdAt || Date.now()).getTime();
+  const receivedAt = new Date(sms.receivedAt || Date.now()).getTime();
+  return sms.phones.includes(payer)
+    && amountSufficient(sms.amountUsd)
+    && receivedAt >= requestedAt - SMS_BEFORE_REQUEST_MS;
+}
+
+/** Called when a student registers their wallet number: the payment may already have arrived. */
 export async function verifyFromStoredSms(subscription: any) {
-  const reference = referenceKey(String(subscription.paymentReference || ''));
-  if (reference.length < MIN_REFERENCE_LENGTH || !subscription.payerPhone) return null;
-  const since = new Date(Date.now() - RECENT_SMS_DAYS * 86400000);
-  const candidates = await PaymentSms.find({ status: 'unmatched', refTokens: reference, receivedAt: { $gte: since } }).limit(20);
+  const payer = phoneCore(String(subscription.payerPhone || ''));
+  if (payer.length < 7 || payer === merchantCore()) return null;
+  const since = new Date(Date.now() - SMS_BEFORE_REQUEST_MS);
+  const candidates = await PaymentSms.find({ status: 'unmatched', phones: payer, receivedAt: { $gte: since } }).sort({ receivedAt: 1 }).limit(20);
   for (const sms of candidates) {
     if (proves(subscription, sms)) {
       const approved = await approve(subscription, sms);
@@ -87,7 +98,7 @@ export async function verifyFromStoredSms(subscription: any) {
   return null;
 }
 
-/** Called for every forwarded SMS: stores it (once) and approves the matching pending request, if any. */
+/** Called for every forwarded SMS: stores it (once) and activates the one pending request registered for the paying number. */
 export async function handleIncomingSms(input: { from?: unknown; body?: unknown; receivedAt?: unknown }) {
   const body = typeof input.body === 'string' ? input.body.trim().slice(0, 1000) : '';
   if (!body) return { stored: false, matched: false };
@@ -96,21 +107,21 @@ export async function handleIncomingSms(input: { from?: unknown; body?: unknown;
   const receivedAt = Number.isNaN(received.getTime()) ? new Date() : received;
   const hash = crypto.createHash('sha256').update(`${from}|${body}|${receivedAt.toISOString()}`).digest('hex');
   const parsed = parseSms(body);
+  const merchant = merchantCore();
+  const phones = parsed.phones.filter((phone) => phone !== merchant);
 
   let sms: any;
   try {
-    sms = await PaymentSms.create({ hash, from, body, receivedAt, amountUsd: parsed.amountUsd, refTokens: parsed.refTokens, phones: parsed.phones });
+    sms = await PaymentSms.create({ hash, from, body, receivedAt, amountUsd: parsed.amountUsd, refTokens: parsed.refTokens, phones });
   } catch (error: any) {
     if (isDuplicateKey(error)) return { stored: false, matched: false, duplicate: true };
     throw error;
   }
-  if (!amountSufficient(parsed.amountUsd) || !parsed.refTokens.length) return { stored: true, matched: false };
-  const pending = await Subscription.find({ status: 'pending', paymentReference: { $in: parsed.refTokens } }).limit(20);
-  for (const subscription of pending) {
-    if (proves(subscription, parsed)) {
-      const approved = await approve(subscription, sms);
-      if (approved) return { stored: true, matched: true };
-    }
-  }
-  return { stored: true, matched: false };
+  if (!amountSufficient(parsed.amountUsd) || !phones.length) return { stored: true, matched: false };
+  const pending = await Subscription.find({ status: 'pending', payerPhoneKey: { $in: phones } }).limit(5);
+  const candidates = pending.filter((subscription) => proves(subscription, { phones, amountUsd: parsed.amountUsd, receivedAt }));
+  // Two open requests for the same number (for example two grades) cannot be told apart: leave them for review.
+  if (candidates.length !== 1) return { stored: true, matched: false, ambiguous: candidates.length > 1 };
+  const approved = await approve(candidates[0], sms);
+  return { stored: true, matched: !!approved };
 }

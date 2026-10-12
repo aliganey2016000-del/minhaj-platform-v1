@@ -11,7 +11,7 @@ import { ApiError } from '../../utils/api-error';
 import { purchase, toWalletAccount, waafiConfig } from '../../services/waafipay.service';
 import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
-import { verifyFromStoredSms } from '../../services/guuldoon-sms-payment.service';
+import { merchantCore, phoneCore, verifyFromStoredSms } from '../../services/guuldoon-sms-payment.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -22,17 +22,21 @@ router.get('/mine', asyncHandler(async (req, res) => {
 router.post('/requests', asyncHandler(async (req, res) => {
   if (req.user?.role !== 'student') throw new ForbiddenError('Student access required');
   const grade = Number(req.body.grade);
-  const paymentReference = typeof req.body.paymentReference === 'string' ? req.body.paymentReference.trim().toUpperCase() : '';
-  if (![8, 12].includes(grade) || !paymentReference || paymentReference.length > 120) throw new BadRequestError('Choose Grade 8 or 12 and provide a valid payment reference');
+  const payerPhone = typeof req.body.payerPhone === 'string' ? req.body.payerPhone.trim().slice(0, 30) : '';
+  const payerPhoneKey = phoneCore(payerPhone);
+  const givenReference = typeof req.body.paymentReference === 'string' ? req.body.paymentReference.trim().toUpperCase() : '';
+  if (payerPhone && (payerPhoneKey.length < 7 || payerPhoneKey.length > 12 || payerPhoneKey === merchantCore())) throw new BadRequestError('Enter the wallet number you will pay from');
+  // The wallet number alone identifies the payment; a reference stays optional for manual review.
+  const paymentReference = givenReference || (payerPhone ? `AUTO-${crypto.randomBytes(5).toString('hex').toUpperCase()}` : '');
+  if (![8, 12].includes(grade) || !paymentReference || paymentReference.length > 120) throw new BadRequestError('Choose Grade 8 or 12 and enter the wallet number you pay from, or a payment reference');
   const student = await Student.findOne({ user: req.user.userId, approvalStatus: 'approved', status: 'active' }).lean();
   if (!student?.school || String(student.school) !== req.user.organizationId) throw new ForbiddenError('An active approved school student account is required');
   const active = await Subscription.exists({ user: req.user.userId, grade, status: 'approved', startsAt: { $lte: new Date() }, expiresAt: { $gt: new Date() } });
   if (active) throw new ConflictError('This grade already has an active subscription');
   const pending = await Subscription.exists({ user: req.user.userId, grade, status: 'pending' });
   if (pending) throw new ConflictError('A subscription request is already pending for this grade');
-  const payerPhone = typeof req.body.payerPhone === 'string' ? req.body.payerPhone.trim().slice(0, 30) : '';
   try {
-    const created = await Subscription.create({ user: req.user.userId, school: student.school, grade, paymentReference, ...(payerPhone ? { payerPhone } : {}) });
+    const created = await Subscription.create({ user: req.user.userId, school: student.school, grade, paymentReference, ...(payerPhone ? { payerPhone, payerPhoneKey } : {}) });
     // If the confirmation SMS already arrived, activate right away.
     const verified = await verifyFromStoredSms(created);
     return ApiResponse.created(res, verified || created, verified ? 'Payment verified automatically' : 'Payment reference submitted for verification');
@@ -51,7 +55,7 @@ const payLimiter = rateLimit({
 });
 
 /** Whether paying straight from the wallet (EVC Plus, Zaad, eDahab) is available. */
-router.get('/pay/config', asyncHandler(async (_req, res) => ApiResponse.success(res, { enabled: !!waafiConfig() })));
+router.get('/pay/config', asyncHandler(async (_req, res) => ApiResponse.success(res, { enabled: !!waafiConfig(), smsEnabled: !!process.env.GUULDOON_SMS_WEBHOOK_SECRET, merchantNumber: process.env.GUULDOON_MERCHANT_NUMBER || null })));
 
 /** Student pays $5 from their wallet: a PIN prompt appears on their phone and the subscription activates on success. */
 router.post('/pay', payLimiter, asyncHandler(async (req, res) => {

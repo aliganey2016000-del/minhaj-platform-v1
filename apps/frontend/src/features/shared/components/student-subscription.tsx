@@ -22,6 +22,8 @@ export function StudentSubscription() {
   const [reference, setReference] = useState('');
   const [payerPhone, setPayerPhone] = useState('');
   const [walletEnabled, setWalletEnabled] = useState(false);
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [merchantNumber, setMerchantNumber] = useState('');
   const [walletPhone, setWalletPhone] = useState('');
   const [notice, setNotice] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -44,7 +46,7 @@ export function StudentSubscription() {
   const currentStatus = current ? status(current, now) : 'none';
   const days = active ? Math.max(0, Math.ceil((Date.parse(active.expiresAt!) - now) / day)) : 0;
   const proportion = active ? Math.min(1, Math.max(0, (Date.parse(active.expiresAt!) - now) / (Date.parse(active.expiresAt!) - Date.parse(active.startsAt!)))) : 0;
-  useEffect(() => { let live = true; api.get('/global-subscriptions/pay/config').then(({ data }) => { if (live) setWalletEnabled(!!data?.data?.enabled); }).catch(() => undefined); return () => { live = false; }; }, []);
+  useEffect(() => { let live = true; api.get('/global-subscriptions/pay/config').then(({ data }) => { if (live) { setWalletEnabled(!!data?.data?.enabled); setSmsEnabled(!!data?.data?.smsEnabled); setMerchantNumber(data?.data?.merchantNumber || ''); } }).catch(() => undefined); return () => { live = false; }; }, []);
   const payFromWallet = async (event: React.FormEvent) => {
     event.preventDefault(); if (!grade || active || pending || busy) return;
     setBusy(true); setError(''); setNotice('');
@@ -61,9 +63,9 @@ export function StudentSubscription() {
     event.preventDefault(); if (!grade || active || pending || busy) return;
     setBusy(true); setError(''); setNotice('');
     try {
-      const { data } = await api.post('/global-subscriptions/requests', { grade, paymentReference: reference.trim(), ...(payerPhone.trim() ? { payerPhone: payerPhone.trim() } : {}) });
+      const { data } = await api.post('/global-subscriptions/requests', { grade, ...(reference.trim() ? { paymentReference: reference.trim() } : {}), ...(payerPhone.trim() ? { payerPhone: payerPhone.trim() } : {}) });
       setReference(''); setPayerPhone('');
-      setNotice(data?.data?.status === 'approved' ? 'Lacag-bixinta waa la xaqiijiyey. Rukumashadaadu hadda waa shaqaynaysaa!' : 'Tixraaca lacag-bixinta waa la gudbiyey. Marka fariinta xaqiijinta la helo, si toos ah ayaa loo furayaa; haddii kale maamulka ayaa xaqiijinaya.');
+      setNotice(data?.data?.status === 'approved' ? 'Lacag-bixinta waa la xaqiijiyey. Rukumashadaadu hadda waa shaqaynaysaa!' : (smsEnabled && payerPhone.trim() ? 'Lambarkaaga waa la diiwaangeliyey. Marka $5 la helo, rukumashadaadu si toos ah ayay u furmaysaa.' : 'Codsiga waa la gudbiyey. Maamulka ayaa xaqiijinaya.'));
       await load();
     }
     catch (err: any) { setError(err.response?.data?.message || 'Codsiga lama gudbin. Mar kale isku day.'); }
@@ -150,10 +152,11 @@ export function StudentSubscription() {
             <p className="text-center text-xs text-white/50">Ama ku bixi gacanta oo tixraaca halkan hoose ku gudbi.</p>
           </form>}
           {canSubmit && <form onSubmit={submit} className="mt-[18px] space-y-3">
-            <p className="text-[13.5px] leading-6 text-white/75">La xiriir maamulka si aad u hesho lambarka lacag-bixinta (EVC Plus, Zaad ama eDahab). Ku bixi $5, kadib halkan geli tixraaca (Tix) iyo lambarka aad ka bixisay. Sanadkaagu wuxuu si toos ah u bilaabmaa marka lacagta la xaqiijiyo.</p>
-            <label className="block text-xs font-bold text-white/70">Tixraaca lacag-bixinta<input required maxLength={120} value={reference} onChange={e => setReference(e.target.value)} className={`${input} mt-1.5`} /></label>
-            <label className="block text-xs font-bold text-white/70">Lambarka aad ka bixisay<input inputMode="tel" maxLength={30} placeholder="061xxxxxxx" value={payerPhone} onChange={e => setPayerPhone(e.target.value)} className={`${input} mt-1.5`} /></label>
-            <button disabled={busy || !reference.trim()} className={`flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-extrabold transition disabled:cursor-not-allowed disabled:opacity-50 ${toneStyle.cta}`}>{busy ? 'Waa la gudbinayaa...' : 'Gudbi si loo xaqiijiyo'}{!busy && <ArrowRight size={16} />}</button>
+            {smsEnabled ? <p className="text-[13.5px] leading-6 text-white/75">Geli lambarka aad ka bixinayso, kadibna ka dir <b>$5</b> EVC Plus, Zaad ama eDahab{merchantNumber ? <> lambarka <b className="tabular-nums">{merchantNumber}</b></> : ' lambarka maamulka'}. Marka lacagta la helo, rukumashadaadu si toos ah ayay u furmaysaa, tixraac looma baahna.</p>
+              : <p className="text-[13.5px] leading-6 text-white/75">La xiriir maamulka si aad u hesho lambarka lacag-bixinta (EVC Plus, Zaad ama eDahab). Ku bixi $5, kadib halkan geli tixraaca (Tix) iyo lambarka aad ka bixisay. Maamulka ayaa xaqiijinaya.</p>}
+            <label className="block text-xs font-bold text-white/70">Lambarka aad ka bixinayso<input required={smsEnabled} inputMode="tel" maxLength={30} placeholder="061xxxxxxx" value={payerPhone} onChange={e => setPayerPhone(e.target.value)} className={`${input} mt-1.5`} /></label>
+            <label className="block text-xs font-bold text-white/70">Tixraaca lacag-bixinta {smsEnabled ? '(ikhtiyaar)' : ''}<input required={!smsEnabled} maxLength={120} value={reference} onChange={e => setReference(e.target.value)} className={`${input} mt-1.5`} /></label>
+            <button disabled={busy || (smsEnabled ? !payerPhone.trim() && !reference.trim() : !reference.trim())} className={`flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-extrabold transition disabled:cursor-not-allowed disabled:opacity-50 ${toneStyle.cta}`}>{busy ? 'Waa la gudbinayaa...' : (smsEnabled ? 'Diiwaangeli lambarka' : 'Gudbi si loo xaqiijiyo')}{!busy && <ArrowRight size={16} />}</button>
           </form>}
           {notice && <p role="status" className="mt-4 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-200">{notice}</p>}
         </div>
