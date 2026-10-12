@@ -5,7 +5,7 @@ import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { BadRequestError, ForbiddenError } from '../../utils/api-error';
 import ApiResponse from '../../utils/api-response';
 import {
-  DAILY_POINT_CAP, LEADERBOARD_PERIODS, LeaderboardPeriod, POINTS_PER_QUESTION,
+  DAILY_POINT_CAP, LEADERBOARD_PERIODS, LeaderboardPeriod, POINTS_PER_QUESTION, STREAK_BONUS_MAX_DAYS, STREAK_BONUS_PER_DAY,
   buildSchoolBoard, buildStudentBoard, clearLeaderboardCache,
 } from '../../services/guuldoon-leaderboard.service';
 
@@ -26,7 +26,7 @@ function parseQuery(query: Record<string, unknown>) {
   return { grade, period };
 }
 
-const scoring = { perQuestion: POINTS_PER_QUESTION, dailyCap: DAILY_POINT_CAP };
+const scoring = { perQuestion: POINTS_PER_QUESTION, streakPerDay: STREAK_BONUS_PER_DAY, streakMaxDays: STREAK_BONUS_MAX_DAYS, dailyCap: DAILY_POINT_CAP };
 
 /** National student ranking. Names are shown only for students who opted in. */
 router.get('/students', asyncHandler(async (req, res) => {

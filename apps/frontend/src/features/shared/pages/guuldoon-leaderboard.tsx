@@ -3,10 +3,10 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
 type Period = 'week' | 'month' | 'all';
-type StudentRow = { rank: number; name: string; school: string | null; points: number; isMe: boolean };
+type StudentRow = { rank: number; name: string; school: string | null; points: number; streak: number; isMe: boolean };
 type SchoolRow = { rank: number; school: string; students: number; score: number };
-type Me = { rank: number; points: number; behind: number; showName: boolean };
-type StudentBoard = { entries: StudentRow[]; me: Me | null; totalRanked: number; scoring: { perQuestion: number; dailyCap: number } };
+type Me = { rank: number; points: number; streak: number; behind: number; showName: boolean };
+type StudentBoard = { entries: StudentRow[]; me: Me | null; totalRanked: number; scoring: { perQuestion: number; streakPerDay: number; streakMaxDays: number; dailyCap: number } };
 type SchoolBoard = { entries: SchoolRow[]; minStudents: number };
 
 const PERIODS: { value: Period; label: string }[] = [
@@ -73,7 +73,7 @@ function Podium({ rows, school }: { rows: { name: string; sub: string | null; va
   );
 }
 
-function RankList({ rows, max, school }: { rows: { rank: number; name: string; sub: string; value: number; me?: boolean }[]; max: number; school: boolean }) {
+function RankList({ rows, max, school }: { rows: { rank: number; name: string; sub: string; value: number; streak?: number; me?: boolean }[]; max: number; school: boolean }) {
   return (
     <ol className="space-y-2">
       {rows.map((row) => (
@@ -82,7 +82,7 @@ function RankList({ rows, max, school }: { rows: { rank: number; name: string; s
           <Avatar name={row.name} school={school} />
           <div className="min-w-0">
             <p className="break-words font-bold">{row.name}{row.me && <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-bold text-white">Adiga</span>}</p>
-            <p className="break-words text-xs text-[var(--color-text-secondary)]">{row.sub}</p>
+            <p className="break-words text-xs text-[var(--color-text-secondary)]">{row.sub}{!!row.streak && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">🔥 {row.streak}</span>}</p>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sky-100 dark:bg-slate-700"><div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-sky-500" style={{ width: `${Math.max(2, Math.round((row.value / (max || 1)) * 100))}%` }} /></div>
           </div>
           <p className="text-right text-lg font-extrabold tabular-nums">{num(row.value)}</p>
@@ -135,7 +135,7 @@ export function GuuldoonLeaderboard() {
     ? studentRows.map((row) => ({ name: row.name, sub: row.school, value: row.points }))
     : schoolRows.map((row) => ({ name: row.school, sub: `${row.students} arday`, value: row.score }));
   const rest = view === 'students'
-    ? studentRows.slice(3).map((row) => ({ rank: row.rank, name: row.name, sub: row.school || 'Iskuul qarsoon', value: row.points, me: row.isMe }))
+    ? studentRows.slice(3).map((row) => ({ rank: row.rank, name: row.name, sub: row.school || 'Iskuul qarsoon', value: row.points, streak: row.streak, me: row.isMe }))
     : schoolRows.slice(3).map((row) => ({ rank: row.rank, name: row.school, sub: `${row.students} arday · celcelis`, value: row.score }));
   const max = podiumRows[0]?.value || 1;
   const me = students?.me;
@@ -185,7 +185,7 @@ export function GuuldoonLeaderboard() {
         <div className="fixed inset-x-0 bottom-0 z-20 bg-gradient-to-r from-teal-700 to-sky-600 px-4 py-3 text-white shadow-lg" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
           <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-2">
             <span>Booskaaga <b className="ml-1 rounded-xl bg-white px-3 py-0.5 text-xl text-teal-800">#{me.rank}</b></span>
-            <span className="text-sm">{num(me.points)} dhibcood{me.behind > 0 ? ` · ${num(me.behind)} ka hooseysaa kan ka sarreeya` : ' · waxaad ku jirtaa kaalinta koowaad'}</span>
+            <span className="text-sm">{num(me.points)} dhibcood{me.streak > 0 ? ` · 🔥 ${me.streak} maalmood` : ''}{me.behind > 0 ? ` · ${num(me.behind)} ka hooseysaa kan ka sarreeya` : ' · waxaad ku jirtaa kaalinta koowaad'}</span>
           </div>
         </div>
       )}
