@@ -10,6 +10,10 @@ const schema = new Schema({
   // Wallet number the student paid from; lets a forwarded confirmation SMS be matched safely.
   payerPhone: { type: String, maxlength: 30 },
   autoVerified: { type: Boolean, default: false },
+  // Set when the student paid through the WaafiPay wallet API (EVC Plus, Zaad, eDahab).
+  gateway: { type: String, enum: ['waafipay'] },
+  gatewayTransactionId: { type: String, maxlength: 80 },
+  gatewayMessage: { type: String, maxlength: 300 },
   // Set only after a platform administrator verifies receipt of payment.
   verifiedReference: { type: String },
   status: { type: String, enum: ['pending', 'approved', 'rejected', 'revoked'], default: 'pending', index: true },
