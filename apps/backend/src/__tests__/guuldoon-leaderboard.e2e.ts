@@ -18,14 +18,40 @@ async function main() {
     const { default: Subscription } = await import('../models/global-subscription.model');
     const { default: Attempt } = await import('../models/guuldoon-attempt.model');
     const { generateAccessToken } = await import('../utils/jwt');
-    const { compareEntries, periodStart, POINTS_PER_QUESTION, DAILY_POINT_CAP } = await import('../services/guuldoon-leaderboard.service');
+    const { compareEntries, periodStart, scoreDays, POINTS_PER_QUESTION, DAILY_POINT_CAP, STREAK_BONUS_PER_DAY, STREAK_BONUS_MAX_DAYS } = await import('../services/guuldoon-leaderboard.service');
 
     // Pure rules.
     assert.equal(POINTS_PER_QUESTION, 10);
     assert.equal(DAILY_POINT_CAP, 400);
     assert.ok(compareEntries({ points: 50, last: 5 }, { points: 30, last: 1 }) < 0, 'more points ranks first');
     assert.ok(compareEntries({ points: 50, last: 1 }, { points: 50, last: 5 }) < 0, 'earlier finisher wins a tie');
+    assert.equal(STREAK_BONUS_PER_DAY, 5);
+    assert.equal(STREAK_BONUS_MAX_DAYS, 10);
     assert.equal(periodStart('all'), null);
+
+    // Streak maths on fixed days (clock pinned to 2026-10-12, Mogadishu).
+    const clock = new Date('2026-10-12T09:00:00Z');
+    const day = (u: string, d: string, n: number) => ({ user: u, day: d, n, last: Date.parse(`${d}T09:00:00Z`) });
+    const scored = scoreDays([
+      day('run', '2026-10-10', 2), day('run', '2026-10-11', 2), day('run', '2026-10-12', 2),  // 25 + 30 + 35
+      day('gap', '2026-10-08', 4), day('gap', '2026-10-12', 1),                                // 45 + 15 (the gap resets the streak)
+      day('big', '2026-10-12', 50),                                                            // 505 raw -> capped at 400
+      day('old', '2026-09-01', 3),                                                             // outside the week
+      day('stale', '2026-10-09', 1),                                                           // active in week, streak already over
+    ], 'week', clock);
+    const get = (u: string) => scored.find((e) => e.user === u);
+    assert.equal(get('run')!.points, 90);
+    assert.equal(get('run')!.streak, 3);
+    assert.equal(get('gap')!.points, 60);
+    assert.equal(get('gap')!.streak, 1);
+    assert.equal(get('big')!.points, DAILY_POINT_CAP);
+    assert.equal(get('old'), undefined);
+    assert.equal(get('stale')!.streak, 0, 'a streak that ended before yesterday no longer counts');
+    // A streak that began before the period still raises the bonus inside it, but earlier days do not score.
+    const carried = scoreDays([day('c', '2026-10-04', 1), day('c', '2026-10-05', 1), day('c', '2026-10-06', 1), day('c', '2026-10-07', 1), day('c', '2026-10-08', 1), day('c', '2026-10-09', 1), day('c', '2026-10-10', 1), day('c', '2026-10-11', 1), day('c', '2026-10-12', 1)], 'week', clock);
+    assert.equal(carried[0].streak, 9);
+    assert.equal(carried[0].points, 8 * 10 + 5 * (2 + 3 + 4 + 5 + 6 + 7 + 8 + 9), 'Oct 5..12 score; the streak run still counts Oct 4');
+    assert.ok(scoreDays([day('x', '2026-01-01', 100)], 'all', clock)[0].points <= DAILY_POINT_CAP);
     assert.ok(periodStart('week')!.getTime() < Date.now() - 6 * 86400000);
 
     const admin = await User.create({ email: 'board-admin@test.local', password: 'Password123!', role: 'admin' });
@@ -80,6 +106,9 @@ async function main() {
       ...qs(10).map((q) => attempt(a4, course12, q)),                    // no subscription: never ranked
       ...qs(50).map((q) => attempt(b1, course12, q)),                    // 500 raw in one day: capped at 400
     ]);
+    // a3: two new answers on each of three consecutive days -> streak 3.
+    const dayAgo = (days: number) => new Date(now.getTime() - days * 86400000);
+    await Attempt.insertMany([2, 1, 0].flatMap((d) => qs(2).map((q) => attempt(a3, course12, q, { createdAt: dayAgo(d) }))));
 
     // Access control.
     await request(app).get('/api/v1/guuldoon-leaderboard/students').expect(401);
@@ -89,23 +118,24 @@ async function main() {
     // Weekly student board: b1 400 (daily cap), a1 50, a2 10; a4 is not subscribed.
     let res = await request(app).get('/api/v1/guuldoon-leaderboard/students?grade=12&period=week').set(headers(a1.user)).expect(200);
     let entries = res.body.data.entries;
-    assert.deepEqual(entries.map((e: any) => e.points), [400, 50, 10]);
-    assert.deepEqual(entries.map((e: any) => e.rank), [1, 2, 3]);
-    assert.equal(res.body.data.totalRanked, 3);
-    assert.deepEqual(res.body.data.scoring, { perQuestion: 10, dailyCap: 400 });
+    assert.deepEqual(entries.map((e: any) => e.points), [400, 90, 55, 15]);
+    assert.deepEqual(entries.map((e: any) => e.rank), [1, 2, 3, 4]);
+    assert.deepEqual(entries.map((e: any) => e.streak), [1, 3, 1, 1]);
+    assert.equal(res.body.data.totalRanked, 4);
+    assert.deepEqual(res.body.data.scoring, { perQuestion: 10, streakPerDay: 5, streakMaxDays: 10, dailyCap: 400 });
     // Privacy: nobody opted in, so names and schools are hidden.
     assert.ok(entries.every((e: any) => /^Arday #\d{4}$/.test(e.name) && e.school === null), 'anonymous by default');
     assert.ok(!JSON.stringify(res.body).includes('Faadumo') && !JSON.stringify(res.body).includes('Alpha'), 'no personal data leaks');
-    assert.equal(entries[1].isMe, true);
-    assert.deepEqual(res.body.data.me, { rank: 2, points: 50, behind: 350, showName: false });
+    assert.equal(entries[2].isMe, true);
+    assert.deepEqual(res.body.data.me, { rank: 3, points: 55, streak: 1, behind: 35, showName: false });
 
     // All time: a2's older answers count (40 points).
     res = await request(app).get('/api/v1/guuldoon-leaderboard/students?grade=12&period=all').set(headers(a1.user)).expect(200);
-    assert.deepEqual(res.body.data.entries.map((e: any) => e.points), [400, 50, 40]);
+    assert.deepEqual(res.body.data.entries.map((e: any) => e.points), [400, 90, 55, 50]);
 
     // A subscribed student with no points still sees their own place; grade 8 has no subscribers.
-    res = await request(app).get('/api/v1/guuldoon-leaderboard/students?grade=12&period=week').set(headers(a3.user)).expect(200);
-    assert.deepEqual(res.body.data.me, { rank: 0, points: 0, behind: 0, showName: false });
+    res = await request(app).get('/api/v1/guuldoon-leaderboard/students?grade=12&period=week').set(headers(b3.user)).expect(200);
+    assert.deepEqual(res.body.data.me, { rank: 0, points: 0, streak: 0, behind: 0, showName: false });
     res = await request(app).get('/api/v1/guuldoon-leaderboard/students?grade=8&period=all').set(headers(a1.user)).expect(200);
     assert.deepEqual(res.body.data.entries, []);
 
@@ -115,10 +145,10 @@ async function main() {
     await request(app).patch('/api/v1/guuldoon-leaderboard/me/visibility').set(headers(a1.user)).send({ showName: true }).expect(200);
     res = await request(app).get('/api/v1/guuldoon-leaderboard/students?grade=12&period=week').set(headers(b2.user)).expect(200);
     entries = res.body.data.entries;
-    assert.equal(entries[1].name, 'Faadumo T.');
-    assert.equal(entries[1].school, 'Alpha School');
+    assert.equal(entries[2].name, 'Faadumo T.');
+    assert.equal(entries[2].school, 'Alpha School');
     assert.match(entries[0].name, /^Arday #/, 'others stay anonymous');
-    assert.equal(entries[1].isMe, false, 'isMe is only set for the requesting student');
+    assert.equal(entries[2].isMe, false, 'isMe is only set for the requesting student');
 
     // Staff roles can read the boards.
     const orgA = await User.create({ email: 'board-org@test.local', password: 'Password123!', role: 'org_admin', organizationId: schoolA._id });
@@ -127,9 +157,9 @@ async function main() {
 
     // School board: average per subscribed student; Tiny School (2 students) is not ranked.
     res = await request(app).get('/api/v1/guuldoon-leaderboard/schools?grade=12&period=week').set(headers(a1.user)).expect(200);
-    assert.deepEqual(res.body.data.entries.map((e: any) => [e.rank, e.school, e.students, e.score]), [[1, 'Beta School', 3, 133], [2, 'Alpha School', 3, 20]]);
+    assert.deepEqual(res.body.data.entries.map((e: any) => [e.rank, e.school, e.students, e.score]), [[1, 'Beta School', 3, 133], [2, 'Alpha School', 3, 53]]);
     assert.equal(res.body.data.minStudents, 3);
-    void a3; void b3; void c1; void c2;
+    void c1; void c2;
 
     console.log('Guuldoon leaderboard e2e passed');
   } finally {
