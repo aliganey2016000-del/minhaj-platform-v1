@@ -21,6 +21,8 @@ export function StudentSubscription() {
   const [error, setError] = useState('');
   const [reference, setReference] = useState('');
   const [payerPhone, setPayerPhone] = useState('');
+  const [walletEnabled, setWalletEnabled] = useState(false);
+  const [walletPhone, setWalletPhone] = useState('');
   const [notice, setNotice] = useState('');
   const [now, setNow] = useState(Date.now());
   const loaded = useRef(false);
@@ -42,6 +44,19 @@ export function StudentSubscription() {
   const currentStatus = current ? status(current, now) : 'none';
   const days = active ? Math.max(0, Math.ceil((Date.parse(active.expiresAt!) - now) / day)) : 0;
   const proportion = active ? Math.min(1, Math.max(0, (Date.parse(active.expiresAt!) - now) / (Date.parse(active.expiresAt!) - Date.parse(active.startsAt!)))) : 0;
+  useEffect(() => { let live = true; api.get('/global-subscriptions/pay/config').then(({ data }) => { if (live) setWalletEnabled(!!data?.data?.enabled); }).catch(() => undefined); return () => { live = false; }; }, []);
+  const payFromWallet = async (event: React.FormEvent) => {
+    event.preventDefault(); if (!grade || active || pending || busy) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const { data } = await api.post('/global-subscriptions/pay', { grade, phone: walletPhone.trim() }, { timeout: 150000 });
+      setWalletPhone('');
+      setNotice(data?.data?.status === 'approved' ? 'Lacag-bixinta waa la helay. Rukumashadaadu hadda waa shaqaynaysaa!' : (data?.message || 'Lacag-bixinta waa la gudbiyey. Maamulka ayaa xaqiijinaya.'));
+      await load();
+    }
+    catch (err: any) { setError(err.response?.data?.message || 'Lacag-bixinta lama dhammaystirin. Hubi haraagaaga oo mar kale isku day.'); await load(); }
+    finally { setBusy(false); }
+  };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); if (!grade || active || pending || busy) return;
     setBusy(true); setError(''); setNotice('');
@@ -128,6 +143,12 @@ export function StudentSubscription() {
 
           {isActive && <Link to="/student/global-courses" className={`mt-[18px] flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-extrabold transition ${toneStyle.cta}`}><BookOpen size={18} />Eeg koorsooyinka<ArrowRight size={16} /></Link>}
 
+          {canSubmit && walletEnabled && <form onSubmit={payFromWallet} className="mt-[18px] space-y-3">
+            <p className="text-[13.5px] leading-6 text-white/75">Ka bixi $5 wallet-kaaga (EVC Plus, Zaad ama eDahab). Taleefankaaga ayaa kuu soo dhigi doona codsi PIN ah; ku xaqiiji, rukumashaduna si toos ah ayay u furmaysaa.</p>
+            <label className="block text-xs font-bold text-white/70">Lambarka wallet-ka<input required inputMode="tel" maxLength={30} placeholder="061xxxxxxx" value={walletPhone} onChange={e => setWalletPhone(e.target.value)} className={`${input} mt-1.5`} /></label>
+            <button disabled={busy || !walletPhone.trim()} className={`flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-extrabold transition disabled:cursor-not-allowed disabled:opacity-50 ${toneStyle.cta}`}>{busy ? 'Xaqiiji PIN-ka taleefankaaga...' : 'Bixi $5 hadda'}{!busy && <ArrowRight size={16} />}</button>
+            <p className="text-center text-xs text-white/50">Ama ku bixi gacanta oo tixraaca halkan hoose ku gudbi.</p>
+          </form>}
           {canSubmit && <form onSubmit={submit} className="mt-[18px] space-y-3">
             <p className="text-[13.5px] leading-6 text-white/75">La xiriir maamulka si aad u hesho lambarka lacag-bixinta (EVC Plus, Zaad ama eDahab). Ku bixi $5, kadib halkan geli tixraaca (Tix) iyo lambarka aad ka bixisay. Sanadkaagu wuxuu si toos ah u bilaabmaa marka lacagta la xaqiijiyo.</p>
             <label className="block text-xs font-bold text-white/70">Tixraaca lacag-bixinta<input required maxLength={120} value={reference} onChange={e => setReference(e.target.value)} className={`${input} mt-1.5`} /></label>

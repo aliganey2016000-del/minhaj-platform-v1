@@ -6,7 +6,11 @@ import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { BadRequestError, ForbiddenError, NotFoundError, ConflictError } from '../../utils/api-error';
 import ApiResponse from '../../utils/api-response';
-import { subscriptionExpiry } from '../../utils/global-subscription';
+import { GLOBAL_SUBSCRIPTION_PRICE, subscriptionExpiry } from '../../utils/global-subscription';
+import { ApiError } from '../../utils/api-error';
+import { purchase, toWalletAccount, waafiConfig } from '../../services/waafipay.service';
+import rateLimit from 'express-rate-limit';
+import crypto from 'crypto';
 import { verifyFromStoredSms } from '../../services/guuldoon-sms-payment.service';
 
 const router = Router();
@@ -36,6 +40,73 @@ router.post('/requests', asyncHandler(async (req, res) => {
     if (error.code === 11000) throw new ConflictError('A subscription request is already pending for this grade');
     throw error;
   }
+}));
+
+const payLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => String(req.user?.userId || req.ip),
+});
+
+/** Whether paying straight from the wallet (EVC Plus, Zaad, eDahab) is available. */
+router.get('/pay/config', asyncHandler(async (_req, res) => ApiResponse.success(res, { enabled: !!waafiConfig() })));
+
+/** Student pays $5 from their wallet: a PIN prompt appears on their phone and the subscription activates on success. */
+router.post('/pay', payLimiter, asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'student') throw new ForbiddenError('Student access required');
+  const config = waafiConfig();
+  if (!config) throw new ApiError(503, 'Wallet payment is not available yet');
+  const grade = Number(req.body.grade);
+  const accountNo = typeof req.body.phone === 'string' ? toWalletAccount(req.body.phone) : null;
+  if (![8, 12].includes(grade) || !accountNo) throw new BadRequestError('Choose Grade 8 or 12 and enter the wallet number you pay from');
+  const student = await Student.findOne({ user: req.user.userId, approvalStatus: 'approved', status: 'active' }).lean();
+  if (!student?.school || String(student.school) !== req.user.organizationId) throw new ForbiddenError('An active approved school student account is required');
+  const now = new Date();
+  if (await Subscription.exists({ user: req.user.userId, grade, status: 'approved', startsAt: { $lte: now }, expiresAt: { $gt: now } })) throw new ConflictError('This grade already has an active subscription');
+
+  if (await Subscription.exists({ user: req.user.userId, grade, status: 'pending' })) throw new ConflictError('A payment is already in progress for this grade');
+
+  // The pending row is the lock: a second tap while this payment is waiting for the PIN is rejected.
+  let pending: any;
+  try {
+    pending = await Subscription.create({ user: req.user.userId, school: student.school, grade, paymentReference: `WP-${crypto.randomBytes(5).toString('hex').toUpperCase()}`, payerPhone: accountNo, gateway: 'waafipay' });
+  } catch (error: any) {
+    if (error.code === 11000 || /E11000|duplicate key|UNIQUE constraint/i.test(String(error?.message))) throw new ConflictError('A payment is already in progress for this grade');
+    throw error;
+  }
+
+  const result = await purchase(config, {
+    accountNo,
+    amount: GLOBAL_SUBSCRIPTION_PRICE,
+    referenceId: String(pending._id),
+    invoiceId: pending.paymentReference,
+    description: `Guuldoon Grade ${grade} subscription`,
+  });
+
+  if (result.ok) {
+    const activated = new Date();
+    try {
+      const approved = await Subscription.findOneAndUpdate(
+        { _id: pending._id, status: 'pending' },
+        { $set: { status: 'approved', autoVerified: true, startsAt: activated, expiresAt: subscriptionExpiry(activated), reviewedAt: activated, verifiedReference: `WAAFI-${result.transactionId}`, gatewayTransactionId: result.transactionId, gatewayMessage: result.message } },
+        { new: true, runValidators: true },
+      );
+      return ApiResponse.success(res, { status: 'approved', subscription: approved }, 'Payment received. Your subscription is active.');
+    } catch (error: any) {
+      // The wallet was charged but the transaction id was already used: keep it pending for an administrator.
+      await Subscription.updateOne({ _id: pending._id }, { $set: { gatewayTransactionId: result.transactionId, gatewayMessage: 'Charged; needs manual review' } });
+      return ApiResponse.success(res, { status: 'pending' }, 'Payment received. An administrator will confirm it shortly.');
+    }
+  }
+  if (result.ambiguous) {
+    // Money may have moved: never reject. An administrator checks the merchant statement.
+    await Subscription.updateOne({ _id: pending._id }, { $set: { gatewayMessage: result.message } });
+    return ApiResponse.success(res, { status: 'pending' }, 'We could not confirm the payment yet. If money left your wallet, an administrator will activate your subscription.');
+  }
+  await Subscription.updateOne({ _id: pending._id }, { $set: { status: 'rejected', reviewedAt: new Date(), gatewayMessage: result.message || `Declined (${result.code})` } });
+  throw new ApiError(402, result.message || 'The payment was not completed. Check your balance and try again.');
 }));
 router.get('/admin', asyncHandler(async (req, res) => {
   if (!['admin', 'org_admin'].includes(req.user?.role || '')) throw new ForbiddenError('Administrator access required');
