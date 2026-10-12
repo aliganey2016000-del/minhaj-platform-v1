@@ -25,6 +25,7 @@ import {
   Settings,
   Smartphone,
   TrendingUp,
+  Medal,
   Trophy,
   UserRound,
   WalletCards,
@@ -74,6 +75,7 @@ export function StudentSidebar() {
       items: [
         { path: '/student/global-courses', label: 'Courses', icon: BookOpen },
         { path: '/student/guuldoon/performance', label: 'My Progress', icon: TrendingUp },
+        { path: '/student/guuldoon/leaderboard', label: 'Leaderboard', icon: Medal },
         { path: '/student/guuldoon/subscriptions', label: 'My Subscription', icon: CreditCard },
         { path: '/student/guuldoon/devices', label: 'My Device', icon: Smartphone },
       ],

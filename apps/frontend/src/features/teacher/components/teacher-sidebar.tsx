@@ -14,6 +14,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   { title: 'Guuldoon', items: [
     { path: '/teacher/global-courses', label: 'Courses', icon: '📚' },
     { path: '/teacher/guuldoon/performance', label: "My Students’ Performance", icon: '📈' },
+    { path: '/teacher/guuldoon/leaderboard', label: 'Leaderboard', icon: '🏅' },
   ] },
   { title: 'Teaching', items: [
     { path: '/teacher', label: 'Dashboard', icon: '🏠' },
