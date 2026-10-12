@@ -1,0 +1,4 @@
+# /etc/cron.d/server-backup  (daily 03:00 server time; check with `timedatectl`)
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+0 3 * * * root /opt/server-backup/server-backup.sh >/dev/null 2>&1

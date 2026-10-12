@@ -39,3 +39,8 @@ Thumbs.db
 # Python build artifacts
 __pycache__/
 *.pyc
+
+# backup secrets
+rclone.conf
+server-backup.env
+/etc/server-backup.env
