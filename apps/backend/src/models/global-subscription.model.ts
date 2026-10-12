@@ -9,6 +9,8 @@ const schema = new Schema({
   paymentReference: { type: String, required: true, maxlength: 120 },
   // Wallet number the student paid from; lets a forwarded confirmation SMS be matched safely.
   payerPhone: { type: String, maxlength: 30 },
+  // Normalised digits of payerPhone (no 252 / leading 0), used to match a confirmation SMS to this request.
+  payerPhoneKey: { type: String, index: true },
   autoVerified: { type: Boolean, default: false },
   // Set when the student paid through the WaafiPay wallet API (EVC Plus, Zaad, eDahab).
   gateway: { type: String, enum: ['waafipay'] },
