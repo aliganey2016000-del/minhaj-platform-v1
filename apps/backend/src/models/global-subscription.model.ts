@@ -7,6 +7,9 @@ const schema = new Schema({
   amount: { type: Number, enum: [5], default: 5 },
   currency: { type: String, enum: ['USD'], default: 'USD' },
   paymentReference: { type: String, required: true, maxlength: 120 },
+  // Wallet number the student paid from; lets a forwarded confirmation SMS be matched safely.
+  payerPhone: { type: String, maxlength: 30 },
+  autoVerified: { type: Boolean, default: false },
   // Set only after a platform administrator verifies receipt of payment.
   verifiedReference: { type: String },
   status: { type: String, enum: ['pending', 'approved', 'rejected', 'revoked'], default: 'pending', index: true },
