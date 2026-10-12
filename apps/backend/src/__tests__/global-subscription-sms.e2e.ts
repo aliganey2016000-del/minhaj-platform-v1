@@ -54,6 +54,10 @@ async function main() {
     assert.equal(merchantCore(), '619000000');
     await request(app).post(hook).send({ body: 'x' }).expect(401);
     await request(app).post(hook).set('X-Webhook-Secret', 'wrong').send({ body: 'x' }).expect(401);
+    // Apps that cannot set headers can pass the secret in the URL or the JSON body.
+    await request(app).post(`${hook}?secret=${secret}`).send({ body: 'ping' }).expect(200);
+    await request(app).post(hook).send({ body: 'ping', secret }).expect(200);
+    await request(app).post(`${hook}?secret=wrong`).send({ body: 'ping' }).expect(401);
     const config = await request(app).get(`${root}/pay/config`).set(headers(await mkStudent())).expect(200);
     assert.deepEqual(config.body.data, { enabled: false, smsEnabled: true, merchantNumber: '0619000000' });
 

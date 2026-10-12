@@ -26,8 +26,10 @@ const pick = (source: Record<string, unknown>, keys: string[]) => keys.map((key)
 router.post('/', limiter, asyncHandler(async (req, res) => {
   const expected = process.env.GUULDOON_SMS_WEBHOOK_SECRET;
   if (!expected) throw new NotFoundError('SMS payment webhook');
-  if (!secretMatches(req.header('x-webhook-secret'), expected)) throw new UnauthorizedError('Invalid webhook secret');
   const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  // Preferred: the X-Webhook-Secret header. Some SMS forwarder apps cannot set headers, so ?secret= or a "secret" JSON field also work.
+  const provided = req.header('x-webhook-secret') ?? req.query.secret ?? body.secret;
+  if (!secretMatches(provided, expected)) throw new UnauthorizedError('Invalid webhook secret');
   const result = await handleIncomingSms({
     from: pick(body, ['from', 'sender', 'address', 'number']),
     body: pick(body, ['body', 'message', 'text', 'content', 'sms']),

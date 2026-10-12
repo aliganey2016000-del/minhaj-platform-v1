@@ -15,7 +15,8 @@ Admin to verify by hand, exactly as before.
    with custom headers (for example "SMS Forwarder" / "SMS to URL" apps for Android).
 3. Configure it:
    - URL: `https://<your-api-host>/api/v1/global-subscriptions/sms-webhook`
-   - Method `POST`, header `X-Webhook-Secret: <your secret>`, header `Content-Type: application/json`
+   - Method `POST`, header `X-Webhook-Secret: <your secret>`, header `Content-Type: application/json`.
+     If the app cannot set headers, put the secret in the URL instead: `.../sms-webhook?secret=<your secret>`
    - Body: `{"from":"<sender>","body":"<message text>","receivedAt":"<timestamp>"}`
      (`sender`/`address`, `message`/`text`/`content` and `timestamp`/`date` are accepted too)
    - Forward only the merchant's confirmation messages, and only **received** payments.
