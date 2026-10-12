@@ -20,6 +20,7 @@ export function StudentSubscription() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [reference, setReference] = useState('');
+  const [payerPhone, setPayerPhone] = useState('');
   const [notice, setNotice] = useState('');
   const [now, setNow] = useState(Date.now());
   const loaded = useRef(false);
@@ -44,7 +45,12 @@ export function StudentSubscription() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); if (!grade || active || pending || busy) return;
     setBusy(true); setError(''); setNotice('');
-    try { await api.post('/global-subscriptions/requests', { grade, paymentReference: reference.trim() }); setReference(''); setNotice('Tixraaca lacag-bixinta waa la gudbiyey. Maamulka ayaa xaqiijinaya.'); await load(); }
+    try {
+      const { data } = await api.post('/global-subscriptions/requests', { grade, paymentReference: reference.trim(), ...(payerPhone.trim() ? { payerPhone: payerPhone.trim() } : {}) });
+      setReference(''); setPayerPhone('');
+      setNotice(data?.data?.status === 'approved' ? 'Lacag-bixinta waa la xaqiijiyey. Rukumashadaadu hadda waa shaqaynaysaa!' : 'Tixraaca lacag-bixinta waa la gudbiyey. Marka fariinta xaqiijinta la helo, si toos ah ayaa loo furayaa; haddii kale maamulka ayaa xaqiijinaya.');
+      await load();
+    }
     catch (err: any) { setError(err.response?.data?.message || 'Codsiga lama gudbin. Mar kale isku day.'); }
     finally { setBusy(false); }
   };
@@ -123,8 +129,9 @@ export function StudentSubscription() {
           {isActive && <Link to="/student/global-courses" className={`mt-[18px] flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-extrabold transition ${toneStyle.cta}`}><BookOpen size={18} />Eeg koorsooyinka<ArrowRight size={16} /></Link>}
 
           {canSubmit && <form onSubmit={submit} className="mt-[18px] space-y-3">
-            <p className="text-[13.5px] leading-6 text-white/75">La xiriir maamulka si aad u hesho tilmaamaha lacag-bixinta. Sanadkaagu wuxuu bilaabmaa marka $5 la xaqiijiyo.</p>
+            <p className="text-[13.5px] leading-6 text-white/75">La xiriir maamulka si aad u hesho lambarka lacag-bixinta (EVC Plus, Zaad ama eDahab). Ku bixi $5, kadib halkan geli tixraaca (Tix) iyo lambarka aad ka bixisay. Sanadkaagu wuxuu si toos ah u bilaabmaa marka lacagta la xaqiijiyo.</p>
             <label className="block text-xs font-bold text-white/70">Tixraaca lacag-bixinta<input required maxLength={120} value={reference} onChange={e => setReference(e.target.value)} className={`${input} mt-1.5`} /></label>
+            <label className="block text-xs font-bold text-white/70">Lambarka aad ka bixisay<input inputMode="tel" maxLength={30} placeholder="061xxxxxxx" value={payerPhone} onChange={e => setPayerPhone(e.target.value)} className={`${input} mt-1.5`} /></label>
             <button disabled={busy || !reference.trim()} className={`flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-extrabold transition disabled:cursor-not-allowed disabled:opacity-50 ${toneStyle.cta}`}>{busy ? 'Waa la gudbinayaa...' : 'Gudbi si loo xaqiijiyo'}{!busy && <ArrowRight size={16} />}</button>
           </form>}
           {notice && <p role="status" className="mt-4 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-200">{notice}</p>}

@@ -7,6 +7,7 @@ import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { BadRequestError, ForbiddenError, NotFoundError, ConflictError } from '../../utils/api-error';
 import ApiResponse from '../../utils/api-response';
 import { subscriptionExpiry } from '../../utils/global-subscription';
+import { verifyFromStoredSms } from '../../services/guuldoon-sms-payment.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -25,8 +26,12 @@ router.post('/requests', asyncHandler(async (req, res) => {
   if (active) throw new ConflictError('This grade already has an active subscription');
   const pending = await Subscription.exists({ user: req.user.userId, grade, status: 'pending' });
   if (pending) throw new ConflictError('A subscription request is already pending for this grade');
+  const payerPhone = typeof req.body.payerPhone === 'string' ? req.body.payerPhone.trim().slice(0, 30) : '';
   try {
-    return ApiResponse.created(res, await Subscription.create({ user: req.user.userId, school: student.school, grade, paymentReference }), 'Payment reference submitted for verification');
+    const created = await Subscription.create({ user: req.user.userId, school: student.school, grade, paymentReference, ...(payerPhone ? { payerPhone } : {}) });
+    // If the confirmation SMS already arrived, activate right away.
+    const verified = await verifyFromStoredSms(created);
+    return ApiResponse.created(res, verified || created, verified ? 'Payment verified automatically' : 'Payment reference submitted for verification');
   } catch (error: any) {
     if (error.code === 11000) throw new ConflictError('A subscription request is already pending for this grade');
     throw error;
