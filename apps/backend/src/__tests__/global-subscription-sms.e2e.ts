@@ -151,6 +151,31 @@ async function main() {
     assert.equal(res.body.data.matched, false);
     assert.equal((await Subscription.findOne({ user: s10._id }) as any).status, 'pending');
 
+    // 9b. Money from a different wallet is classified "unlinked" and Super Admin can attach it by hand.
+    const s11 = await mkStudent();
+    const sub11 = await register(s11, '0615777000').expect(201);
+    res = await sendSms('[-EVCPlus-] Waxaad $5.00 ka heshay 252615888000, Haraaga $9').expect(200);
+    assert.equal(res.body.data.matched, false);
+    res = await request(app).get(`${hook}/recent`).set(headers(admin)).expect(200);
+    const unlinked = res.body.data.find((row: any) => row.body.includes('615888000'));
+    assert.equal(unlinked.kind, 'unlinked');
+    assert.equal(unlinked.reason, 'no-request');
+    assert.ok(res.body.data.some((row: any) => row.kind === 'other' && !row.incoming), 'outgoing receipts are "other"');
+    assert.ok(res.body.data.some((row: any) => row.kind === 'matched'));
+    res = await request(app).get(`${hook}/pending`).set(headers(admin)).expect(200);
+    assert.ok(res.body.data.some((row: any) => row._id === sub11.body.data._id));
+    await request(app).post(`${hook}/${unlinked._id}/link`).set(headers(s11)).send({ subscriptionId: sub11.body.data._id }).expect(403);
+    await request(app).post(`${hook}/${unlinked._id}/link`).set(headers(admin)).send({ subscriptionId: 'nope' }).expect(404);
+    await request(app).post(`${hook}/${unlinked._id}/link`).set(headers(admin)).send({ subscriptionId: sub11.body.data._id }).expect(200);
+    assert.equal((await Subscription.findOne({ user: s11._id }) as any).status, 'approved');
+    assert.equal((await PaymentSms.findById(unlinked._id) as any).status, 'matched');
+    await request(app).post(`${hook}/${unlinked._id}/link`).set(headers(admin)).send({ subscriptionId: sub11.body.data._id }).expect(404);
+    // An outgoing receipt can never be used as proof.
+    const outgoing = await PaymentSms.findOne({ body: /uwareejisay/ }) as any;
+    const s12 = await mkStudent();
+    const sub12 = await register(s12, '0615123999').expect(201);
+    await request(app).post(`${hook}/${outgoing._id}/link`).set(headers(admin)).send({ subscriptionId: sub12.body.data._id }).expect(404);
+
     // 10. Garbage input is harmless.
     await request(app).post(hook).set('X-Webhook-Secret', secret).send({}).expect(200);
     await request(app).post(hook).set('X-Webhook-Secret', secret).send({ body: '   ' }).expect(200);
