@@ -29,6 +29,7 @@ export function GuuldoonBuilderSection() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [year, setYear] = useState<number | null>(null);
+  const [practiceTab, setPracticeTab] = useState<'understand' | 'past'>('understand');
   const [editing, setEditing] = useState<Editing>(null);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState('');
@@ -113,6 +114,16 @@ export function GuuldoonBuilderSection() {
     );
   }
   const meta = TITLES[section];
+  // Like the student's Tababar: "Fahamka cutubka" (practice questions) and "Imtixaanadii hore" (past-exam questions).
+  const view: Section = section === 'practice' && practiceTab === 'past' ? 'years' : section;
+  const isTrueFalse = (question: QuestionRow) => question.type === 'mcq' && question.options?.length === 2 && question.options[0] === 'True' && question.options[1] === 'False';
+  const typeCounts: [string, number][] = [
+    ['MCQ', practiceQuestions.filter(question => question.type === 'mcq' && !isTrueFalse(question)).length],
+    ['True / False', practiceQuestions.filter(isTrueFalse).length],
+    ['Matching', practiceQuestions.filter(question => question.type === 'match').length],
+    ['Jawaab gaaban', practiceQuestions.filter(question => question.type === 'fill').length],
+  ];
+  const pastCount = pastExams.reduce((total, exam) => total + (questionsByExam.get(exam.id) || []).length, 0);
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
@@ -124,8 +135,26 @@ export function GuuldoonBuilderSection() {
       </header>
       {loadError && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-500">{loadError}</div>}
 
+      {section === 'practice' && (
+        <div role="tablist" aria-label="Tababar" className="grid grid-cols-2 gap-1.5 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-1.5">
+          {([['understand', 'Fahamka cutubka', practiceQuestions.length], ['past', 'Imtixaanadii hore', pastCount]] as const).map(([value, label, count]) => (
+            <button key={value} type="button" role="tab" aria-selected={practiceTab === value} onClick={() => { setPracticeTab(value); setEditing(null); setEditError(''); }}
+              className={'rounded-xl px-3 py-2.5 text-sm font-black ' + (practiceTab === value ? 'bg-emerald-600 text-white shadow' : 'text-[var(--color-text-secondary)]')}>
+              {label} <span className="opacity-70">({count})</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {view === 'practice' && (
+        <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+          {typeCounts.map(([label, count]) => (
+            <div key={label} className="rounded-xl bg-emerald-500/10 p-2"><strong className="block text-lg text-emerald-500">{count}</strong><span className="text-[10px] text-[var(--color-text-tertiary)]">{label}</span></div>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-2">
-            {section === 'lessons' && (
+            {view === 'lessons' && (
               <div className="space-y-2">
                 {content.lessons.map((lesson, lessonIndex) => editing?.kind === 'lesson' && editing.id === lesson.id ? (
                   <LessonEditor
@@ -154,7 +183,7 @@ export function GuuldoonBuilderSection() {
                 {!imported && <button type="button" onClick={onOpenLegacyBuilder} className="inline-flex items-center gap-1 rounded-xl border border-[var(--color-border-default)] px-3 py-2 text-xs font-bold"><ExternalLink size={14} /> Wax ka beddel Chapters & Lessons</button>}
               </div>
             )}
-            {section === 'years' && selectedExam && (
+            {view === 'years' && selectedExam && (
               <div className="space-y-2">
                 <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1" role="group" aria-label="Dooro sanad">
                   {pastExams.map(exam => (
@@ -203,8 +232,8 @@ export function GuuldoonBuilderSection() {
                 )}
               </div>
             )}
-            {!practiceExams.length && <p className="pl-3 text-[11px] text-[var(--color-text-tertiary)] sm:pl-6"><BookOpen size={12} className="mr-1 inline" />Tababar ma jiro. Ku dar imtixaan <code>kind = practice</code> Excel-ka.</p>}
-            {section === 'practice' && (
+            {view === 'practice' && !practiceExams.length && <p className="pl-3 text-[11px] text-[var(--color-text-tertiary)] sm:pl-6"><BookOpen size={12} className="mr-1 inline" />Tababar ma jiro. Ku dar imtixaan <code>kind = practice</code> Excel-ka.</p>}
+            {view === 'practice' && (
               <div className="space-y-2">
                 {practiceQuestions.map(question => editing?.kind === 'question' && editing.id === question.id ? (
                   <QuestionEditor
