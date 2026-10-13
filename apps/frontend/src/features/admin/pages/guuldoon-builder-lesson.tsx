@@ -42,7 +42,7 @@ export function GuuldoonBuilderLesson() {
   const previous = index > 0 ? lessons[index - 1] : null;
   const next = index >= 0 && index < lessons.length - 1 ? lessons[index + 1] : null;
 
-  const backToChapter = () => navigate(`/admin/global-courses/${courseId}/guuldoon-builder?chapter=${encodeURIComponent(chapterId || '')}&section=lessons`);
+  const backToChapter = () => navigate(`/admin/global-courses/${courseId}/guuldoon-builder/chapters/${encodeURIComponent(chapterId || '')}/lessons`);
   const openLesson = (id: string) => navigate(`/admin/global-courses/${courseId}/guuldoon-builder/chapters/${encodeURIComponent(chapterId || '')}/lessons/${id}`);
 
   const save = async (payload: Record<string, unknown>) => {
