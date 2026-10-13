@@ -51,11 +51,31 @@ function Chip({ children, tone = 'bg-slate-100 text-slate-700 dark:bg-slate-800 
   return <span className={`inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>{children}</span>;
 }
 
-/** Super Admin: forwarded payment SMS messages and whether each one activated a subscription. */
+type SmsKind = 'matched' | 'unlinked' | 'other';
+type PendingRow = { _id: string; grade: number; payerPhone?: string; createdAt?: string; user?: { email: string } };
+const REASONS: Record<string, string> = {
+  'no-number': 'Fariinta lambar looma helin',
+  'low-amount': 'Lacagtu waa ka yar $5',
+  'no-request': 'Lambarkan ardey ku diiwaangashan ma jiro (laga yaabo inuu ka bixiyay wallet kale)',
+  'ambiguous': 'Laba codsi oo isku lambar ah ayaa sugaya',
+  'not-verified': 'Codsi ayaa jira laakiin waqtiga / xeerka ma gaarin',
+};
+const SMS_TABS: { value: SmsKind; label: string; active: string; badge: string; empty: string }[] = [
+  { value: 'unlinked', label: 'Aan la xidhin', active: 'bg-amber-500 text-white shadow', badge: 'bg-amber-100 text-amber-800', empty: 'Lacag aan la xidhin ma jirto. Dhammaan waa la adeegay.' },
+  { value: 'matched', label: 'Furay', active: 'bg-emerald-600 text-white shadow', badge: 'bg-emerald-100 text-emerald-800', empty: 'Wali subscription automatic ah lama furin.' },
+  { value: 'other', label: 'Baxday / Kale', active: 'bg-violet-600 text-white shadow', badge: 'bg-violet-100 text-violet-800', empty: 'Fariimo kale ma jirto.' },
+];
+
+/** Super Admin: forwarded payment SMS messages, split into activated, incoming-but-unlinked, and outgoing/other. */
 function SmsTab() {
-  const [rows, setRows] = useState<SmsRow[] | null>(null);
+  const [rows, setRows] = useState<(SmsRow & { kind: SmsKind; reason?: string; subscription?: { payerPhone?: string; grade?: number; user?: { email: string } } })[] | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sub, setSub] = useState<SmsKind>('unlinked');
+  const [chosen, setChosen] = useState(false);
+  const [linking, setLinking] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingRow[]>([]);
+  const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try { const { data } = await api.get('/global-subscriptions/sms-webhook/recent'); setRows(data.data || []); }
@@ -63,41 +83,78 @@ function SmsTab() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  const matched = rows?.filter((row) => row.status === 'matched').length || 0;
+  const of = (kind: SmsKind) => rows?.filter((row) => row.kind === kind) || [];
+  const sum = (kind: SmsKind) => of(kind).reduce((total, row) => total + (row.amountUsd || 0), 0);
+  // Open on "Aan la xidhin" when it has anything, otherwise on "Furay"; never override the admin's own choice.
+  useEffect(() => { if (rows && !chosen) setSub(of('unlinked').length ? 'unlinked' : 'matched'); }, [rows, chosen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openLink = async (id: string) => {
+    setLinking(id); setError('');
+    try { const { data } = await api.get('/global-subscriptions/sms-webhook/pending'); setPending(data.data || []); }
+    catch (err) { setError(errorText(err, 'Unable to load pending requests')); setLinking(null); }
+  };
+  const link = async (smsId: string, subscriptionId: string) => {
+    if (!window.confirm('Ma xaqiijisay inaad subscription-kan ku furto fariintan SMS-ka ah?')) return;
+    setBusy(true); setError('');
+    try { await api.post(`/global-subscriptions/sms-webhook/${smsId}/link`, { subscriptionId }); setLinking(null); await load(); }
+    catch (err) { setError(errorText(err, 'Lama xidhi karin')); }
+    finally { setBusy(false); }
+  };
+
+  const shown = of(sub);
+  const meta = SMS_TABS.find((item) => item.value === sub)!;
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard label="La helay" value={rows?.length ?? '-'} hint="20-kii ugu dambeeyay" tone="bg-gradient-to-br from-sky-500 to-blue-600" icon={<MessageSquare size={20} />} />
-        <StatCard label="Furay" value={matched} hint="Subscription activated" tone="bg-gradient-to-br from-emerald-500 to-teal-600" icon={<BadgeCheck size={20} />} />
+        <StatCard label="La furay" value={`$${sum('matched')}`} hint={`${of('matched').length} subscription`} tone="bg-gradient-to-br from-emerald-500 to-teal-600" icon={<BadgeCheck size={20} />} />
+        <StatCard label="Aan la xidhin" value={`$${sum('unlinked')}`} hint={`${of('unlinked').length} fariin`} tone={of('unlinked').length ? 'bg-gradient-to-br from-amber-500 to-orange-600' : 'bg-gradient-to-br from-slate-400 to-slate-500'} icon={<Clock3 size={20} />} />
         <div className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border bg-[var(--color-surface-primary)] p-4 sm:col-span-1">
-          <p className="text-sm text-[var(--color-text-secondary)]">Fariimaha taleefanka merchant-ka ee SMS Forwarder u gudbiyo.</p>
+          <p className="text-sm text-[var(--color-text-secondary)]">{rows ? `${rows.length} fariin oo ugu dambeeyay` : 'Waa la soo rarayaa...'}</p>
           <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />Refresh
           </button>
         </div>
       </div>
+      <div role="tablist" aria-label="Noocyada SMS" className="grid grid-cols-3 gap-1.5 rounded-2xl border bg-[var(--color-surface-primary)] p-1.5">
+        {SMS_TABS.map((item) => (
+          <button key={item.value} type="button" role="tab" aria-selected={sub === item.value} onClick={() => { setChosen(true); setSub(item.value); setLinking(null); }}
+            className={`flex flex-col items-center justify-center gap-1 rounded-xl px-1 py-2.5 text-xs font-bold sm:flex-row sm:gap-2 sm:text-sm ${sub === item.value ? item.active : 'text-[var(--color-text-secondary)] hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+            <span>{item.label}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${sub === item.value ? 'bg-white/25 text-white' : item.badge}`}>{of(item.value).length}</span>
+          </button>
+        ))}
+      </div>
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {rows && rows.length === 0 && <p className="rounded-2xl border bg-[var(--color-surface-primary)] p-6 text-center text-sm text-[var(--color-text-secondary)]">Wali SMS lama helin. Hubi app-ka SMS Forwarder (taleefanka merchant-ka) iyo secret-ka.</p>}
+      {sub === 'unlinked' && shown.length > 0 && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-100">Lacagtan way soo gashay laakiin ardey lagu xidhi waayay. Haddii aad ogtahay cidda bixisay, taabo <b>Ku xidh codsi</b> si aad ugu furto subscription-kiisa.</p>}
+      {rows && shown.length === 0 && <p className="rounded-2xl border bg-[var(--color-surface-primary)] p-6 text-center text-sm text-[var(--color-text-secondary)]">{rows.length === 0 ? 'Wali SMS lama helin. Hubi app-ka SMS Forwarder (taleefanka merchant-ka) iyo secret-ka.' : meta.empty}</p>}
       <div className="space-y-3">
-        {rows?.map((row) => {
-          const incoming = /ka\s+heshay|received/i.test(row.body) && !/uwareejisay|dirtay|sent|transferred|deducted|recharge/i.test(row.body);
-          return (
-            <article key={row._id} className={`rounded-2xl border border-l-4 bg-[var(--color-surface-primary)] p-4 shadow-sm ${row.status === 'matched' ? 'border-l-emerald-500' : 'border-l-slate-300 dark:border-l-slate-600'}`}>
-              <div className="flex flex-wrap items-center gap-2">
-                <Chip tone={row.status === 'matched' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}>
-                  {row.status === 'matched' ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}{row.status === 'matched' ? 'Furay subscription' : 'Lama furin'}
-                </Chip>
-                <Chip tone={incoming ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200' : 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200'}>
-                  {incoming ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}{incoming ? 'Qaadasho' : 'Kale (dirid / kharash)'}
-                </Chip>
-                {row.amountUsd != null && <Chip tone="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">${row.amountUsd}</Chip>}
-                {row.phones?.map((phone) => <Chip key={phone}><Phone size={12} />{phone}</Chip>)}
-                <span className="ml-auto text-xs text-[var(--color-text-tertiary)]">{row.from || '-'} · {dateTime(row.receivedAt)}</span>
+        {shown.map((row) => (
+          <article key={row._id} className={`rounded-2xl border border-l-4 bg-[var(--color-surface-primary)] p-4 shadow-sm ${row.kind === 'matched' ? 'border-l-emerald-500' : row.kind === 'unlinked' ? 'border-l-amber-500' : 'border-l-violet-400'}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              {row.kind === 'matched' && <Chip tone="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"><CheckCircle2 size={14} />Furay subscription</Chip>}
+              {row.kind === 'unlinked' && <Chip tone="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"><ArrowDownLeft size={14} />Lacag soo gashay</Chip>}
+              {row.kind === 'other' && <Chip tone="bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200"><ArrowUpRight size={14} />Kale (dirid / kharash)</Chip>}
+              {row.amountUsd != null && <Chip tone="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">${row.amountUsd}</Chip>}
+              {row.phones?.map((phone) => <Chip key={phone}><Phone size={12} />{phone}</Chip>)}
+              <span className="ml-auto text-xs text-[var(--color-text-tertiary)]">{dateTime(row.receivedAt)}</span>
+            </div>
+            {row.kind === 'matched' && row.subscription && <p className="mt-2 text-sm font-semibold">{row.subscription.user?.email || row.subscription.payerPhone} · Grade {row.subscription.grade}</p>}
+            {row.kind === 'unlinked' && row.reason && <p className="mt-2 text-sm font-semibold text-amber-800 dark:text-amber-200">Sababta: {REASONS[row.reason] || row.reason}</p>}
+            <p className="mt-2 break-words text-sm text-[var(--color-text-secondary)]">{row.body}</p>
+            {row.kind === 'unlinked' && row.amountUsd != null && row.amountUsd >= 5 && (linking === row._id ? (
+              <div className="mt-3 space-y-2 rounded-xl border p-3">
+                <div className="flex items-center justify-between"><p className="text-sm font-bold">Dooro codsiga sugaya</p><button type="button" onClick={() => setLinking(null)} className="text-sm font-semibold text-slate-500">Xidh</button></div>
+                {pending.length === 0 && <p className="text-sm text-[var(--color-text-secondary)]">Codsi sugaya ma jiro.</p>}
+                {pending.map((item) => (
+                  <div key={item._id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-2 dark:bg-slate-800/60">
+                    <div className="min-w-0 text-sm"><p className="truncate font-semibold">{item.user?.email || '-'}</p><p className="text-xs text-[var(--color-text-secondary)]">Grade {item.grade} · {item.payerPhone || '-'} · {dateTime(item.createdAt)}</p></div>
+                    <button type="button" disabled={busy} onClick={() => void link(row._id, item._id)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60">Ku xidh</button>
+                  </div>
+                ))}
               </div>
-              <p className="mt-2 break-words text-sm text-[var(--color-text-secondary)]">{row.body}</p>
-            </article>
-          );
-        })}
+            ) : <button type="button" onClick={() => void openLink(row._id)} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white"><BadgeCheck size={16} />Ku xidh codsi</button>)}
+          </article>
+        ))}
       </div>
     </div>
   );
@@ -226,28 +283,27 @@ export function GlobalSubscriptions() {
   const isSuper = user?.role === 'admin';
   if (!isSuper && user?.role !== 'org_admin') return null;
   const tabs: { value: Tab; label: string; icon: React.ReactNode }[] = [
-    { value: 'payments', label: 'Subscription Payments', icon: <CreditCard size={16} /> },
+    { value: 'payments', label: 'Lacag-bixin', icon: <CreditCard size={16} /> },
     ...(isSuper ? [{ value: 'sms' as Tab, label: 'SMS-yada', icon: <MessageSquare size={16} /> }] : []),
   ];
+  const tabStyle: Record<Tab, string> = { payments: 'bg-emerald-600 text-white shadow', sms: 'bg-sky-600 text-white shadow' };
   return (
     <section className="space-y-4">
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-teal-700 via-sky-600 to-emerald-500 p-5 text-white shadow-lg sm:p-6">
-        <span aria-hidden="true" className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/15" />
-        <span aria-hidden="true" className="pointer-events-none absolute -bottom-10 -left-8 h-24 w-24 rounded-full bg-amber-300/40" />
-        <div className="relative">
-          <h2 className="text-2xl font-extrabold sm:text-3xl">Guuldoon Subscriptions</h2>
-          <p className="mt-1 text-sm text-white/90">$5 USD · 365 maalmood · dhammaan maaddooyinka fasalka la doortay.</p>
-          <div role="tablist" aria-label="Qaybaha" className="mt-4 inline-flex w-full flex-wrap gap-1 rounded-2xl bg-white/20 p-1 sm:w-auto">
-            {tabs.map((item) => (
-              <button key={item.value} type="button" role="tab" aria-selected={tab === item.value} onClick={() => setTab(item.value)}
-                className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-colors sm:flex-none ${tab === item.value ? 'bg-white text-teal-800 shadow' : 'text-white hover:bg-white/10'}`}>
-                {item.icon}{item.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-teal-700 via-sky-600 to-emerald-500 px-5 py-4 text-white shadow-lg">
+        <span aria-hidden="true" className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/15" />
+        <p className="relative text-sm font-semibold text-white/95">$5 USD · 365 maalmood · dhammaan maaddooyinka fasalka la doortay</p>
       </div>
-      {tab === 'payments' ? <PaymentsTab isSuper={isSuper} /> : <SmsTab />}
+      <div role="tablist" aria-label="Qaybaha" className="sticky top-0 z-10 grid gap-2 rounded-2xl border bg-[var(--color-surface-primary)] p-1.5 shadow-sm" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
+        {tabs.map((item) => (
+          <button key={item.value} type="button" role="tab" aria-selected={tab === item.value} onClick={() => setTab(item.value)}
+            className={`flex items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold transition-colors ${tab === item.value ? tabStyle[item.value] : 'text-[var(--color-text-secondary)] hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+            {item.icon}{item.label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" className="pb-20">
+        {tab === 'payments' ? <PaymentsTab isSuper={isSuper} /> : <SmsTab />}
+      </div>
     </section>
   );
 }

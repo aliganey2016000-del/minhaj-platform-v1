@@ -136,3 +136,25 @@ export async function handleIncomingSms(input: { from?: unknown; body?: unknown;
   const approved = await approve(candidates[0], sms);
   return { stored: true, matched: !!approved };
 }
+
+export type SmsUnmatchedReason = 'no-number' | 'low-amount' | 'no-request' | 'ambiguous' | 'not-verified';
+
+/** Why an incoming-money SMS did not activate anything, so Super Admin knows what to do with it. */
+export function unmatchedReason(sms: { phones?: string[]; amountUsd?: number | null }, pendingByPhone: Map<string, number>): SmsUnmatchedReason {
+  const phones = sms.phones || [];
+  if (!phones.length) return 'no-number';
+  if (!amountSufficient(sms.amountUsd)) return 'low-amount';
+  const counts = phones.map((phone) => pendingByPhone.get(phone) || 0);
+  if (counts.some((count) => count > 1)) return 'ambiguous';
+  if (counts.every((count) => count === 0)) return 'no-request';
+  return 'not-verified'; // a request exists but the time window or wallet number rule rejected it
+}
+
+/** Super Admin links an unattached incoming-money SMS to a pending request by hand. Returns null when either side is no longer eligible. */
+export async function linkSmsToSubscription(smsId: string, subscriptionId: string) {
+  const sms: any = await PaymentSms.findById(smsId);
+  if (!sms || sms.status !== 'unmatched' || !isIncomingPayment(sms.body) || !amountSufficient(sms.amountUsd)) return null;
+  const subscription: any = await Subscription.findOne({ _id: subscriptionId, status: 'pending' });
+  if (!subscription) return null;
+  return approve(subscription, sms);
+}

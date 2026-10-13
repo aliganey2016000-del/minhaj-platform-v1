@@ -6,7 +6,8 @@ import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../utils/ap
 import { authMiddleware } from '../../middleware/auth.middleware';
 import PaymentSms from '../../models/payment-sms.model';
 import ApiResponse from '../../utils/api-response';
-import { handleIncomingSms } from '../../services/guuldoon-sms-payment.service';
+import Subscription from '../../models/global-subscription.model';
+import { handleIncomingSms, isIncomingPayment, linkSmsToSubscription, unmatchedReason } from '../../services/guuldoon-sms-payment.service';
 
 const router = Router();
 
@@ -42,11 +43,43 @@ router.post('/', limiter, asyncHandler(async (req, res) => {
   return ApiResponse.success(res, result);
 }));
 
-/** Super Admin: the most recent forwarded messages and whether each one activated a subscription (to debug the forwarder). */
-router.get('/recent', authMiddleware, asyncHandler(async (req, res) => {
+const requireSuper = (req: any) => {
   if (req.user?.role !== 'admin' || req.user.isStaff) throw new ForbiddenError('Only Super Admin can view forwarded payment messages');
-  const rows = await PaymentSms.find().sort({ createdAt: -1 }).limit(20).select('from body receivedAt amountUsd phones status createdAt').lean();
+};
+
+/**
+ * Super Admin: recent forwarded messages, classified as activated ("matched"), incoming money nobody was served for
+ * ("unlinked", with the reason) or other/outgoing messages ("other").
+ */
+router.get('/recent', authMiddleware, asyncHandler(async (req, res) => {
+  requireSuper(req);
+  const rows = await PaymentSms.find().sort({ createdAt: -1 }).limit(100).select('from body receivedAt amountUsd phones status subscription createdAt').populate({ path: 'subscription', select: 'payerPhone grade user', populate: { path: 'user', select: 'email' } }).lean();
+  const pending = await Subscription.find({ status: 'pending' }).select('payerPhoneKey').limit(500).lean();
+  const pendingByPhone = new Map<string, number>();
+  for (const sub of pending as any[]) if (sub.payerPhoneKey) pendingByPhone.set(sub.payerPhoneKey, (pendingByPhone.get(sub.payerPhoneKey) || 0) + 1);
+  const data = rows.map((row: any) => {
+    const incoming = isIncomingPayment(row.body);
+    const kind = row.status === 'matched' ? 'matched' : incoming ? 'unlinked' : 'other';
+    return { ...row, incoming, kind, reason: kind === 'unlinked' ? unmatchedReason(row, pendingByPhone) : undefined };
+  });
+  return ApiResponse.success(res, data);
+}));
+
+/** Super Admin: pending requests an unlinked SMS can be attached to. */
+router.get('/pending', authMiddleware, asyncHandler(async (req, res) => {
+  requireSuper(req);
+  const rows = await Subscription.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(50).select('grade payerPhone createdAt user').populate('user', 'email').lean();
   return ApiResponse.success(res, rows);
+}));
+
+/** Super Admin: activate a pending request using an unlinked incoming-money SMS as proof. */
+router.post('/:id/link', authMiddleware, asyncHandler(async (req, res) => {
+  requireSuper(req);
+  const subscriptionId = typeof req.body?.subscriptionId === 'string' ? req.body.subscriptionId : '';
+  if (!/^[a-f0-9]{24}$/i.test(req.params.id) || !/^[a-f0-9]{24}$/i.test(subscriptionId)) throw new NotFoundError('Message or request');
+  const approved = await linkSmsToSubscription(req.params.id, subscriptionId);
+  if (!approved) throw new NotFoundError('Eligible message or pending request');
+  return ApiResponse.success(res, { subscriptionId: approved._id, status: approved.status });
 }));
 
 export default router;
