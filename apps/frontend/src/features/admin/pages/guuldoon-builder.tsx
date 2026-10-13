@@ -31,7 +31,6 @@ export function GuuldoonBuilder() {
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<Filter>('order');
   const [openChapter, setOpenChapter] = useState<string | null>(searchParams.get('chapter'));
-  const returnSection = searchParams.get('section') === 'lessons' ? 'lessons' : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerKey | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -211,15 +210,12 @@ export function GuuldoonBuilder() {
               courseId={courseId}
               chapter={chapter}
               index={overview.chapters.indexOf(chapter)}
-              chapters={overview.chapters}
               open={openChapter === chapter.id}
               imported={imported}
               onToggle={() => setOpenChapter(current => current === chapter.id ? null : chapter.id)}
               onChanged={() => void load()}
               notify={notify}
-              onOpenLegacyBuilder={() => navigate(`/admin/courses/${courseId}/builder`)}
-              onOpenLesson={lessonId => navigate(`/admin/global-courses/${courseId}/guuldoon-builder/chapters/${encodeURIComponent(chapter.id)}/lessons/${lessonId}`)}
-              initialSection={chapter.id === searchParams.get('chapter') ? returnSection : null}
+              onOpenSection={section => navigate(`/admin/global-courses/${courseId}/guuldoon-builder/chapters/${encodeURIComponent(chapter.id)}/${section}`)}
             />
           ))}
         </div>
