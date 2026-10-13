@@ -162,6 +162,77 @@ async function derivedWeights(courseId: mongoose.Types.ObjectId, examIds: mongoo
   return weights;
 }
 
+
+// ---------------------------------------------------------------------------
+// Course-wide data shared by every student (cached briefly)
+// ---------------------------------------------------------------------------
+
+const EXPERIENCE_CACHE_TTL_MS = 60_000;
+const EXPERIENCE_CACHE_MAX = 50;
+const experienceCache = new Map<string, { at: number; value: Promise<any> }>();
+
+/** Drop the cached course payload (call after content changes if you need it fresh sooner than the TTL). */
+export function invalidateCourseExperienceCache(courseId?: string) {
+  if (courseId) experienceCache.delete(String(courseId));
+  else experienceCache.clear();
+}
+
+async function buildCourseExperienceShared(courseId: mongoose.Types.ObjectId) {
+  const [content, config, exams, importedChapters, importedResources, importedGlossary, importedSubject] = await Promise.all([
+    CourseContent.findOne({ course: courseId }).lean(),
+    GuuldoonConfig.findOne({ course: courseId }).lean(),
+    GuuldoonExam.find({ course: courseId, published: true, kind: { $ne: 'practice' } }).sort({ year: -1 }).lean(),
+    GuuldoonChapter.find({ course: courseId, status: 'published' }).sort({ order: 1 }).lean(),
+    GuuldoonResource.find({ course: courseId }).sort({ chapterExternalId: 1, pageFrom: 1, createdAt: 1 }).lean(),
+    GuuldoonGlossary.find({ course: courseId }).sort({ termSo: 1 }).lean(),
+    GuuldoonSubject.findOne({ course: courseId, status: 'published' }).select('language externalId').lean(),
+  ]);
+
+  const usingUniversalImport = importedChapters.length > 0;
+  const chapters = usingUniversalImport
+    ? importedChapters
+    : (content?.chapters || [])
+      .filter((chapter: any) => chapter.status === 'published' || !chapter.status)
+      .sort((a: any, b: any) => a.order - b.order);
+  const chapterIds = chapters.map((chapter: any) => usingUniversalImport ? String(chapter.externalId) : String(chapter._id));
+  const examIds = exams.map(exam => exam._id);
+
+  const practiceExamIds = (await GuuldoonExam.find({ course: courseId, published: true, kind: 'practice' }).select('_id').lean()).map(exam => exam._id);
+  const [automaticWeights, chapterQuestionRows, practiceRows] = await Promise.all([
+    derivedWeights(courseId, examIds),
+    GuuldoonQuestion.aggregate([
+      { $match: { course: courseId, exam: { $in: examIds }, chapterId: { $in: chapterIds } } },
+      { $group: { _id: { chapterId: '$chapterId', exam: '$exam' }, count: { $sum: 1 } } },
+    ]),
+    practiceExamIds.length
+      ? GuuldoonQuestion.aggregate([
+        { $match: { course: courseId, exam: { $in: practiceExamIds }, chapterId: { $in: chapterIds } } },
+        { $group: { _id: '$chapterId', count: { $sum: 1 } } },
+      ])
+      : Promise.resolve([] as any[]),
+  ]);
+
+  return {
+    content, config, exams, importedChapters, importedResources, importedGlossary, importedSubject,
+    usingUniversalImport, chapters, chapterIds, automaticWeights, chapterQuestionRows, practiceRows,
+  };
+}
+
+/**
+ * One in-flight/cached load per course. Concurrent students share the same
+ * promise (no stampede); a failed load is evicted so the next request retries.
+ */
+function loadCourseExperienceShared(courseId: mongoose.Types.ObjectId) {
+  const key = String(courseId);
+  const hit = experienceCache.get(key);
+  if (hit && Date.now() - hit.at < EXPERIENCE_CACHE_TTL_MS) return hit.value as ReturnType<typeof buildCourseExperienceShared>;
+  if (experienceCache.size >= EXPERIENCE_CACHE_MAX) experienceCache.delete(experienceCache.keys().next().value as string);
+  const value = buildCourseExperienceShared(courseId);
+  experienceCache.set(key, { at: Date.now(), value });
+  value.catch(() => { if (experienceCache.get(key)?.value === value) experienceCache.delete(key); });
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // Student learning access
 // ---------------------------------------------------------------------------
@@ -192,44 +263,18 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
   promoteGuuldoonDeviceCookie(req, res);
   res.set('Cache-Control', 'no-store, private, max-age=0');
 
-  const [content, config, exams, progress, profile, mistakes, importedChapters, importedResources, importedGlossary, importedSubject] = await Promise.all([
-    CourseContent.findOne({ course: course._id }).lean(),
-    GuuldoonConfig.findOne({ course: course._id }).lean(),
-    GuuldoonExam.find({ course: course._id, published: true, kind: { $ne: 'practice' } }).sort({ year: -1 }).lean(),
+  // Everything course-wide (chapters, lesson text, exams, glossary, question
+  // counts) is identical for every student, so it is loaded once per minute
+  // per course instead of once per request. Per-student data stays live.
+  const shared = await loadCourseExperienceShared(course._id);
+  const [progress, profile, mistakes, stats] = await Promise.all([
     Progress.findOne({ student: student._id, course: course._id }).lean(),
     student.profile ? Profile.findById(student.profile).select('firstName lastName').lean() : null,
     GuuldoonMistake.find({ user: req.user!.userId, course: course._id }).select('box dueAt').lean(),
-    GuuldoonChapter.find({ course: course._id, status: 'published' }).sort({ order: 1 }).lean(),
-    GuuldoonResource.find({ course: course._id }).sort({ chapterExternalId: 1, pageFrom: 1, createdAt: 1 }).lean(),
-    GuuldoonGlossary.find({ course: course._id }).sort({ termSo: 1 }).lean(),
-    GuuldoonSubject.findOne({ course: course._id, status: 'published' }).select('language externalId').lean(),
+    chapterStats(req.user!.userId, course._id, shared.chapterIds),
   ]);
-
-  const usingUniversalImport = importedChapters.length > 0;
-  const chapters = usingUniversalImport
-    ? importedChapters
-    : (content?.chapters || [])
-      .filter((chapter: any) => chapter.status === 'published' || !chapter.status)
-      .sort((a: any, b: any) => a.order - b.order);
-
-  const chapterIds = chapters.map((chapter: any) => usingUniversalImport ? String(chapter.externalId) : String(chapter._id));
-  const [stats, automaticWeights, chapterQuestionRows] = await Promise.all([
-    chapterStats(req.user!.userId, course._id, chapterIds),
-    derivedWeights(course._id, exams.map(exam => exam._id)),
-    GuuldoonQuestion.aggregate([
-      { $match: { course: course._id, exam: { $in: exams.map(exam => exam._id) }, chapterId: { $in: chapterIds } } },
-      { $group: { _id: { chapterId: '$chapterId', exam: '$exam' }, count: { $sum: 1 } } },
-    ]),
-  ]);
-
-  const practiceExamIds = (await GuuldoonExam.find({ course: course._id, published: true, kind: 'practice' }).select('_id').lean()).map(exam => exam._id);
-  const practiceRows = practiceExamIds.length
-    ? await GuuldoonQuestion.aggregate([
-      { $match: { course: course._id, exam: { $in: practiceExamIds }, chapterId: { $in: chapterIds } } },
-      { $group: { _id: '$chapterId', count: { $sum: 1 } } },
-    ])
-    : [];
-  const practiceCountMap = new Map<string, number>(practiceRows.map(row => [String(row._id), Number(row.count || 0)]));
+  const { content, config, exams, importedChapters, importedResources, importedGlossary, importedSubject, usingUniversalImport, chapters, chapterIds, automaticWeights, chapterQuestionRows, practiceRows } = shared;
+  const practiceCountMap = new Map<string, number>(practiceRows.map((row: any) => [String(row._id), Number(row.count || 0)]));
 
   const manualWeights = new Map((config?.chapterWeights || []).map(item => [item.chapterId, item.examWeight]));
   const examYearMap = new Map(exams.map(exam => [String(exam._id), Number(exam.year)]));
