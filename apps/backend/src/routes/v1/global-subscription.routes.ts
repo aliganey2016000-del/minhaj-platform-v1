@@ -92,6 +92,8 @@ router.post('/pay', payLimiter, asyncHandler(async (req, res) => {
   if (result.ok) {
     const activated = new Date();
     try {
+      // The unique index is the race guard; checking first also keeps a repeated transaction id out while the index is still building.
+      if (await Subscription.exists({ verifiedReference: `WAAFI-${result.transactionId}` })) throw new Error('transaction id already used');
       const approved = await Subscription.findOneAndUpdate(
         { _id: pending._id, status: 'pending' },
         { $set: { status: 'approved', autoVerified: true, startsAt: activated, expiresAt: subscriptionExpiry(activated), reviewedAt: activated, verifiedReference: `WAAFI-${result.transactionId}`, gatewayTransactionId: result.transactionId, gatewayMessage: result.message } },
