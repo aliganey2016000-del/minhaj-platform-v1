@@ -176,6 +176,35 @@ async function main() {
     const sub12 = await register(s12, '0615123999').expect(201);
     await request(app).post(`${hook}/${outgoing._id}/link`).set(headers(admin)).send({ subscriptionId: sub12.body.data._id }).expect(404);
 
+    // 9c. Money from an unknown number is attached to any student account found by search, with no prior request.
+    const s13 = await mkStudent();
+    await sendSms('[-EVCPlus-] Waxaad $5.00 ka heshay 252615333444, Haraaga $9').expect(200);
+    res = await request(app).get(`${hook}/recent`).set(headers(admin)).expect(200);
+    const orphan = res.body.data.find((row: any) => row.body.includes('615333444'));
+    assert.equal(orphan.kind, 'unlinked');
+    await request(app).get(`${hook}/accounts?q=sms-s`).set(headers(s13)).expect(403);
+    assert.deepEqual((await request(app).get(`${hook}/accounts?q=ab`).set(headers(admin)).expect(200)).body.data, [], 'short queries return nothing');
+    res = await request(app).get(`${hook}/accounts?q=${encodeURIComponent(s13.email)}`).set(headers(admin)).expect(200);
+    assert.equal(res.body.data.length, 1);
+    assert.equal(res.body.data[0].userId, String(s13._id));
+    await request(app).post(`${hook}/${orphan._id}/link`).set(headers(admin)).send({ userId: String(s13._id), grade: 7 }).expect(400);
+    await request(app).post(`${hook}/${orphan._id}/link`).set(headers(admin)).send({ userId: String(s13._id), grade: 12 }).expect(200);
+    const linked: any = await Subscription.findOne({ user: s13._id });
+    assert.equal(linked.status, 'approved');
+    assert.equal(String(linked.reviewedBy), String(admin._id));
+    assert.equal((await PaymentSms.findById(orphan._id) as any).status, 'matched');
+    // The same message cannot be used twice, and an account that is already active is refused.
+    await request(app).post(`${hook}/${orphan._id}/link`).set(headers(admin)).send({ userId: String(s13._id), grade: 12 }).expect(404);
+    await sendSms('[-EVCPlus-] Waxaad $5.00 ka heshay 252615333555, Haraaga $14').expect(200);
+    const second = (await request(app).get(`${hook}/recent`).set(headers(admin))).body.data.find((row: any) => row.body.includes('615333555'));
+    await request(app).post(`${hook}/${second._id}/link`).set(headers(admin)).send({ userId: String(s13._id), grade: 12 }).expect(409);
+    // An existing pending request (paid from a different number) is approved in place, not duplicated.
+    const s14 = await mkStudent();
+    const sub14 = await register(s14, '0615777111').expect(201);
+    await request(app).post(`${hook}/${second._id}/link`).set(headers(admin)).send({ userId: String(s14._id), grade: 12 }).expect(200);
+    assert.equal(await Subscription.countDocuments({ user: s14._id }), 1);
+    assert.equal((await Subscription.findById(sub14.body.data._id) as any).status, 'approved');
+
     // 10. Garbage input is harmless.
     await request(app).post(hook).set('X-Webhook-Secret', secret).send({}).expect(200);
     await request(app).post(hook).set('X-Webhook-Secret', secret).send({ body: '   ' }).expect(200);
