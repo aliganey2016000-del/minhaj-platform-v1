@@ -86,7 +86,7 @@ router.post('/pay', payLimiter, asyncHandler(async (req, res) => {
     amount: GLOBAL_SUBSCRIPTION_PRICE,
     referenceId: String(pending._id),
     invoiceId: pending.paymentReference,
-    description: `Guuldoon Grade ${grade} subscription`,
+    description: `Guulgaar Grade ${grade} subscription`,
   });
 
   if (result.ok) {

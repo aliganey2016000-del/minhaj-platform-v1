@@ -152,12 +152,12 @@ export const getByCourse = async (req: Request, res: Response): Promise<Response
 
     if ((course as any).scope === 'global') {
       if (!student || student.approvalStatus !== 'approved' || student.status !== 'active' || !student.class || !enrolledIds.includes(courseId)) {
-        throw new ForbiddenError('Open this Guuldoon course from the Guuldoon Courses page first');
+        throw new ForbiddenError('Open this Guulgaar course from the Guulgaar Courses page first');
       }
       const classroom = await ClassModel.findById(student.class).select('gradeLevel').lean();
       const grade = classroom?.gradeLevel ?? null;
       if (grade !== (course as any).globalGrade) {
-        throw new ForbiddenError('This Guuldoon course is not available for your grade');
+        throw new ForbiddenError('This Guulgaar course is not available for your grade');
       }
       const now = new Date();
       const activeSubscription = await Subscription.exists({
@@ -168,7 +168,7 @@ export const getByCourse = async (req: Request, res: Response): Promise<Response
         startsAt: { $lte: now },
         expiresAt: { $gt: now },
       });
-      if (!activeSubscription) throw new ForbiddenError('Active Guuldoon subscription required for this grade');
+      if (!activeSubscription) throw new ForbiddenError('Active Guulgaar subscription required for this grade');
       await requireGuuldoonDevice(req);
     } else {
       const sameSchool = student && (course as any).school?.toString() === (student as any).school?.toString();

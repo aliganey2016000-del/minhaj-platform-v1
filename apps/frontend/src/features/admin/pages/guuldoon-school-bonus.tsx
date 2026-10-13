@@ -88,7 +88,7 @@ function SuperOverview() {
   return (
     <>
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Kpi label="Ardayda Guuldoon" value={String(totals.students)} hint="Active, fasalka iskuulka doortay" />
+        <Kpi label="Ardayda Guulgaar" value={String(totals.students)} hint="Active, fasalka iskuulka doortay" />
         <Kpi label="Subscription la xaqiijiyey" value={String(totals.verifiedSubscriptions)} hint={`${usd(data.price)} subscription kasta`} />
         <Kpi label="Lacagta la qaaday" value={usd(totals.grossUsd)} />
         <Kpi label="Gunnada iskuullada" value={usd(totals.bonusUsd)} hint={`${usd(totals.pendingUsd)} weli lama bixin`} />
@@ -412,10 +412,10 @@ function Mine({ page }: { page: SchoolBonusPage }) {
 /* ───────────── Page shell ───────────── */
 
 const TITLES: Record<SchoolBonusPage, [string, string]> = {
-  overview: ['Guudmar', 'Gunnada iskuulada ka helaan ardaydooda subscription-ka Guuldoon.'],
+  overview: ['Guudmar', 'Gunnada iskuulada ka helaan ardaydooda subscription-ka Guulgaar.'],
   schools: ['Iskuullada', 'Gunno % iyo xogta iskuul kasta. Guji tirada ardayda si aad u doorato fasalada iskuulku rabo; ardayda active ah iyo gunnada waxaa laga xisaabinayaa fasalada la doortay oo keliya.'],
   payouts: ['Bixinta', 'Gunnada sugaysa in iskuullada la siiyo iyo taariikhda bixinta.'],
-  students: ['Ardayda', 'Ardayda iskuulkaaga ee Guuldoon isticmaalaya.'],
+  students: ['Ardayda', 'Ardayda iskuulkaaga ee Guulgaar isticmaalaya.'],
   earnings: ['Gunnada', 'Sida gunnadaada loo xisaabiyo iyo wixii laguu bixiyey.'],
 };
 
@@ -430,7 +430,7 @@ export function GuuldoonSchoolBonus({ page }: { page: SchoolBonusPage }) {
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
       <header>
-        <p className="text-sm font-semibold text-primary-600">Guuldoon &middot; Gunnada Iskuulka</p>
+        <p className="text-sm font-semibold text-primary-600">Guulgaar &middot; Gunnada Iskuulka</p>
         <h1 className="mt-1 text-2xl font-bold">{title}</h1>
         <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{subtitle}</p>
       </header>

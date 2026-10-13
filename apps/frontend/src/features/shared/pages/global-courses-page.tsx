@@ -96,7 +96,7 @@ export function GlobalCoursesPage() {
           <div className="relative flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-amber-200">
-                Guuldoon{grade ? ` · Grade ${grade}` : ''}
+                Guulgaar{grade ? ` · Grade ${grade}` : ''}
               </p>
               <h1 className="mt-5 text-3xl font-bold leading-tight sm:text-4xl">
                 U diyaar garow
@@ -164,7 +164,7 @@ export function GlobalCoursesPage() {
           ) : error ? (
             <p role="alert">{error}</p>
           ) : !grade ? (
-            <p className="rounded-2xl border p-5">Koorsooyinka Guuldoon waxaa la soo bandhigayaa marka fasalkaaga la xaqiijiyo.</p>
+            <p className="rounded-2xl border p-5">Koorsooyinka Guulgaar waxaa la soo bandhigayaa marka fasalkaaga la xaqiijiyo.</p>
           ) : filteredCourses.length === 0 ? (
             <p className="rounded-2xl border p-5">Maaddooyin lama helin.</p>
           ) : (
@@ -220,7 +220,7 @@ export function GlobalCoursesPage() {
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
-      <h1 className="text-2xl font-bold">Guuldoon Courses</h1>
+      <h1 className="text-2xl font-bold">Guulgaar Courses</h1>
       <p>Grade 8 and Grade 12 certificate exam preparation, managed by Super Admin.</p>
       {loading ? (
         <p>Loading courses...</p>

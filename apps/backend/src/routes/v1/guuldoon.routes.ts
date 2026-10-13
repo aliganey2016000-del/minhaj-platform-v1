@@ -34,7 +34,7 @@ const leitnerDays = [1, 2, 4, 7, 14];
 router.use(authMiddleware);
 router.use((req, _res, next) => {
   if (!['admin', 'org_admin', 'teacher', 'student'].includes(req.user?.role || '') || req.user?.isStaff) {
-    return next(new ForbiddenError('Guuldoon access denied'));
+    return next(new ForbiddenError('Guulgaar access denied'));
   }
   if (req.user?.role !== 'admin' && !req.user?.organizationId) {
     return next(new ForbiddenError('Organization required'));
@@ -57,7 +57,7 @@ async function loadGlobalCourse(courseId: string, publishedOnly = true) {
     scope: 'global',
     ...(publishedOnly ? { status: 'published' } : {}),
   }).select('_id title description thumbnail globalGrade scope status').lean();
-  if (!course) throw new NotFoundError('Guuldoon course');
+  if (!course) throw new NotFoundError('Guulgaar course');
   return course as any;
 }
 
@@ -71,12 +71,12 @@ async function loadStudentAccess(req: Request, courseId: string, requireEnrollme
     approvalStatus: 'approved',
     status: 'active',
   }).select('_id class enrolledCourses school profile').lean();
-  if (!student?.class) throw new ForbiddenError('Your active school class is required for Guuldoon');
+  if (!student?.class) throw new ForbiddenError('Your active school class is required for Guulgaar');
 
   const classroom = await ClassModel.findOne({ _id: student.class, school: student.school }).select('gradeLevel').lean();
   const grade = classroom?.gradeLevel ?? null;
   if (![8, 12].includes(grade || 0) || grade !== course.globalGrade) {
-    throw new ForbiddenError('This Guuldoon course is not available for your grade');
+    throw new ForbiddenError('This Guulgaar course is not available for your grade');
   }
 
   const now = new Date();
@@ -88,12 +88,12 @@ async function loadStudentAccess(req: Request, courseId: string, requireEnrollme
     startsAt: { $lte: now },
     expiresAt: { $gt: now },
   });
-  if (!activeSubscription) throw new ForbiddenError('Active Guuldoon subscription required for this grade');
+  if (!activeSubscription) throw new ForbiddenError('Active Guulgaar subscription required for this grade');
 
   await requireGuuldoonDevice(req);
 
   const enrolled = (student.enrolledCourses || []).some(id => String(id) === String(course._id));
-  if (requireEnrollment && !enrolled) throw new ForbiddenError('Open this Guuldoon course from the Courses page first');
+  if (requireEnrollment && !enrolled) throw new ForbiddenError('Open this Guulgaar course from the Courses page first');
 
   return { course, student: student as any, grade };
 }
@@ -254,7 +254,7 @@ router.post('/courses/:courseId/open', asyncHandler(async (req, res) => {
   return ApiResponse.success(
     res,
     { courseId: String(course._id), grade, access: 'granted', destination: `/student/guuldoon/courses/${course._id}` },
-    'Guuldoon course access granted',
+    'Guulgaar course access granted',
   );
 }));
 
@@ -419,7 +419,7 @@ router.get('/courses/:courseId/chapters/:chapterId/questions', asyncHandler(asyn
   const importedChapter = await GuuldoonChapter.findOne({ course: course._id, externalId: req.params.chapterId, status: 'published' }).lean();
   const content = importedChapter ? null : await CourseContent.findOne({ course: course._id }).select('chapters._id chapters.title').lean();
   const chapter = importedChapter || (content?.chapters || []).find((item: any) => String(item._id) === req.params.chapterId);
-  if (!chapter) throw new NotFoundError('Guuldoon chapter');
+  if (!chapter) throw new NotFoundError('Guulgaar chapter');
 
   const practiceMode = req.query.kind === 'practice';
   const publishedExams = await GuuldoonExam.find({
@@ -478,7 +478,7 @@ router.get('/courses/:courseId/chapters/:chapterId/lesson', asyncHandler(async (
     externalId: req.params.chapterId,
     status: 'published',
   }).lean();
-  if (!chapter) throw new NotFoundError('Guuldoon chapter');
+  if (!chapter) throw new NotFoundError('Guulgaar chapter');
 
   const [subject, resources, publishedExams] = await Promise.all([
     GuuldoonSubject.findById(chapter.subject).select('language').lean(),
@@ -575,11 +575,11 @@ router.get('/courses/:courseId/exams/:examId', asyncHandler(async (req, res) => 
 router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
   if (req.user?.role !== 'student') throw new ForbiddenError('Student access required');
   const question = await GuuldoonQuestion.findById(objectId(req.params.questionId, 'question ID')).select('+answer').lean();
-  if (!question) throw new NotFoundError('Guuldoon question');
+  if (!question) throw new NotFoundError('Guulgaar question');
 
   const { course, student } = await loadStudentAccess(req, String(question.course), true);
   const publishedExam = await GuuldoonExam.exists({ _id: question.exam, course: course._id, published: true });
-  if (!publishedExam) throw new NotFoundError('Guuldoon question');
+  if (!publishedExam) throw new NotFoundError('Guulgaar question');
   const submitted = req.body?.answer;
   const isRetry = req.body?.retry === true;
   const timeMs = Math.max(0, Math.min(60 * 60 * 1000, Number(req.body?.timeMs) || 0));
@@ -756,7 +756,7 @@ router.put('/admin/courses/:courseId/config', asyncHandler(async (req, res) => {
     },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
-  return ApiResponse.success(res, saved, 'Guuldoon course settings saved');
+  return ApiResponse.success(res, saved, 'Guulgaar course settings saved');
 }));
 
 router.post('/admin/courses/:courseId/exams', asyncHandler(async (req, res) => {
@@ -867,7 +867,7 @@ router.post('/admin/unmatched-answers/:id/:decision', asyncHandler(async (req, r
   if (row.status !== 'pending') throw new ConflictError('This answer was already reviewed');
   if (decision === 'accept') {
     const question = await GuuldoonQuestion.findById(row.question).select('+answer');
-    if (!question) throw new NotFoundError('Guuldoon question');
+    if (!question) throw new NotFoundError('Guulgaar question');
     const current: unknown = question.answer;
     if (!(isAnswerSpec(current) && current.kind === 'text') && !(typeof current === 'string' && question.type === 'fill')) {
       throw new BadRequestError('Only text answer keys can accept extra answers');

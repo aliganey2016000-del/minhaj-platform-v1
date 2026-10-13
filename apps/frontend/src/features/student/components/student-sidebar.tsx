@@ -69,7 +69,7 @@ export function StudentSidebar() {
 
   const navSections: NavSection[] = useMemo(() => [
     {
-      title: 'Guuldoon',
+      title: 'Guulgaar',
       icon: Trophy,
       accent: 'emerald',
       items: [
@@ -129,7 +129,7 @@ export function StudentSidebar() {
   ], []);
 
   const visibleSections = navSections
-    .filter(section => section.title !== 'Guuldoon' || visibility?.['group:guuldoon'] !== false)
+    .filter(section => section.title !== 'Guulgaar' || visibility?.['group:guuldoon'] !== false)
     .map(section => ({ ...section, items: section.items.filter(item => isVisible(item.path)) }))
     .filter(section => section.items.length > 0);
 

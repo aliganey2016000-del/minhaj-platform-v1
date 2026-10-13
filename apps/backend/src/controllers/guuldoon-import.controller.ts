@@ -70,7 +70,7 @@ export async function validateImport(req: Request, res: Response): Promise<Respo
     errorCount,
     warningCount,
     expiresAt: batch.expiresAt,
-  }, 'Guuldoon workbook validation completed');
+  }, 'Guulgaar workbook validation completed');
 }
 
 export async function commitImport(req: Request, res: Response): Promise<Response> {
@@ -82,7 +82,7 @@ export async function commitImport(req: Request, res: Response): Promise<Respons
     course: req.params.courseId,
     uploadedBy: req.user!.userId,
   });
-  if (!batch) throw new NotFoundError('Guuldoon import batch');
+  if (!batch) throw new NotFoundError('Guulgaar import batch');
   if (batch.status !== 'validated') throw new BadRequestError('This import batch has already been committed');
   if (batch.expiresAt.getTime() <= Date.now()) throw new BadRequestError('This import validation has expired. Validate the files again');
 
@@ -94,7 +94,7 @@ export async function commitImport(req: Request, res: Response): Promise<Respons
   }
   const currentFingerprint = await guuldoonImportDataFingerprint(req.params.courseId);
   if (currentFingerprint !== batch.dataFingerprint) {
-    throw new ConflictError('Guuldoon data changed after validation. Revalidate before importing');
+    throw new ConflictError('Guulgaar data changed after validation. Revalidate before importing');
   }
 
   const parsed = await parseAndValidateGuuldoonImport(req.params.courseId, excel, figures);
@@ -112,14 +112,14 @@ export async function commitImport(req: Request, res: Response): Promise<Respons
     ...result,
     errors: issues.filter(issue => issue.severity === 'error'),
     warnings: issues.filter(issue => issue.severity === 'warning'),
-  }, 'Guuldoon valid rows imported successfully');
+  }, 'Guulgaar valid rows imported successfully');
 }
 
 export async function downloadErrorReport(req: Request, res: Response): Promise<void> {
   requireSuperAdmin(req);
   if (!mongoose.isValidObjectId(req.params.batchId)) throw new BadRequestError('Invalid import batch ID');
   const batch = await GuuldoonImportBatch.findOne({ _id: req.params.batchId, uploadedBy: req.user!.userId }).lean();
-  if (!batch) throw new NotFoundError('Guuldoon import batch');
+  if (!batch) throw new NotFoundError('Guulgaar import batch');
   const buffer = await buildImportIssuesWorkbook((batch.issues || []) as any);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="Guuldoon_Import_Errors_${batch._id}.xlsx"`);
@@ -129,7 +129,7 @@ export async function downloadErrorReport(req: Request, res: Response): Promise<
 
 export async function history(req: Request, res: Response): Promise<Response> {
   requireSuperAdmin(req);
-  if (!mongoose.isValidObjectId(req.params.courseId)) throw new BadRequestError('Invalid Guuldoon course ID');
+  if (!mongoose.isValidObjectId(req.params.courseId)) throw new BadRequestError('Invalid Guulgaar course ID');
   const batches = await GuuldoonImportBatch.find({
     course: req.params.courseId,
     uploadedBy: req.user!.userId,

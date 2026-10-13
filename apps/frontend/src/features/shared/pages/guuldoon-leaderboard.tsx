@@ -146,7 +146,7 @@ export function GuuldoonLeaderboard() {
         <span aria-hidden="true" className="pointer-events-none absolute -right-10 -top-14 h-44 w-44 rounded-full bg-white/15" />
         <span aria-hidden="true" className="pointer-events-none absolute -bottom-12 -left-8 h-28 w-28 rounded-full bg-amber-300/40" />
         <div className="relative">
-          <h1 className="text-3xl font-extrabold leading-tight sm:text-4xl">🏆 Guuldoon Tartanka</h1>
+          <h1 className="text-3xl font-extrabold leading-tight sm:text-4xl">🏆 Guulgaar Tartanka</h1>
           <p className="mt-1 max-w-md text-sm text-white/90">Ardayda iyo iskuullada ugu horreeya dalka oo dhan.</p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <Segments label="Nooca" value={view} onChange={setView} options={[{ value: 'students', label: 'Arday' }, { value: 'schools', label: 'Iskuullo' }]} />
@@ -161,7 +161,7 @@ export function GuuldoonLeaderboard() {
 
       {!loading && !error && podiumRows.length === 0 && (
         <p className="rounded-2xl border bg-[var(--color-surface-primary)] p-6 text-center text-sm text-[var(--color-text-secondary)]">
-          {view === 'schools' ? `Wali iskuul ma gaadhin ${schools?.minStudents ?? 3} arday oo subscription leh fasalkan.` : 'Wali ma jiraan dhibco muddadan. Ku bilow su’aalo Guuldoon.'}
+          {view === 'schools' ? `Wali iskuul ma gaadhin ${schools?.minStudents ?? 3} arday oo subscription leh fasalkan.` : 'Wali ma jiraan dhibco muddadan. Ku bilow su’aalo Guulgaar.'}
         </p>
       )}
       {!error && podiumRows.length > 0 && (
@@ -178,7 +178,7 @@ export function GuuldoonLeaderboard() {
         </label>
       )}
       <p className="text-center text-xs text-[var(--color-text-tertiary)]">
-        {students?.scoring ? `Dhibcaha: ${students.scoring.perQuestion} dhibcood su’aal kasta oo markii ugu horreysay si sax ah looga jawaabo, ugu badnaan ${students.scoring.dailyCap} maalintii.` : 'Dhibcaha waxay ka yimaadaan su’aalaha Guuldoon ee si sax ah looga jawaabay markii ugu horreysay.'}
+        {students?.scoring ? `Dhibcaha: ${students.scoring.perQuestion} dhibcood su’aal kasta oo markii ugu horreysay si sax ah looga jawaabo, ugu badnaan ${students.scoring.dailyCap} maalintii.` : 'Dhibcaha waxay ka yimaadaan su’aalaha Guulgaar ee si sax ah looga jawaabay markii ugu horreysay.'}
       </p>
 
       {isStudent && view === 'students' && me && me.rank > 0 && (

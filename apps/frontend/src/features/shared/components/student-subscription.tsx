@@ -102,7 +102,7 @@ export function StudentSubscription() {
 
   return <main className="mx-auto max-w-2xl space-y-4 p-4 sm:p-7">
     <header>
-      <p className="text-[11px] font-extrabold uppercase tracking-[.16em] text-emerald-500">Guuldoon{grade ? ` · Grade ${grade}` : ''}</p>
+      <p className="text-[11px] font-extrabold uppercase tracking-[.16em] text-emerald-500">Guulgaar{grade ? ` · Grade ${grade}` : ''}</p>
       <h1 className="mt-1 text-3xl font-extrabold tracking-tight">Rukumashadayda</h1>
     </header>
 
@@ -112,7 +112,7 @@ export function StudentSubscription() {
       <article className={`relative overflow-hidden rounded-[28px] bg-gradient-to-br text-white ${toneStyle.bg}`}>
         <div className="pointer-events-none absolute -right-14 -top-16 h-56 w-56 rounded-full border-[34px] border-white/[.04]" aria-hidden="true" />
         <div className="relative p-5 sm:p-6">
-          <p className="text-[10.5px] font-extrabold uppercase tracking-[.16em] text-white/55">Guuldoon{grade ? ` · Grade ${grade}` : ''}</p>
+          <p className="text-[10.5px] font-extrabold uppercase tracking-[.16em] text-white/55">Guulgaar{grade ? ` · Grade ${grade}` : ''}</p>
           <div className="mt-4 flex items-center gap-4">
             <span className={`relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[20px] border border-white/15 bg-white/[.08] ${toneStyle.accent}`}>
               <Crown size={31} strokeWidth={1.7} />
@@ -164,7 +164,7 @@ export function StudentSubscription() {
 
       <Link to="/student/guuldoon/devices" className="flex items-center gap-3.5 rounded-[20px] border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 transition hover:border-emerald-500/30">
         <span className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-emerald-500/12 text-emerald-500"><Laptop size={20} /></span>
-        <span className="min-w-0 flex-1"><b className="block text-[14.5px] font-extrabold">Qalabkayga</b><small className="text-[12.5px] text-[var(--color-text-tertiary)]">Hubi browser-ka Guuldoon u furan</small></span>
+        <span className="min-w-0 flex-1"><b className="block text-[14.5px] font-extrabold">Qalabkayga</b><small className="text-[12.5px] text-[var(--color-text-tertiary)]">Hubi browser-ka Guulgaar u furan</small></span>
         <ChevronRight size={18} className="text-[var(--color-text-tertiary)]" />
       </Link>
 
@@ -186,7 +186,7 @@ export function StudentSubscription() {
           })}
       </details>
 
-      <p className="text-center text-[13px] text-[var(--color-text-tertiary)]">Caawimaad? La xiriir maamulka school-kaaga. Lacagaha school-ka iyo rukumashada Guuldoon waa kala gaar.</p>
+      <p className="text-center text-[13px] text-[var(--color-text-tertiary)]">Caawimaad? La xiriir maamulka school-kaaga. Lacagaha school-ka iyo rukumashada Guulgaar waa kala gaar.</p>
     </>}
   </main>;
 }
