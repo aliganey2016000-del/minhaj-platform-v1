@@ -115,7 +115,7 @@ export function GuuldoonBuilderChapterCard({ courseId, chapter, index, imported,
   const steps: { section: Exclude<Section, null>; title: string; hint: string; action: string; badge: string; button: string }[] = [
     { section: 'lessons', title: 'Cashar: akhri cutubka', hint: `${chapter.lessonCount} qaybood`, action: 'Akhri', badge: 'bg-emerald-500/10 text-emerald-500', button: 'border-emerald-500/30 text-emerald-500' },
     { section: 'years', title: 'Su’aalaha sanad kasta', hint: chapter.years.length ? `${chapter.years.length} sano · ${chapter.questionCount} su’aalood` : 'Su’aalo wali ma jiraan.', action: 'Fur', badge: 'bg-amber-500/10 text-amber-500', button: 'border-amber-500/30 text-amber-500' },
-    { section: 'practice', title: 'Tababar', hint: `${chapter.practiceCount} su’aalood · jawaabaha la hubiyay`, action: 'Fur', badge: 'bg-sky-500/10 text-sky-500', button: 'border-sky-500/30 text-sky-500' },
+    { section: 'practice', title: 'Tababar', hint: `Fahamka cutubka (${chapter.practiceCount}) · Imtixaanadii hore (${chapter.questionCount})`, action: 'Fur', badge: 'bg-sky-500/10 text-sky-500', button: 'border-sky-500/30 text-sky-500' },
   ];
 
   const stepClass = 'flex items-center gap-3 rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-tertiary)]/35 p-3';
