@@ -132,7 +132,7 @@ export function importFileHashes(excel: Express.Multer.File, figures?: Express.M
 }
 
 export async function guuldoonImportDataFingerprint(courseId: string): Promise<string> {
-  if (!mongoose.isValidObjectId(courseId)) throw new BadRequestError('Invalid Guuldoon course ID');
+  if (!mongoose.isValidObjectId(courseId)) throw new BadRequestError('Invalid Guulgaar course ID');
   const course = new mongoose.Types.ObjectId(courseId);
   const snapshot = async (model: any) => {
     const [count, latest] = await Promise.all([
@@ -167,7 +167,7 @@ function assertWorkbookHeaders(sheetName: ImportSheet, rows: Row[], workbook: XL
 function readWorkbook(file: Express.Multer.File): { workbook: XLSX.WorkBook; rows: Record<ImportSheet, Row[]> } {
   assertSafeSpreadsheetUpload(file);
   if (!file.originalname.toLowerCase().endsWith('.xlsx')) {
-    throw new BadRequestError('Guuldoon Universal Import requires an .xlsx workbook');
+    throw new BadRequestError('Guulgaar Universal Import requires an .xlsx workbook');
   }
   let workbook: XLSX.WorkBook;
   try {
@@ -328,9 +328,9 @@ export async function parseAndValidateGuuldoonImport(
   excel: Express.Multer.File,
   figures?: Express.Multer.File,
 ): Promise<ParsedGuuldoonImport> {
-  if (!mongoose.isValidObjectId(courseId)) throw new BadRequestError('Invalid Guuldoon course ID');
+  if (!mongoose.isValidObjectId(courseId)) throw new BadRequestError('Invalid Guulgaar course ID');
   const course = await Course.findOne({ _id: courseId, scope: 'global', globalGrade: { $in: [8, 12] } }).lean();
-  if (!course) throw new NotFoundError('Guuldoon global course');
+  if (!course) throw new NotFoundError('Guulgaar global course');
 
   const { workbook, rows } = readWorkbook(excel);
   const lists = readLists(workbook);
@@ -869,7 +869,7 @@ export async function commitGuuldoonImport(
       else if (result === 'preserved') {
         // A Super Admin fixed this row by hand in the Guuldoon Builder; the Excel must not undo it.
         preserved[sheet] += 1;
-        importErrors.push({ sheet, row: row.__row, id: rowId(sheet, row), field: '_manual_edit', message: 'Kept the manual edit made in the Guuldoon Builder; the Excel values for this row were not applied.', severity: 'warning' });
+        importErrors.push({ sheet, row: row.__row, id: rowId(sheet, row), field: '_manual_edit', message: 'Kept the manual edit made in the Guulgaar Builder; the Excel values for this row were not applied.', severity: 'warning' });
       } else updated[sheet] += 1;
     } catch (error: any) {
       skipped += 1;
@@ -1069,7 +1069,7 @@ export async function commitGuuldoonImport(
 export async function buildGuuldoonUniversalTemplate(): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Sahal Education Platform';
-  workbook.title = 'Guuldoon Universal Import Template';
+  workbook.title = 'Guulgaar Universal Import Template';
 
   const definitions: Array<{ name: ImportSheet; headers: string[]; example: any[] }> = [
     {

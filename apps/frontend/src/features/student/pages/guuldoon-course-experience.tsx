@@ -157,7 +157,7 @@ export function GuuldoonCourseExperience() {
       if (!hasData.current) setOpenChapter(payload.chapters[0]?.id || null);
       hasData.current = true;
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Guuldoon course-ka lama soo rari karin.');
+      setError(err.response?.data?.message || 'Guulgaar course-ka lama soo rari karin.');
     } finally {
       setLoading(false);
     }
@@ -267,10 +267,10 @@ export function GuuldoonCourseExperience() {
   if (!data) return null;
 
   const title = data.course.language === 'ar'
-    ? (data.course.title?.ar || data.course.title?.en || data.course.title?.so || 'Guuldoon')
+    ? (data.course.title?.ar || data.course.title?.en || data.course.title?.so || 'Guulgaar')
     : data.course.language === 'so'
-      ? (data.course.title?.so || data.course.title?.en || 'Guuldoon')
-      : (data.course.title?.en || data.course.title?.so || 'Guuldoon');
+      ? (data.course.title?.so || data.course.title?.en || 'Guulgaar')
+      : (data.course.title?.en || data.course.title?.so || 'Guulgaar');
   const currentQuestion = exam?.questions[questionIndex];
   const answeredCount = Object.keys(feedback).length;
   const correctCount = Object.values(feedback).filter((item: any) => item?.marked && item?.correct).length;
@@ -289,9 +289,9 @@ export function GuuldoonCourseExperience() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <button onClick={() => navigate('/student/global-courses')} className="mb-2 inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-tertiary)] hover:text-emerald-600">
-            <ArrowLeft size={15} /> Guuldoon Courses
+            <ArrowLeft size={15} /> Guulgaar Courses
           </button>
-          <p className="text-xs font-extrabold uppercase tracking-[.18em] text-emerald-600">Guuldoon · Grade {data.course.grade}</p>
+          <p className="text-xs font-extrabold uppercase tracking-[.18em] text-emerald-600">Guulgaar · Grade {data.course.grade}</p>
           <h1 className="mt-1 text-2xl font-black sm:text-3xl">{title}</h1>
         </div>
         <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600">

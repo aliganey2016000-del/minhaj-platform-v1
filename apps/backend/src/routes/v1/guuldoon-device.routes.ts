@@ -87,7 +87,7 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
   const row = await state(user);
   const now = Date.now();
   if (row.blockedUntil && row.blockedUntil.getTime() > now) {
-    throw new ApiError(423, 'Guuldoon is blocked for 24 hours');
+    throw new ApiError(423, 'Guulgaar is blocked for 24 hours');
   }
 
   const freshAttemptWindow = !row.passwordAttemptWindow
@@ -141,7 +141,7 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
 
   if (!saved) throw new ConflictError('Verification changed. Retry');
   if (blocked) {
-    throw new ApiError(423, 'Three devices verified within 24 hours. Guuldoon is blocked for 24 hours');
+    throw new ApiError(423, 'Three devices verified within 24 hours. Guulgaar is blocked for 24 hours');
   }
 
   setDeviceCookie(res, deviceValue);
@@ -150,7 +150,7 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
   return ApiResponse.success(
     res,
     { verified: true },
-    'Device verified with your account password. Previous Guuldoon device disconnected',
+    'Device verified with your account password. Previous Guulgaar device disconnected',
   );
 }));
 
@@ -159,7 +159,7 @@ export async function requireGuuldoonDevice(req: Request): Promise<void> {
   const row = await Device.findOne({ user: req.user!.userId }).lean();
   const hash = deviceHash(req);
   if (!hash || !row || row.activeHash !== hash || (row.blockedUntil && row.blockedUntil.getTime() > Date.now())) {
-    throw new ForbiddenError('Verify this Guuldoon device before learning');
+    throw new ForbiddenError('Verify this Guulgaar device before learning');
   }
 }
 

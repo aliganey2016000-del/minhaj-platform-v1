@@ -177,9 +177,9 @@ export function GuuldoonUniversalImport() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <button onClick={() => navigate(`/admin/global-courses/${courseId}/guuldoon-builder`)} className="mb-2 inline-flex items-center gap-2 text-xs font-bold text-[var(--color-text-tertiary)]">
-            <ArrowLeft size={15} /> Guuldoon Builder
+            <ArrowLeft size={15} /> Guulgaar Builder
           </button>
-          <p className="text-xs font-black uppercase tracking-[.16em] text-emerald-600">Guuldoon only</p>
+          <p className="text-xs font-black uppercase tracking-[.16em] text-emerald-600">Guulgaar only</p>
           <h1 className="mt-1 text-2xl font-black sm:text-3xl">Universal Course Import</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--color-text-secondary)]">
             Hal Excel ayaa ku soo gelinaya Subject, Chapters, Exams, Resources, Questions iyo Glossary. Import-ku waa upsert-only; xog aan Excel-ka ku jirin lama tirtiro, Course Builder-ka caadiga ahna lama taabto.

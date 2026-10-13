@@ -13,7 +13,7 @@ const router = Router();
 router.use(authMiddleware);
 router.use((req, _res, next) => {
   if (!['admin', 'org_admin', 'teacher', 'student'].includes(req.user?.role || '') || req.user?.isStaff) {
-    return next(new ForbiddenError('Guuldoon leaderboard access denied'));
+    return next(new ForbiddenError('Guulgaar leaderboard access denied'));
   }
   next();
 });

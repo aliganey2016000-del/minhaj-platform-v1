@@ -137,10 +137,10 @@ export function StudentDashboard() {
               </h2>
               <p className="mt-2 max-w-xl text-sm leading-6 text-emerald-50/70">
                 {lang === 'so'
-                  ? 'Hal meel kala soco waxbarashadaada, imtixaannada, xaadiritaanka iyo Guuldoon.'
+                  ? 'Hal meel kala soco waxbarashadaada, imtixaannada, xaadiritaanka iyo Guulgaar.'
                   : lang === 'ar'
-                    ? 'تابع دراستك واختباراتك وحضورك وGuuldoon من مكان واحد.'
-                    : 'Keep your courses, exams, attendance and Guuldoon progress together in one place.'}
+                    ? 'تابع دراستك واختباراتك وحضورك وGuulgaar من مكان واحد.'
+                    : 'Keep your courses, exams, attendance and Guulgaar progress together in one place.'}
               </p>
 
               <div className="mt-5 flex flex-wrap items-center gap-2.5">
@@ -149,7 +149,7 @@ export function StudentDashboard() {
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <Link to="/student/global-courses" className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/[.06] px-4 py-2.5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/[.1]">
-                  <Award className="h-4 w-4 text-amber-300" /> Guuldoon
+                  <Award className="h-4 w-4 text-amber-300" /> Guulgaar
                 </Link>
               </div>
             </div>
@@ -263,14 +263,14 @@ export function StudentDashboard() {
               <Award className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-sm font-black text-[var(--color-text-primary)]">Guuldoon</p>
+              <p className="text-sm font-black text-[var(--color-text-primary)]">Guulgaar</p>
               <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">
                 {lang === 'so' ? 'Diyaar-garowga imtixaanka shahaadiga ah, su’aalaha hore iyo horumarkaaga.' : lang === 'ar' ? 'الاستعداد للامتحان والشروحات والتقدم.' : 'Certificate-exam preparation, past-question practice and progress.'}
               </p>
             </div>
           </div>
           <Link to="/student/global-courses" className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-500">
-            {lang === 'so' ? 'Fur Guuldoon' : lang === 'ar' ? 'افتح Guuldoon' : 'Open Guuldoon'} <ArrowRight className="h-4 w-4" />
+            {lang === 'so' ? 'Fur Guulgaar' : lang === 'ar' ? 'افتح Guulgaar' : 'Open Guulgaar'} <ArrowRight className="h-4 w-4" />
           </Link>
         </section>
       </div>

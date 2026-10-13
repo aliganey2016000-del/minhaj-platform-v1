@@ -73,7 +73,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/certificates', label: 'Certificates', icon: Award },
     ],
   },
-  { title: 'Guuldoon', items: [
+  { title: 'Guulgaar', items: [
     { path: '/admin/guuldoon', label: 'Overview', icon: LayoutDashboard },
     { path: '/admin/global-courses', label: 'Courses', icon: BookOpen },
     { path: '/admin/guuldoon/performance', label: 'Student Performance', icon: TrendingUp },
@@ -246,7 +246,7 @@ export function AdminSidebar({ collapsed = false, onToggleCollapsed }: AdminSide
     return { ...section, items };
   }).map((section) => ({
     ...section,
-    items: (section.title === 'Guuldoon' && (!isVisible('group:guuldoon') || !['admin', 'org_admin'].includes(user?.role || '')) ? [] : section.items).map((item) => {
+    items: (section.title === 'Guulgaar' && (!isVisible('group:guuldoon') || !['admin', 'org_admin'].includes(user?.role || '')) ? [] : section.items).map((item) => {
       if (isGroup(item)) {
         if (item.key && (!isVisible(item.key) || !staffSidebar(item.key))) return null;
         const children = item.children.filter((child) => {

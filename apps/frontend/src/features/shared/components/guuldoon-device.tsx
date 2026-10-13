@@ -93,7 +93,7 @@ export function GuuldoonDevice() {
         blockedUntil: undefined,
       }));
       setPassword('');
-      setMessage('Qalabkan waa la xaqiijiyey. Qalabkii hore Guuldoon waa laga joojiyey.');
+      setMessage('Qalabkan waa la xaqiijiyey. Qalabkii hore Guulgaar waa laga joojiyey.');
       await load();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Xaqiijintu ma dhammaan. Mar kale isku day.');
@@ -132,10 +132,10 @@ export function GuuldoonDevice() {
     },
   }[tone];
 
-  const title = tone === 'ok' ? 'Qalabkan waa la xaqiijiyey' : tone === 'blocked' ? 'Guuldoon waa xanniban yahay' : 'Xaqiiji qalabkan';
+  const title = tone === 'ok' ? 'Qalabkan waa la xaqiijiyey' : tone === 'blocked' ? 'Guulgaar waa xanniban yahay' : 'Xaqiiji qalabkan';
   const statusText =
     tone === 'ok'
-      ? 'Guuldoon waa furan yahay'
+      ? 'Guulgaar waa furan yahay'
       : tone === 'blocked'
         ? 'Xannibaad ku-meel-gaar ah'
         : state?.registered
@@ -145,7 +145,7 @@ export function GuuldoonDevice() {
   const StatusIcon = tone === 'ok' ? Check : CircleAlert;
 
   const rules: { big: string; text: string; icon: typeof Smartphone; tile: string; num: string }[] = [
-    { big: '1', text: 'Qalab keliya ayaa Guuldoon u furan.', icon: Smartphone, tile: 'bg-emerald-500/12 text-emerald-500', num: 'text-emerald-500' },
+    { big: '1', text: 'Qalab keliya ayaa Guulgaar u furan.', icon: Smartphone, tile: 'bg-emerald-500/12 text-emerald-500', num: 'text-emerald-500' },
     { big: '↻', text: 'Qalab cusub oo la xaqiijiyo wuxuu saaraa kii hore.', icon: Repeat2, tile: 'bg-blue-500/12 text-blue-500', num: 'text-blue-500' },
     { big: '3', text: '3 browser oo kala duwan 24 saac gudahood = xannibaad 24 saac ah.', icon: Clock3, tile: 'bg-amber-500/15 text-amber-500', num: 'text-amber-500' },
     { big: '5', text: '5 password oo khaldan 15 daqiiqo gudahood = 15 daqiiqo xannibaad.', icon: LockKeyhole, tile: 'bg-rose-500/12 text-rose-500', num: 'text-rose-500' },

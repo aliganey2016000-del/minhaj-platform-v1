@@ -44,7 +44,7 @@ async function loadCourse(courseId: string) {
   const course = await Course.findOne({ _id: objectId(courseId, 'course ID'), scope: 'global' })
     .select('_id title description thumbnail globalGrade status')
     .lean();
-  if (!course) throw new NotFoundError('Guuldoon course');
+  if (!course) throw new NotFoundError('Guulgaar course');
   return course as any;
 }
 
@@ -62,7 +62,7 @@ async function loadChapters(courseId: mongoose.Types.ObjectId): Promise<{ mode: 
 async function findChapter(courseId: mongoose.Types.ObjectId, chapterId: string) {
   const loaded = await loadChapters(courseId);
   const chapter = loaded.chapters.find(item => item.id === chapterId);
-  if (!chapter) throw new NotFoundError('Guuldoon chapter');
+  if (!chapter) throw new NotFoundError('Guulgaar chapter');
   return { ...loaded, chapter };
 }
 
@@ -594,7 +594,7 @@ router.put('/courses/:courseId/settings', asyncHandler(async (req, res) => {
     { $set: set },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
-  return ApiResponse.success(res, { passTarget: saved.passTarget, targetExamDate: saved.targetExamDate || null }, 'Guuldoon settings saved');
+  return ApiResponse.success(res, { passTarget: saved.passTarget, targetExamDate: saved.targetExamDate || null }, 'Guulgaar settings saved');
 }));
 
 export default router;
