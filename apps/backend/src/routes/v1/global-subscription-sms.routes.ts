@@ -2,12 +2,12 @@ import crypto from 'crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
-import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../utils/api-error';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../../utils/api-error';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import PaymentSms from '../../models/payment-sms.model';
 import ApiResponse from '../../utils/api-response';
 import Subscription from '../../models/global-subscription.model';
-import { handleIncomingSms, isIncomingPayment, linkSmsToSubscription, unmatchedReason } from '../../services/guuldoon-sms-payment.service';
+import { handleIncomingSms, isIncomingPayment, linkSmsToAccount, linkSmsToSubscription, searchStudentAccounts, unmatchedReason } from '../../services/guuldoon-sms-payment.service';
 
 const router = Router();
 
@@ -72,13 +72,35 @@ router.get('/pending', authMiddleware, asyncHandler(async (req, res) => {
   return ApiResponse.success(res, rows);
 }));
 
-/** Super Admin: activate a pending request using an unlinked incoming-money SMS as proof. */
+/** Super Admin: find a student account (email, student ID or name) to attach an unlinked payment to. */
+router.get('/accounts', authMiddleware, asyncHandler(async (req, res) => {
+  requireSuper(req);
+  return ApiResponse.success(res, await searchStudentAccounts(typeof req.query.q === 'string' ? req.query.q : ''));
+}));
+
+/**
+ * Super Admin: activate an account using an unlinked incoming-money SMS as proof of payment.
+ * Body: { subscriptionId } for a pending request, or { userId, grade } for any student account.
+ */
 router.post('/:id/link', authMiddleware, asyncHandler(async (req, res) => {
   requireSuper(req);
-  const subscriptionId = typeof req.body?.subscriptionId === 'string' ? req.body.subscriptionId : '';
-  if (!/^[a-f0-9]{24}$/i.test(req.params.id) || !/^[a-f0-9]{24}$/i.test(subscriptionId)) throw new NotFoundError('Message or request');
-  const approved = await linkSmsToSubscription(req.params.id, subscriptionId);
+  const isId = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{24}$/i.test(value);
+  if (!isId(req.params.id)) throw new NotFoundError('Message');
+  if (isId(req.body?.userId)) {
+    const result = await linkSmsToAccount(req.params.id, req.body.userId, Number(req.body.grade));
+    if (result.ok === false) {
+      if (result.reason === 'grade') throw new BadRequestError('Choose Grade 8 or 12');
+      if (result.reason === 'active') throw new ConflictError('This student already has an active subscription for this grade');
+      if (result.reason === 'conflict') throw new ConflictError('This message or request was just used. Refresh and try again');
+      throw new NotFoundError(result.reason === 'student' ? 'Active student account' : 'Eligible message');
+    }
+    await Subscription.updateOne({ _id: result.subscription._id }, { $set: { reviewedBy: req.user!.userId } });
+    return ApiResponse.success(res, { subscriptionId: result.subscription._id, status: result.subscription.status });
+  }
+  if (!isId(req.body?.subscriptionId)) throw new NotFoundError('Message or request');
+  const approved = await linkSmsToSubscription(req.params.id, req.body.subscriptionId);
   if (!approved) throw new NotFoundError('Eligible message or pending request');
+  await Subscription.updateOne({ _id: approved._id }, { $set: { reviewedBy: req.user!.userId } });
   return ApiResponse.success(res, { subscriptionId: approved._id, status: approved.status });
 }));
 

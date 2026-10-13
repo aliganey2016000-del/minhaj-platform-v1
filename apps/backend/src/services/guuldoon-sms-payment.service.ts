@@ -1,6 +1,10 @@
 import crypto from 'crypto';
 import PaymentSms from '../models/payment-sms.model';
 import Subscription from '../models/global-subscription.model';
+import User from '../models/user.model';
+import Student from '../models/student.model';
+import Profile from '../models/profile.model';
+import ClassModel from '../models/class.model';
 import { GLOBAL_SUBSCRIPTION_PRICE, subscriptionExpiry } from '../utils/global-subscription';
 
 const MAX_AMOUNT_USD = 1000;
@@ -157,4 +161,77 @@ export async function linkSmsToSubscription(smsId: string, subscriptionId: strin
   const subscription: any = await Subscription.findOne({ _id: subscriptionId, status: 'pending' });
   if (!subscription) return null;
   return approve(subscription, sms);
+}
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export interface AccountMatch { userId: string; email: string; name: string; studentId: string; school: string; grade: number | null; activeGrades: number[]; pendingGrades: number[] }
+
+/** Super Admin search for a student account by email, student ID or name (to attach an unlinked payment to it). */
+export async function searchStudentAccounts(query: string): Promise<AccountMatch[]> {
+  const q = query.trim().slice(0, 80);
+  if (q.length < 3) return [];
+  const rx = new RegExp(escapeRegex(q), 'i');
+  const [users, profiles, byId] = await Promise.all([
+    User.find({ role: 'student', email: rx }).select('_id').limit(15).lean(),
+    Profile.find({ $or: [{ firstName: rx }, { lastName: rx }] }).select('user').limit(15).lean(),
+    Student.find({ studentId: rx }).select('user').limit(15).lean(),
+  ]);
+  const ids = [...new Set([...users.map((row: any) => String(row._id)), ...profiles.map((row: any) => String(row.user)), ...byId.map((row: any) => String(row.user))])].slice(0, 20);
+  if (!ids.length) return [];
+  const students: any[] = await Student.find({ user: { $in: ids }, approvalStatus: 'approved', status: 'active' })
+    .select('user profile studentId school class').populate('profile', 'firstName lastName').populate('school', 'name').limit(20).lean();
+  const emails = new Map((await User.find({ _id: { $in: students.map((row) => row.user) } }).select('email').lean()).map((row: any) => [String(row._id), row.email]));
+  const classes = new Map((await ClassModel.find({ _id: { $in: students.map((row) => row.class).filter(Boolean) } }).select('gradeLevel').lean()).map((row: any) => [String(row._id), row.gradeLevel]));
+  const now = new Date();
+  const subs: any[] = await Subscription.find({ user: { $in: students.map((row) => row.user) }, status: { $in: ['pending', 'approved'] } }).select('user grade status startsAt expiresAt').lean();
+  return students.map((row) => {
+    const own = subs.filter((sub) => String(sub.user) === String(row.user));
+    const level = classes.get(String(row.class));
+    return {
+      userId: String(row.user),
+      email: emails.get(String(row.user)) || '',
+      name: `${row.profile?.firstName || ''} ${row.profile?.lastName || ''}`.trim(),
+      studentId: row.studentId,
+      school: row.school?.name || '',
+      grade: level === 8 || level === 12 ? level : null,
+      activeGrades: own.filter((sub) => sub.status === 'approved' && sub.startsAt <= now && sub.expiresAt > now).map((sub) => sub.grade),
+      pendingGrades: own.filter((sub) => sub.status === 'pending').map((sub) => sub.grade),
+    };
+  });
+}
+
+export type LinkAccountResult = { ok: true; subscription: any } | { ok: false; reason: 'sms' | 'student' | 'grade' | 'active' | 'conflict' };
+
+/**
+ * Super Admin attaches an unlinked incoming-money SMS to a student account (even one with no payment request yet):
+ * the account's pending request for that grade is approved, or a new one is created and approved with this SMS as proof.
+ */
+export async function linkSmsToAccount(smsId: string, userId: string, grade: number): Promise<LinkAccountResult> {
+  if (grade !== 8 && grade !== 12) return { ok: false, reason: 'grade' };
+  const sms: any = await PaymentSms.findById(smsId);
+  if (!sms || sms.status !== 'unmatched' || !isIncomingPayment(sms.body) || !amountSufficient(sms.amountUsd)) return { ok: false, reason: 'sms' };
+  const student: any = await Student.findOne({ user: userId, approvalStatus: 'approved', status: 'active' }).select('school').lean();
+  if (!student?.school) return { ok: false, reason: 'student' };
+  const now = new Date();
+  if (await Subscription.exists({ user: userId, grade, status: 'approved', startsAt: { $lte: now }, expiresAt: { $gt: now } })) return { ok: false, reason: 'active' };
+
+  let target: any = await Subscription.findOne({ user: userId, grade, status: 'pending' });
+  let created = false;
+  if (!target) {
+    const payer = (sms.phones || []).find((phone: string) => phone !== merchantCore()) || '';
+    try {
+      target = await Subscription.create({ user: userId, school: student.school, grade, paymentReference: `LINK-${crypto.randomBytes(5).toString('hex').toUpperCase()}`, ...(payer ? { payerPhone: payer, payerPhoneKey: payer } : {}) });
+      created = true;
+    } catch (error: any) {
+      if (isDuplicateKey(error)) return { ok: false, reason: 'conflict' };
+      throw error;
+    }
+  }
+  const approved = await approve(target, sms);
+  if (!approved) {
+    if (created) await Subscription.deleteOne({ _id: target._id, status: 'pending' });
+    return { ok: false, reason: 'conflict' };
+  }
+  return { ok: true, subscription: approved };
 }

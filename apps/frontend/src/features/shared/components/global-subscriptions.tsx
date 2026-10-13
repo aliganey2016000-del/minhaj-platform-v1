@@ -66,6 +66,82 @@ const SMS_TABS: { value: SmsKind; label: string; active: string; badge: string; 
   { value: 'other', label: 'Baxday / Kale', active: 'bg-violet-600 text-white shadow', badge: 'bg-violet-100 text-violet-800', empty: 'Fariimo kale ma jirto.' },
 ];
 
+type AccountRow = { userId: string; email: string; name: string; studentId: string; school: string; grade: number | null; activeGrades: number[]; pendingGrades: number[] };
+
+/** Find a student account (email, student ID or name) and attach an unlinked payment to it; no payment request is needed first. */
+function LinkPanel({ smsId, onClose, onLinked }: { smsId: string; onClose: () => void; onLinked: () => void }) {
+  const [query, setQuery] = useState('');
+  const [accounts, setAccounts] = useState<AccountRow[] | null>(null);
+  const [pending, setPending] = useState<PendingRow[]>([]);
+  const [grades, setGrades] = useState<Record<string, number>>({});
+  const [searching, setSearching] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const base = '/global-subscriptions/sms-webhook';
+
+  useEffect(() => { api.get(`${base}/pending`).then(({ data }) => setPending(data.data || [])).catch(() => undefined); }, []);
+  useEffect(() => {
+    const text = query.trim();
+    if (text.length < 3) { setAccounts(null); return undefined; }
+    let live = true;
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      api.get(`${base}/accounts`, { params: { q: text } })
+        .then(({ data }) => { if (live) { setAccounts(data.data || []); setError(''); } })
+        .catch((err) => { if (live) setError(errorText(err, 'Raadinta ma shaqayn')); })
+        .finally(() => { if (live) setSearching(false); });
+    }, 350);
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [query]);
+
+  const submit = async (payload: Record<string, unknown>) => {
+    if (!window.confirm('Ma xaqiijisay inaad account-kan ku furto fariintan SMS-ka ah?')) return;
+    setBusy(true); setError('');
+    try { await api.post(`${base}/${smsId}/link`, payload); onLinked(); }
+    catch (err) { setError(errorText(err, 'Lama xidhi karin')); }
+    finally { setBusy(false); }
+  };
+  const gradeOf = (account: AccountRow) => grades[account.userId] ?? account.grade ?? 12;
+
+  return (
+    <div className="mt-3 space-y-3 rounded-xl border p-3">
+      <div className="flex items-center justify-between"><p className="text-sm font-bold">Raadi account-ka ardayga</p><button type="button" onClick={onClose} className="text-sm font-semibold text-slate-500">Xidh</button></div>
+      <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Email, Student ID ama magac (ugu yaraan 3 xaraf)" className="w-full rounded-xl border px-3 py-2.5 text-sm" autoFocus />
+      {error && <p role="alert" className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{error}</p>}
+      {searching && <p className="text-sm text-[var(--color-text-secondary)]">Waa la raadinayaa...</p>}
+      {accounts && accounts.length === 0 && !searching && <p className="text-sm text-[var(--color-text-secondary)]">Account lama helin. Hubi email-ka ama Student ID-ga.</p>}
+      {accounts?.map((account) => {
+        const grade = gradeOf(account);
+        const active = account.activeGrades.includes(grade);
+        return (
+          <div key={account.userId} className="space-y-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+            <div className="min-w-0 text-sm"><p className="truncate font-semibold">{account.name || account.email}</p><p className="break-all text-xs text-[var(--color-text-secondary)]">{account.email} · {account.studentId}</p><p className="text-xs text-[var(--color-text-secondary)]">{account.school}</p></div>
+            <div className="flex flex-wrap items-center gap-2">
+              {[8, 12].map((value) => (
+                <button key={value} type="button" onClick={() => setGrades((current) => ({ ...current, [account.userId]: value }))} className={`rounded-full px-3 py-1 text-xs font-bold ${grade === value ? 'bg-sky-600 text-white' : 'border'}`}>Grade {value}</button>
+              ))}
+              {account.pendingGrades.includes(grade) && <Chip tone="bg-amber-100 text-amber-800">Codsi sugaya</Chip>}
+              {active && <Chip tone="bg-emerald-100 text-emerald-800">Horay u firfircoon</Chip>}
+              <button type="button" disabled={busy || active} onClick={() => void submit({ userId: account.userId, grade })} className="ml-auto rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">Ku xidh</button>
+            </div>
+          </div>
+        );
+      })}
+      {!accounts && pending.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Codsiyada sugaya</p>
+          {pending.map((item) => (
+            <div key={item._id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-2 dark:bg-slate-800/60">
+              <div className="min-w-0 text-sm"><p className="truncate font-semibold">{item.user?.email || '-'}</p><p className="text-xs text-[var(--color-text-secondary)]">Grade {item.grade} · {item.payerPhone || '-'} · {dateTime(item.createdAt)}</p></div>
+              <button type="button" disabled={busy} onClick={() => void submit({ subscriptionId: item._id })} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60">Ku xidh</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Super Admin: forwarded payment SMS messages, split into activated, incoming-but-unlinked, and outgoing/other. */
 function SmsTab() {
   const [rows, setRows] = useState<(SmsRow & { kind: SmsKind; reason?: string; subscription?: { payerPhone?: string; grade?: number; user?: { email: string } } })[] | null>(null);
@@ -74,8 +150,6 @@ function SmsTab() {
   const [sub, setSub] = useState<SmsKind>('unlinked');
   const [chosen, setChosen] = useState(false);
   const [linking, setLinking] = useState<string | null>(null);
-  const [pending, setPending] = useState<PendingRow[]>([]);
-  const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try { const { data } = await api.get('/global-subscriptions/sms-webhook/recent'); setRows(data.data || []); }
@@ -87,19 +161,6 @@ function SmsTab() {
   const sum = (kind: SmsKind) => of(kind).reduce((total, row) => total + (row.amountUsd || 0), 0);
   // Open on "Aan la xidhin" when it has anything, otherwise on "Furay"; never override the admin's own choice.
   useEffect(() => { if (rows && !chosen) setSub(of('unlinked').length ? 'unlinked' : 'matched'); }, [rows, chosen]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const openLink = async (id: string) => {
-    setLinking(id); setError('');
-    try { const { data } = await api.get('/global-subscriptions/sms-webhook/pending'); setPending(data.data || []); }
-    catch (err) { setError(errorText(err, 'Unable to load pending requests')); setLinking(null); }
-  };
-  const link = async (smsId: string, subscriptionId: string) => {
-    if (!window.confirm('Ma xaqiijisay inaad subscription-kan ku furto fariintan SMS-ka ah?')) return;
-    setBusy(true); setError('');
-    try { await api.post(`/global-subscriptions/sms-webhook/${smsId}/link`, { subscriptionId }); setLinking(null); await load(); }
-    catch (err) { setError(errorText(err, 'Lama xidhi karin')); }
-    finally { setBusy(false); }
-  };
 
   const shown = of(sub);
   const meta = SMS_TABS.find((item) => item.value === sub)!;
@@ -141,18 +202,9 @@ function SmsTab() {
             {row.kind === 'matched' && row.subscription && <p className="mt-2 text-sm font-semibold">{row.subscription.user?.email || row.subscription.payerPhone} · Grade {row.subscription.grade}</p>}
             {row.kind === 'unlinked' && row.reason && <p className="mt-2 text-sm font-semibold text-amber-800 dark:text-amber-200">Sababta: {REASONS[row.reason] || row.reason}</p>}
             <p className="mt-2 break-words text-sm text-[var(--color-text-secondary)]">{row.body}</p>
-            {row.kind === 'unlinked' && row.amountUsd != null && row.amountUsd >= 5 && (linking === row._id ? (
-              <div className="mt-3 space-y-2 rounded-xl border p-3">
-                <div className="flex items-center justify-between"><p className="text-sm font-bold">Dooro codsiga sugaya</p><button type="button" onClick={() => setLinking(null)} className="text-sm font-semibold text-slate-500">Xidh</button></div>
-                {pending.length === 0 && <p className="text-sm text-[var(--color-text-secondary)]">Codsi sugaya ma jiro.</p>}
-                {pending.map((item) => (
-                  <div key={item._id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-2 dark:bg-slate-800/60">
-                    <div className="min-w-0 text-sm"><p className="truncate font-semibold">{item.user?.email || '-'}</p><p className="text-xs text-[var(--color-text-secondary)]">Grade {item.grade} · {item.payerPhone || '-'} · {dateTime(item.createdAt)}</p></div>
-                    <button type="button" disabled={busy} onClick={() => void link(row._id, item._id)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60">Ku xidh</button>
-                  </div>
-                ))}
-              </div>
-            ) : <button type="button" onClick={() => void openLink(row._id)} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white"><BadgeCheck size={16} />Ku xidh codsi</button>)}
+            {row.kind === 'unlinked' && row.amountUsd != null && row.amountUsd >= 5 && (linking === row._id
+              ? <LinkPanel smsId={row._id} onClose={() => setLinking(null)} onLinked={() => { setLinking(null); void load(); }} />
+              : <button type="button" onClick={() => setLinking(row._id)} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white"><BadgeCheck size={16} />Ku xidh account</button>)}
           </article>
         ))}
       </div>
