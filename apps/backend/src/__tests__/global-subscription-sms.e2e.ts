@@ -16,7 +16,7 @@ async function main() {
     const { default: Subscription } = await import('../models/global-subscription.model');
     const { default: PaymentSms } = await import('../models/payment-sms.model');
     const { generateAccessToken } = await import('../utils/jwt');
-    const { parseSms, phoneCore, referenceKey, merchantCore } = await import('../services/guuldoon-sms-payment.service');
+    const { parseSms, phoneCore, referenceKey, merchantCore, isIncomingPayment } = await import('../services/guuldoon-sms-payment.service');
 
     // Pure parsing.
     assert.equal(phoneCore('0615 123 456'), '615123456');
@@ -29,6 +29,11 @@ async function main() {
     assert.ok(evc.refTokens.includes('TX123456') && evc.phones.includes('615123456'));
     assert.equal(parseSms('Waxaad ka heshay 5 SLSH 30,000 TX123456').amountUsd, null, 'no dollar marker, no amount');
     assert.equal(parseSms('You received USD 5 from 0615123456').amountUsd, 5);
+    // Receipts for money the merchant phone SENT, or airtime, are never payments.
+    assert.equal(parseSms('[-EVCPLUS-] $5 ayaad uwareejisay MARYAN MAXAMED MACALIN(615616937), Tar: 13/10/26 07:35:51, Haraagaagu waa $41.7.').amountUsd, null);
+    assert.equal(parseSms('[-EVCPLUS-] You have successfully subscribed Airtime Recharge, $0.15 is deducted from your account,your balance is $0.15').amountUsd, null);
+    assert.equal(isIncomingPayment('waxaad $5 ka heshay 0615328006'), true);
+    assert.equal(isIncomingPayment('$5 ayaad uwareejisay X(615616937)'), false);
 
     const admin = await User.create({ email: 'sms-admin@test.local', password: 'Password123!', role: 'admin' });
     const school = await School.create({ name: 'Sms School', organizationType: 'private', country: 'Somalia', city: 'Mogadishu', address: 'Test', phone: '+252000000000', email: 'sms-school@test.local', principalName: 'P', establishedYear: 2020, createdBy: admin._id });
@@ -138,6 +143,13 @@ async function main() {
     assert.ok(res.body.data.length > 0 && res.body.data[0].body);
     await request(app).get(`${hook}/recent`).set(headers(s9)).expect(403);
     await request(app).get(`${hook}/recent`).expect(401);
+
+    // A student who registers the number the merchant SENT money to cannot claim that outgoing receipt.
+    const s10 = await mkStudent();
+    await register(s10, '0615616937').expect(201);
+    res = await sendSms('[-EVCPLUS-] $5 ayaad uwareejisay MARYAN MAXAMED MACALIN(615616937), Tar: 13/10/26 07:35:51, Haraagaagu waa $41.7.').expect(200);
+    assert.equal(res.body.data.matched, false);
+    assert.equal((await Subscription.findOne({ user: s10._id }) as any).status, 'pending');
 
     // 10. Garbage input is harmless.
     await request(app).post(hook).set('X-Webhook-Secret', secret).send({}).expect(200);
