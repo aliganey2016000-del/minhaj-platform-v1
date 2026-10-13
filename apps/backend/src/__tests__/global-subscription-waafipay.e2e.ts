@@ -16,6 +16,7 @@ async function main() {
     const { default: Profile } = await import('../models/profile.model');
     const { default: Subscription } = await import('../models/global-subscription.model');
     const { generateAccessToken } = await import('../utils/jwt');
+    await Subscription.init().catch(() => undefined); // wait for the unique indexes before relying on them (the local emulator cannot build every index type)
     const { toWalletAccount, waafiConfig } = await import('../services/waafipay.service');
 
     assert.equal(toWalletAccount('0615 123 456'), '252615123456');

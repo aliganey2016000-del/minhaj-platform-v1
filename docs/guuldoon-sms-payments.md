@@ -45,3 +45,6 @@ WaafiPay) is the fully automatic alternative and needs merchant credentials.
 - The backend logs one line per delivery (`[SMS-WEBHOOK] stored=... matched=...`, never the message text).
 - Only the first `$` amount in a message counts as the payment; the balance ("haraagagu waa $7.1") is ignored.
 - Payloads with unescaped line breaks, plain text and form data are accepted.
+- Install the forwarder on the phone that **receives** the payments (the merchant wallet), not on a paying
+  phone. Only "received" messages (`... ka heshay ...`) can activate a subscription; receipts for money sent
+  (`uwareejisay`), airtime and charges are stored but never match.
