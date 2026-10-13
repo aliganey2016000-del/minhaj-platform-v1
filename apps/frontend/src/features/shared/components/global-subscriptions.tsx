@@ -63,7 +63,9 @@ function SmsTab() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  const [smsFilter, setSmsFilter] = useState<'all' | 'matched' | 'unmatched'>('all');
   const matched = rows?.filter((row) => row.status === 'matched').length || 0;
+  const shown = rows?.filter((row) => smsFilter === 'all' || row.status === smsFilter);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -78,8 +80,14 @@ function SmsTab() {
       </div>
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {rows && rows.length === 0 && <p className="rounded-2xl border bg-[var(--color-surface-primary)] p-6 text-center text-sm text-[var(--color-text-secondary)]">Wali SMS lama helin. Hubi app-ka SMS Forwarder (taleefanka merchant-ka) iyo secret-ka.</p>}
+      <div className="flex flex-wrap gap-2">
+        {([['all', 'Dhammaan'], ['matched', 'Furay'], ['unmatched', 'Lama furin']] as const).map(([value, label]) => (
+          <button key={value} type="button" onClick={() => setSmsFilter(value)}
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold ${smsFilter === value ? 'bg-sky-600 text-white' : 'border text-[var(--color-text-secondary)]'}`}>{label}</button>
+        ))}
+      </div>
       <div className="space-y-3">
-        {rows?.map((row) => {
+        {shown?.map((row) => {
           const incoming = /ka\s+heshay|received/i.test(row.body) && !/uwareejisay|dirtay|sent|transferred|deducted|recharge/i.test(row.body);
           return (
             <article key={row._id} className={`rounded-2xl border border-l-4 bg-[var(--color-surface-primary)] p-4 shadow-sm ${row.status === 'matched' ? 'border-l-emerald-500' : 'border-l-slate-300 dark:border-l-slate-600'}`}>
@@ -226,28 +234,27 @@ export function GlobalSubscriptions() {
   const isSuper = user?.role === 'admin';
   if (!isSuper && user?.role !== 'org_admin') return null;
   const tabs: { value: Tab; label: string; icon: React.ReactNode }[] = [
-    { value: 'payments', label: 'Subscription Payments', icon: <CreditCard size={16} /> },
+    { value: 'payments', label: 'Lacag-bixin', icon: <CreditCard size={16} /> },
     ...(isSuper ? [{ value: 'sms' as Tab, label: 'SMS-yada', icon: <MessageSquare size={16} /> }] : []),
   ];
+  const tabStyle: Record<Tab, string> = { payments: 'bg-emerald-600 text-white shadow', sms: 'bg-sky-600 text-white shadow' };
   return (
     <section className="space-y-4">
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-teal-700 via-sky-600 to-emerald-500 p-5 text-white shadow-lg sm:p-6">
-        <span aria-hidden="true" className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/15" />
-        <span aria-hidden="true" className="pointer-events-none absolute -bottom-10 -left-8 h-24 w-24 rounded-full bg-amber-300/40" />
-        <div className="relative">
-          <h2 className="text-2xl font-extrabold sm:text-3xl">Guuldoon Subscriptions</h2>
-          <p className="mt-1 text-sm text-white/90">$5 USD · 365 maalmood · dhammaan maaddooyinka fasalka la doortay.</p>
-          <div role="tablist" aria-label="Qaybaha" className="mt-4 inline-flex w-full flex-wrap gap-1 rounded-2xl bg-white/20 p-1 sm:w-auto">
-            {tabs.map((item) => (
-              <button key={item.value} type="button" role="tab" aria-selected={tab === item.value} onClick={() => setTab(item.value)}
-                className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-colors sm:flex-none ${tab === item.value ? 'bg-white text-teal-800 shadow' : 'text-white hover:bg-white/10'}`}>
-                {item.icon}{item.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-teal-700 via-sky-600 to-emerald-500 px-5 py-4 text-white shadow-lg">
+        <span aria-hidden="true" className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/15" />
+        <p className="relative text-sm font-semibold text-white/95">$5 USD · 365 maalmood · dhammaan maaddooyinka fasalka la doortay</p>
       </div>
-      {tab === 'payments' ? <PaymentsTab isSuper={isSuper} /> : <SmsTab />}
+      <div role="tablist" aria-label="Qaybaha" className="sticky top-0 z-10 grid gap-2 rounded-2xl border bg-[var(--color-surface-primary)] p-1.5 shadow-sm" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
+        {tabs.map((item) => (
+          <button key={item.value} type="button" role="tab" aria-selected={tab === item.value} onClick={() => setTab(item.value)}
+            className={`flex items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-3 text-sm font-bold transition-colors ${tab === item.value ? tabStyle[item.value] : 'text-[var(--color-text-secondary)] hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+            {item.icon}{item.label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" className="pb-20">
+        {tab === 'payments' ? <PaymentsTab isSuper={isSuper} /> : <SmsTab />}
+      </div>
     </section>
   );
 }
