@@ -6,6 +6,7 @@ import { verifyAccessToken } from './utils/jwt';
 import { PRIVATE_UPLOAD_PREFIXES, UPLOADS_ROOT, setUploadHeaders } from './utils/upload-safety';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import mongoSanitize from 'express-mongo-sanitize';
 import rateLimit from 'express-rate-limit';
@@ -78,6 +79,8 @@ app.use(addApiVersionHeader);
 // so the request body must be parsed before those limiters run.
 app.use(requestTimeout());
 app.use('/api/v1/global-subscriptions/sms-webhook', smsWebhookBodyParser);
+// gzip JSON responses (e.g. the ~340 KB Guuldoon course payload shrinks to ~50 KB).
+app.use(compression({ threshold: 1024 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
