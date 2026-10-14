@@ -145,7 +145,8 @@ const limiter = rateLimit({
 // Authentication protection uses TWO independent limits:
 // 1) Account limit: five failed attempts for one normalized email in 10 min.
 //    This follows the account across changing IP addresses.
-// 2) IP limit: thirty failed authentication attempts from one IP in 10 min.
+// 2) IP limit: 300 failed authentication attempts from one IP in 10 min
+//    (high on purpose: a whole class can share one hotspot / school NAT).
 //    This prevents an attacker from rotating email addresses to evade the
 //    account limit, while still allowing legitimate users on shared networks.
 // Successful requests are removed from both counters.
@@ -172,7 +173,7 @@ const authAccountLimiter = rateLimit({
 
 const authIpLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
-  max: 30,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -214,7 +215,7 @@ const accountLookupAccountLimiter = rateLimit({
 
 const accountLookupIpLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
-  max: 30,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
