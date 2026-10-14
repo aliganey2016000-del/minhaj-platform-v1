@@ -143,23 +143,38 @@ export function StudentExamActive() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  // Autosave every 10s while taking the exam
-  useEffect(() => {
-    if (!session) return;
-    autosaveTimer.current = setInterval(() => { saveAnswers(); }, 10000);
-    return () => { if (autosaveTimer.current) clearInterval(autosaveTimer.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, answers]);
+  // Autosave while taking the exam. The timer is created once per session (not
+  // on every answer, which kept resetting it), reads the latest answers from a
+  // ref, skips ticks when nothing changed since the last successful save, and
+  // never overlaps requests — on a slow connection they would otherwise pile up.
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+  const lastSavedRef = useRef('');
+  const saveInFlightRef = useRef(false);
 
   const saveAnswers = async () => {
-    if (!activeExamId) return;
-    const payload = Object.entries(answers).map(([questionId, value]) => ({ questionId, value }));
+    if (!activeExamId || saveInFlightRef.current) return;
+    const payload = Object.entries(answersRef.current).map(([questionId, value]) => ({ questionId, value }));
+    const snapshot = JSON.stringify(payload);
+    if (snapshot === lastSavedRef.current) return;
+    saveInFlightRef.current = true;
     try {
       await api.patch(`/exams/${activeExamId}/attempt`, { answers: payload });
+      lastSavedRef.current = snapshot;
     } catch {
       // best-effort autosave — submit still sends the latest answers
+    } finally {
+      saveInFlightRef.current = false;
     }
   };
+
+  useEffect(() => {
+    if (!session) return;
+    lastSavedRef.current = '';
+    autosaveTimer.current = setInterval(() => { void saveAnswers(); }, 20000);
+    return () => { if (autosaveTimer.current) clearInterval(autosaveTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, activeExamId]);
 
   const handleLaunch = async (examId: string) => {
     setError('');

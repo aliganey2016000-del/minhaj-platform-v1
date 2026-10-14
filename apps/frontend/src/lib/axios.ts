@@ -69,6 +69,25 @@ api.interceptors.response.use(
   },
   async (error) => {
     const originalRequest = error.config;
+
+    // Flaky mobile networks: retry idempotent reads a couple of times with a
+    // short backoff when the request never got an answer (timeout, dropped
+    // connection) or the gateway briefly failed (502/503/504). Writes are
+    // never retried here, so nothing is submitted twice.
+    const status = error.response?.status;
+    const transient = !error.response || status === 502 || status === 503 || status === 504;
+    if (
+      originalRequest
+      && originalRequest.method?.toLowerCase() === 'get'
+      && transient
+      && !axios.isCancel(error)
+      && (originalRequest._networkRetries || 0) < (error.code === 'ECONNABORTED' ? 1 : 2)
+    ) {
+      originalRequest._networkRetries = (originalRequest._networkRetries || 0) + 1;
+      await new Promise((resolve) => setTimeout(resolve, originalRequest._networkRetries * 1200));
+      return api(originalRequest);
+    }
+
     const isAuthEndpoint = AUTH_ENDPOINTS_EXEMPT_FROM_REFRESH.some((path) => originalRequest?.url?.includes(path));
 
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
