@@ -189,6 +189,44 @@ async function main() {
     const blockedFor = row!.blockedUntil!.getTime() - Date.now();
     assert.ok(blockedFor > 5.9 * 3600000 && blockedFor < 6.1 * 3600000, `block length ${blockedFor}`);
 
+    // Several devices at once: with 2 active devices (block after 4), two
+    // browsers work together and a third pushes out the oldest one.
+    const reset = () => Device.updateOne(
+      { user: student._id },
+      {
+        $set: { blockedUntil: new Date(0), history: [], activeHash: '', activeHashes: [], passwordAttempts: 0 },
+        $unset: { passwordAttemptWindow: 1 },
+      },
+    );
+    const bad = await request(app).put(policyRoot).set(headers(admin)).send({ deviceLimit: 3, activeDevices: 3, windowHours: 24, blockHours: 24 });
+    assert.equal(bad.status, 400, 'block threshold must exceed the devices usable together');
+    assert.equal((await request(app).put(policyRoot).set(headers(admin)).send({ deviceLimit: 4, activeDevices: 6, windowHours: 24, blockHours: 24 })).status, 400);
+    const multi = await request(app).put(policyRoot).set(headers(admin)).send({ deviceLimit: 4, activeDevices: 2, windowHours: 24, blockHours: 24 });
+    assert.equal(multi.status, 200, JSON.stringify(multi.body));
+    assert.equal(multi.body.data.activeDevices, 2);
+    await reset();
+    const cookieOf = (response: any) => (response.headers['set-cookie'] as string[])[0].split(';')[0];
+    const phone = await verify('SchoolPassword123!');
+    assert.equal(phone.status, 200);
+    const laptop = await verify('SchoolPassword123!');
+    assert.equal(laptop.status, 200);
+    const phoneCookie = cookieOf(phone);
+    const laptopCookie = cookieOf(laptop);
+    assert.equal((await access(phoneCookie)).status, 200, 'first device stays active');
+    assert.equal((await access(laptopCookie)).status, 200, 'second device is active too');
+    const tablet = await verify('SchoolPassword123!');
+    assert.equal(tablet.status, 200);
+    assert.equal((await access(phoneCookie)).status, 403, 'oldest device is disconnected');
+    assert.equal((await access(laptopCookie)).status, 200);
+    assert.equal((await access(cookieOf(tablet))).status, 200);
+    const multiState = await request(app).get(root).set(headers(student)).set('Cookie', laptopCookie);
+    assert.equal(multiState.body.data.verified, true);
+
+    // Lowering it back to 1 leaves only the newest device working.
+    assert.equal((await request(app).put(policyRoot).set(headers(admin)).send({ deviceLimit: 4, activeDevices: 1, windowHours: 24, blockHours: 24 })).status, 200);
+    assert.equal((await access(cookieOf(tablet))).status, 200);
+    assert.equal((await access(laptopCookie)).status, 403);
+
     console.log('Guuldoon account-password device verification, transfer, lockout, throttling and school independence passed.');
   } finally {
     await db.stop();

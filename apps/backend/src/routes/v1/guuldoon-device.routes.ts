@@ -13,6 +13,20 @@ const day = 86400000;
 const passwordAttemptWindow = 15 * 60 * 1000;
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
+type ActiveEntry = { hash: string; at: Date };
+
+/** Browsers currently allowed to use Guulgaar (newest verifications, capped by the policy). */
+function activeSet(row: any, limit: number): ActiveEntry[] {
+  const list: ActiveEntry[] = (row?.activeHashes || [])
+    .filter((item: any) => item?.hash)
+    .map((item: any) => ({ hash: item.hash as string, at: item.at ? new Date(item.at) : new Date(0) }));
+  // Rows saved before several active devices existed only have activeHash.
+  if (row?.activeHash && !list.some(item => item.hash === row.activeHash)) {
+    list.push({ hash: row.activeHash as string, at: row.activatedAt ? new Date(row.activatedAt) : new Date(0) });
+  }
+  return list.sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, Math.max(1, limit));
+}
+
 function rawDeviceCookie(req: Request): string {
   const value = req.cookies?.[cookie];
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : '';
@@ -70,11 +84,13 @@ router.get('/', asyncHandler(async (req, res) => {
   const row = await Device.findOne({ user: req.user!.userId });
   const hash = deviceHash(req);
   const blocked = !!row?.blockedUntil && row.blockedUntil.getTime() > Date.now();
-  const verified = !blocked && !!hash && row?.activeHash === hash;
+  const policy = await getDevicePolicy();
+  const active = activeSet(row, policy.activeDevices);
+  const verified = !blocked && !!hash && active.some(item => item.hash === hash);
   if (verified) promoteGuuldoonDeviceCookie(req, res);
   return ApiResponse.success(res, {
     verified,
-    registered: !!row?.activeHash,
+    registered: active.length > 0,
     activatedAt: row?.activatedAt,
     blockedUntil: blocked ? row?.blockedUntil : null,
   });
@@ -127,12 +143,17 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
   if (!history.some(item => item.hash === hash)) history.push({ hash, at: new Date(now) });
 
   const blocked = history.length >= policy.deviceLimit;
+  const nextActive = blocked
+    ? []
+    : [{ hash, at: new Date(now) }, ...activeSet(row, policy.activeDevices).filter(item => item.hash !== hash)]
+      .slice(0, policy.activeDevices);
   const saved = await Device.findOneAndUpdate(
     { _id: row._id, revision: row.revision },
     {
       $set: {
         history,
         activeHash: blocked ? '' : hash,
+        activeHashes: nextActive,
         activatedAt: new Date(now),
         blockedUntil: blocked ? new Date(now + policy.blockHours * 60 * 60 * 1000) : null,
         passwordAttempts: 0,
@@ -153,7 +174,9 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
   return ApiResponse.success(
     res,
     { verified: true },
-    'Device verified with your account password. Previous Guulgaar device disconnected',
+    policy.activeDevices > 1
+      ? `Device verified with your account password. Up to ${policy.activeDevices} devices can use Guulgaar at once; the oldest one is disconnected when you verify another`
+      : 'Device verified with your account password. Previous Guulgaar device disconnected',
   );
 }));
 
@@ -161,7 +184,9 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
 export async function requireGuuldoonDevice(req: Request): Promise<void> {
   const row = await Device.findOne({ user: req.user!.userId }).lean();
   const hash = deviceHash(req);
-  if (!hash || !row || row.activeHash !== hash || (row.blockedUntil && row.blockedUntil.getTime() > Date.now())) {
+  const policy = await getDevicePolicy();
+  const verified = !!hash && !!row && activeSet(row, policy.activeDevices).some(item => item.hash === hash);
+  if (!verified || (row!.blockedUntil && row!.blockedUntil.getTime() > Date.now())) {
     throw new ForbiddenError('Verify this Guulgaar device before learning');
   }
 }

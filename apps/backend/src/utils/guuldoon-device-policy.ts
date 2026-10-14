@@ -2,11 +2,12 @@ import GuuldoonDevicePolicy from '../models/guuldoon-device-policy.model';
 
 export interface DevicePolicy {
   deviceLimit: number;
+  activeDevices: number;
   windowHours: number;
   blockHours: number;
 }
 
-export const DEFAULT_DEVICE_POLICY: DevicePolicy = { deviceLimit: 3, windowHours: 24, blockHours: 24 };
+export const DEFAULT_DEVICE_POLICY: DevicePolicy = { deviceLimit: 3, activeDevices: 1, windowHours: 24, blockHours: 24 };
 
 const CACHE_TTL_MS = 30_000;
 let cached: { at: number; value: DevicePolicy } | null = null;
@@ -17,6 +18,7 @@ export async function getDevicePolicy(): Promise<DevicePolicy> {
   const row = await GuuldoonDevicePolicy.findOne({ key: 'default' }).lean();
   const value: DevicePolicy = {
     deviceLimit: row?.deviceLimit ?? DEFAULT_DEVICE_POLICY.deviceLimit,
+    activeDevices: row?.activeDevices ?? DEFAULT_DEVICE_POLICY.activeDevices,
     windowHours: row?.windowHours ?? DEFAULT_DEVICE_POLICY.windowHours,
     blockHours: row?.blockHours ?? DEFAULT_DEVICE_POLICY.blockHours,
   };
