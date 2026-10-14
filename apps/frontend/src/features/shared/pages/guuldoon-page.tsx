@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { GuuldoonDevice } from '../components/guuldoon-device';
+import { GuuldoonDevicePolicy } from '../../admin/components/guuldoon-device-policy';
 import { GlobalSubscriptions } from '../components/global-subscriptions';
 import { GlobalCoursesPage } from './global-courses-page';
 
@@ -56,7 +57,7 @@ export function GuuldoonPage({ page }: { page: Page }) {
     {page === 'subscriptions' && <GlobalSubscriptions />}
     {page === 'overview' && <Overview />}
     {page === 'performance' && <PerformancePanel showStudents={role !== 'student'} />}
-    {page === 'devices' && (role === 'student' ? <GuuldoonDevice /> : <section className="rounded-2xl border p-6"><h2 className="font-bold">Guulgaar device verification</h2><p className="mt-3 text-sm">Students verify one browser using their current account password. New verification replaces the previous browser. Three distinct verified browsers within 24 hours block Guulgaar for 24 hours. School services remain independent.</p></section>)}
+    {page === 'devices' && (role === 'student' ? <GuuldoonDevice /> : <GuuldoonDevicePolicy />)}
     {page === 'settings' && <section className="rounded-2xl border bg-[var(--color-surface-primary)] p-6"><h2 className="text-lg font-semibold">Current subscription policy</h2><dl className="mt-4 grid gap-4 sm:grid-cols-2"><div><dt>Annual price</dt><dd className="font-semibold">$5 USD per student, per grade</dd></div><div><dt>Validity</dt><dd className="font-semibold">365 days from verified payment</dd></div><div><dt>Payment verification</dt><dd>Manual · Super Admin only</dd></div><div><dt>Device authorization</dt><dd>Account password · one verified browser</dd></div></dl><p className="mt-4 text-sm">Courses use the existing Course Builder. School fees and school access are managed separately.</p></section>}
   </main>;
 }
