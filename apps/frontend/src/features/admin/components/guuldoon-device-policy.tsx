@@ -3,11 +3,12 @@ import { Loader2, MonitorSmartphone, RotateCcw, Save } from 'lucide-react';
 import api from '../../../lib/axios';
 import { errorMessage } from './guuldoon-builder/types';
 
-type Policy = { deviceLimit: number; windowHours: number; blockHours: number };
-const DEFAULTS: Policy = { deviceLimit: 3, windowHours: 24, blockHours: 24 };
+type Policy = { deviceLimit: number; activeDevices: number; windowHours: number; blockHours: number };
+const DEFAULTS: Policy = { deviceLimit: 3, activeDevices: 1, windowHours: 24, blockHours: 24 };
 const endpoint = '/guuldoon/admin/device-policy';
 
 const fields: { key: keyof Policy; label: string; hint: string; min: number; max: number; unit: string }[] = [
+  { key: 'activeDevices', label: 'Devices at the same time', hint: 'How many devices one student can be signed in on together. Verifying another one disconnects the oldest.', min: 1, max: 5, unit: 'devices' },
   { key: 'deviceLimit', label: 'Block after this many devices', hint: 'A student who verifies this many different browsers inside the time window is blocked.', min: 2, max: 10, unit: 'devices' },
   { key: 'windowHours', label: 'Time window', hint: 'How far back different devices are counted.', min: 1, max: 168, unit: 'hours' },
   { key: 'blockHours', label: 'Block length', hint: 'How long the student cannot use Guulgaar once blocked.', min: 1, max: 168, unit: 'hours' },
@@ -16,7 +17,7 @@ const fields: { key: keyof Policy; label: string; hint: string; min: number; max
 /** Super Admin control for the Guulgaar one-device rule. */
 export function GuuldoonDevicePolicy() {
   const [saved, setSaved] = useState<Policy | null>(null);
-  const [form, setForm] = useState<Record<keyof Policy, string>>({ deviceLimit: '', windowHours: '', blockHours: '' });
+  const [form, setForm] = useState<Record<keyof Policy, string>>({ deviceLimit: '', activeDevices: '', windowHours: '', blockHours: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -24,7 +25,7 @@ export function GuuldoonDevicePolicy() {
 
   const apply = (policy: Policy) => {
     setSaved(policy);
-    setForm({ deviceLimit: String(policy.deviceLimit), windowHours: String(policy.windowHours), blockHours: String(policy.blockHours) });
+    setForm({ deviceLimit: String(policy.deviceLimit), activeDevices: String(policy.activeDevices), windowHours: String(policy.windowHours), blockHours: String(policy.blockHours) });
   };
 
   useEffect(() => {
@@ -35,9 +36,12 @@ export function GuuldoonDevicePolicy() {
   }, []);
 
   const numbers = {
-    deviceLimit: Number(form.deviceLimit), windowHours: Number(form.windowHours), blockHours: Number(form.blockHours),
+    deviceLimit: Number(form.deviceLimit), activeDevices: Number(form.activeDevices), windowHours: Number(form.windowHours), blockHours: Number(form.blockHours),
   };
-  const invalid = fields.find(f => !Number.isInteger(numbers[f.key]) || numbers[f.key] < f.min || numbers[f.key] > f.max);
+  const outOfRange = fields.find(f => !Number.isInteger(numbers[f.key]) || numbers[f.key] < f.min || numbers[f.key] > f.max);
+  const invalid = outOfRange || (numbers.deviceLimit <= numbers.activeDevices
+    ? { label: 'Block after this many devices', min: numbers.activeDevices + 1, max: 10 }
+    : null);
   const dirty = !!saved && fields.some(f => numbers[f.key] !== saved[f.key]);
 
   const save = async (payload: Policy) => {
@@ -67,7 +71,7 @@ export function GuuldoonDevicePolicy() {
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
         {fields.map(field => (
           <label key={field.key} className="block">
             <span className="text-sm font-semibold">{field.label}</span>
@@ -87,8 +91,8 @@ export function GuuldoonDevicePolicy() {
 
       <p className="mt-5 rounded-xl bg-sky-500/10 px-4 py-3 text-sm text-sky-500">
         {invalid
-          ? `${invalid.label}: enter a whole number from ${invalid.min} to ${invalid.max}.`
-          : `A student who verifies ${numbers.deviceLimit} different devices within ${numbers.windowHours} hours is blocked for ${numbers.blockHours} hours. So ${numbers.deviceLimit - 1} different devices can be used in that time.`}
+          ? `${invalid.label}: enter a whole number from ${invalid.min} to ${invalid.max}${outOfRange ? '' : ' (it must be larger than the devices allowed at the same time)'}.`
+          : `A student can be signed in on up to ${numbers.activeDevices} device${numbers.activeDevices === 1 ? '' : 's'} at once. Verifying ${numbers.deviceLimit} different devices within ${numbers.windowHours} hours blocks Guulgaar for ${numbers.blockHours} hours.`}
       </p>
 
       {error && <p role="alert" className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</p>}
@@ -107,7 +111,7 @@ export function GuuldoonDevicePolicy() {
           onClick={() => void save(DEFAULTS)}
           className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
         >
-          <RotateCcw size={16} /> Back to default (3 devices · 24 h · 24 h)
+          <RotateCcw size={16} /> Back to default (1 at once · block at 3 · 24 h · 24 h)
         </button>
       </div>
     </section>

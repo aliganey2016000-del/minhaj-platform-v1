@@ -24,16 +24,25 @@ function whole(value: unknown, label: string, min: number, max: number): number 
 }
 
 router.put('/', asyncHandler(async (req, res) => {
+  const current = await getDevicePolicy();
   const deviceLimit = whole(req.body.deviceLimit, 'Device limit', 2, 10);
+  const activeDevices = req.body.activeDevices === undefined
+    ? current.activeDevices
+    : whole(req.body.activeDevices, 'Devices at the same time', 1, 5);
   const windowHours = whole(req.body.windowHours, 'Window (hours)', 1, 168);
   const blockHours = whole(req.body.blockHours, 'Block length (hours)', 1, 168);
+  // Verifying `deviceLimit` different devices blocks the student, so the
+  // number of devices usable together must stay below that.
+  if (deviceLimit <= activeDevices) {
+    throw new BadRequestError('Block after N devices must be larger than the devices allowed at the same time');
+  }
   await GuuldoonDevicePolicy.findOneAndUpdate(
     { key: 'default' },
-    { $set: { deviceLimit, windowHours, blockHours, updatedBy: req.user!.userId } },
+    { $set: { deviceLimit, activeDevices, windowHours, blockHours, updatedBy: req.user!.userId } },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
   clearDevicePolicyCache();
-  return ApiResponse.success(res, { deviceLimit, windowHours, blockHours, defaults: DEFAULT_DEVICE_POLICY }, 'Device rule saved');
+  return ApiResponse.success(res, { deviceLimit, activeDevices, windowHours, blockHours, defaults: DEFAULT_DEVICE_POLICY }, 'Device rule saved');
 }));
 
 export default router;

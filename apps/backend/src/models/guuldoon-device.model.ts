@@ -4,6 +4,8 @@ const schema = new Schema({
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
   revision: { type: Number, default: 0 },
   activeHash: { type: String, default: '' },
+  // Browsers that may use Guulgaar at the same time (newest first; size capped by the policy).
+  activeHashes: { type: [{ hash: String, at: Date }], default: [] },
   activatedAt: Date,
   blockedUntil: Date,
   history: { type: [{ hash: String, at: Date }], default: [] },
