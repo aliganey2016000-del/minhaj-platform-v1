@@ -61,39 +61,63 @@ async function loadGlobalCourse(courseId: string, publishedOnly = true) {
   return course as any;
 }
 
+// Who may open which Guuldoon course (student record, class grade, active
+// subscription) changes rarely, but it was re-queried on every request. Only
+// successful checks are cached — a failure is never remembered, so a student
+// who just subscribed or enrolled gets in on the next request. The device
+// check below stays live because verifying a new device must cut off the old
+// one immediately.
+const ACCESS_CACHE_TTL_MS = 45_000;
+const ACCESS_CACHE_MAX = 5_000;
+const accessCache = new Map<string, { at: number; value: { course: any; student: any; grade: number } }>();
+
+function invalidateStudentAccess(userId: string) {
+  for (const key of accessCache.keys()) if (key.startsWith(`${userId}:`)) accessCache.delete(key);
+}
+
 async function loadStudentAccess(req: Request, courseId: string, requireEnrollment = true) {
   if (req.user?.role !== 'student' || req.user.isStaff) throw new ForbiddenError('Student access required');
-  const course = await loadGlobalCourse(courseId, true);
+  const userId = String(req.user.userId);
+  const cacheKey = `${userId}:${req.user.organizationId}:${courseId}`;
+  let access = accessCache.get(cacheKey);
+  if (!access || Date.now() - access.at > ACCESS_CACHE_TTL_MS) {
+    const course = await loadGlobalCourse(courseId, true);
 
-  const student = await Student.findOne({
-    user: req.user.userId,
-    school: req.user.organizationId,
-    approvalStatus: 'approved',
-    status: 'active',
-  }).select('_id class enrolledCourses school profile').lean();
-  if (!student?.class) throw new ForbiddenError('Your active school class is required for Guulgaar');
+    const student = await Student.findOne({
+      user: req.user.userId,
+      school: req.user.organizationId,
+      approvalStatus: 'approved',
+      status: 'active',
+    }).select('_id class enrolledCourses school profile').lean();
+    if (!student?.class) throw new ForbiddenError('Your active school class is required for Guuldoon');
 
-  const classroom = await ClassModel.findOne({ _id: student.class, school: student.school }).select('gradeLevel').lean();
-  const grade = classroom?.gradeLevel ?? null;
-  if (![8, 12].includes(grade || 0) || grade !== course.globalGrade) {
-    throw new ForbiddenError('This Guulgaar course is not available for your grade');
+    const classroom = await ClassModel.findOne({ _id: student.class, school: student.school }).select('gradeLevel').lean();
+    const grade = classroom?.gradeLevel ?? null;
+    if (![8, 12].includes(grade || 0) || grade !== course.globalGrade) {
+      throw new ForbiddenError('This Guuldoon course is not available for your grade');
+    }
+
+    const now = new Date();
+    const activeSubscription = await Subscription.exists({
+      user: req.user.userId,
+      school: student.school,
+      grade,
+      status: 'approved',
+      startsAt: { $lte: now },
+      expiresAt: { $gt: now },
+    });
+    if (!activeSubscription) throw new ForbiddenError('Active Guuldoon subscription required for this grade');
+
+    if (accessCache.size >= ACCESS_CACHE_MAX) accessCache.delete(accessCache.keys().next().value as string);
+    access = { at: Date.now(), value: { course, student, grade: grade as number } };
+    accessCache.set(cacheKey, access);
   }
-
-  const now = new Date();
-  const activeSubscription = await Subscription.exists({
-    user: req.user.userId,
-    school: student.school,
-    grade,
-    status: 'approved',
-    startsAt: { $lte: now },
-    expiresAt: { $gt: now },
-  });
-  if (!activeSubscription) throw new ForbiddenError('Active Guulgaar subscription required for this grade');
+  const { course, student, grade } = access.value;
 
   await requireGuuldoonDevice(req);
 
-  const enrolled = (student.enrolledCourses || []).some(id => String(id) === String(course._id));
-  if (requireEnrollment && !enrolled) throw new ForbiddenError('Open this Guulgaar course from the Courses page first');
+  const enrolled = (student.enrolledCourses || []).some((id: any) => String(id) === String(course._id));
+  if (requireEnrollment && !enrolled) throw new ForbiddenError('Open this Guuldoon course from the Courses page first');
 
   return { course, student: student as any, grade };
 }
@@ -248,6 +272,7 @@ router.post('/courses/:courseId/open', asyncHandler(async (req, res) => {
     );
     if (result.modifiedCount > 0) await Course.updateOne({ _id: course._id }, { $inc: { enrolledStudents: 1 } });
   }
+  invalidateStudentAccess(String(req.user!.userId));
 
   promoteGuuldoonDeviceCookie(req, res);
   res.set('Cache-Control', 'no-store, private, max-age=0');
