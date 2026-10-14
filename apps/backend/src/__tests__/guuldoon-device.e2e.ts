@@ -147,6 +147,48 @@ async function main() {
     );
     assert.equal((await verify('SchoolPassword123!')).status, 200);
 
+    // Admin-managed device rule: who can read/change it, validation, and that
+    // a saved rule actually changes when an account is blocked.
+    const policyRoot = '/api/v1/guuldoon/admin/device-policy';
+    assert.equal((await request(app).get(policyRoot)).status, 401);
+    assert.equal((await request(app).get(policyRoot).set(headers(student))).status, 403);
+    assert.equal((await request(app).get(policyRoot).set(headers(org))).status, 403);
+    assert.equal((await request(app).put(policyRoot).set(headers(org)).send({ deviceLimit: 5, windowHours: 24, blockHours: 24 })).status, 403);
+
+    const defaults = await request(app).get(policyRoot).set(headers(admin));
+    assert.equal(defaults.status, 200, JSON.stringify(defaults.body));
+    assert.deepEqual(
+      [defaults.body.data.deviceLimit, defaults.body.data.windowHours, defaults.body.data.blockHours],
+      [3, 24, 24],
+    );
+    for (const bad of [
+      { deviceLimit: 1, windowHours: 24, blockHours: 24 },
+      { deviceLimit: 11, windowHours: 24, blockHours: 24 },
+      { deviceLimit: 3, windowHours: 0, blockHours: 24 },
+      { deviceLimit: 3, windowHours: 24, blockHours: 169 },
+      { deviceLimit: 2.5, windowHours: 24, blockHours: 24 },
+      { windowHours: 24, blockHours: 24 },
+    ]) {
+      assert.equal((await request(app).put(policyRoot).set(headers(admin)).send(bad)).status, 400, JSON.stringify(bad));
+    }
+
+    // Allow four devices and a 6 hour block: three browsers pass, the fourth blocks for ~6 hours.
+    const saved = await request(app).put(policyRoot).set(headers(admin)).send({ deviceLimit: 4, windowHours: 12, blockHours: 6 });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    await Device.updateOne(
+      { user: student._id },
+      { $set: { blockedUntil: new Date(0), history: [], activeHash: '', passwordAttempts: 0 }, $unset: { passwordAttemptWindow: 1 } },
+    );
+    for (let i = 0; i < 3; i++) {
+      assert.equal((await verify('SchoolPassword123!')).status, 200, `device ${i + 1} should be allowed`);
+    }
+    const fourth = await verify('SchoolPassword123!');
+    assert.equal(fourth.status, 423);
+    assert.match(String(fourth.body.message), /4 devices verified within 12 hours.*6 hours/);
+    row = await Device.findOne({ user: student._id });
+    const blockedFor = row!.blockedUntil!.getTime() - Date.now();
+    assert.ok(blockedFor > 5.9 * 3600000 && blockedFor < 6.1 * 3600000, `block length ${blockedFor}`);
+
     console.log('Guuldoon account-password device verification, transfer, lockout, throttling and school independence passed.');
   } finally {
     await db.stop();

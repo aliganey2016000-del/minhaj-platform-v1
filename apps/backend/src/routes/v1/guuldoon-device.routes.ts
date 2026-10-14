@@ -5,6 +5,7 @@ import User from '../../models/user.model';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
 import { ApiError, BadRequestError, ConflictError, ForbiddenError } from '../../utils/api-error';
 import ApiResponse from '../../utils/api-response';
+import { getDevicePolicy } from '../../utils/guuldoon-device-policy';
 
 const router = Router();
 const cookie = 'guuldoon_device';
@@ -86,8 +87,10 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
   const user = req.user!.userId;
   const row = await state(user);
   const now = Date.now();
+  const policy = await getDevicePolicy();
+  const windowMs = policy.windowHours * 60 * 60 * 1000;
   if (row.blockedUntil && row.blockedUntil.getTime() > now) {
-    throw new ApiError(423, 'Guulgaar is blocked for 24 hours');
+    throw new ApiError(423, `Guulgaar is blocked for ${policy.blockHours} hours`);
   }
 
   const freshAttemptWindow = !row.passwordAttemptWindow
@@ -119,11 +122,11 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
   const hash = digest(deviceValue);
 
   const history = row.history
-    .filter(item => item.at && item.at.getTime() > now - day)
+    .filter(item => item.at && item.at.getTime() > now - windowMs)
     .map(item => ({ hash: item.hash!, at: item.at! }));
   if (!history.some(item => item.hash === hash)) history.push({ hash, at: new Date(now) });
 
-  const blocked = history.length >= 3;
+  const blocked = history.length >= policy.deviceLimit;
   const saved = await Device.findOneAndUpdate(
     { _id: row._id, revision: row.revision },
     {
@@ -131,7 +134,7 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
         history,
         activeHash: blocked ? '' : hash,
         activatedAt: new Date(now),
-        blockedUntil: blocked ? new Date(now + day) : null,
+        blockedUntil: blocked ? new Date(now + policy.blockHours * 60 * 60 * 1000) : null,
         passwordAttempts: 0,
         passwordAttemptWindow: null,
       },
@@ -141,7 +144,7 @@ router.post('/verify-password', asyncHandler(async (req, res) => {
 
   if (!saved) throw new ConflictError('Verification changed. Retry');
   if (blocked) {
-    throw new ApiError(423, 'Three devices verified within 24 hours. Guulgaar is blocked for 24 hours');
+    throw new ApiError(423, `${policy.deviceLimit} devices verified within ${policy.windowHours} hours. Guulgaar is blocked for ${policy.blockHours} hours`);
   }
 
   setDeviceCookie(res, deviceValue);
