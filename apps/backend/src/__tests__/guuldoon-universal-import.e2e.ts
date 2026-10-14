@@ -349,6 +349,11 @@ async function main() {
     assert.equal(experience.body.data.chapters[0].id, 'PHY12_CH01');
     assert.equal(experience.body.data.chapters[0].title, 'Electricity');
     assert.equal(experience.body.data.chapters[0].items[0].title, '1.1 Ohm Law');
+    // The list stays small: lesson text is loaded on demand, not shipped for every lesson.
+    for (const chapter of experience.body.data.chapters) {
+      for (const item of chapter.items) assert.equal('contentText' in item, false, `${item.title} must not carry its text`);
+    }
+    assert.equal(experience.body.data.chapters[0].items[0].hasContent, true);
     assert.equal(experience.body.data.chapters[0].yearCounts[0].year, 2021);
     assert.equal(experience.body.data.glossary[0].termAr, 'المقاومة');
 
