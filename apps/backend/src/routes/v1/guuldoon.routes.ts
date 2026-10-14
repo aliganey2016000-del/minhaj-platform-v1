@@ -413,6 +413,14 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
     thisWeek: mistakes.filter(item => item.dueAt > tomorrow && item.dueAt <= week).length,
   };
 
+  // The chapter list never needs the full lesson text: the chapter view loads
+  // it on demand from /chapters/:id/lesson. Shipping every lesson's text made
+  // this response ~600 KB for each student, so only the "continue" card keeps it.
+  const slimChapters = chapterRows.map(chapter => ({
+    ...chapter,
+    items: chapter.items.map(({ contentText, ...item }: any) => ({ ...item, hasContent: !!contentText })),
+  }));
+
   return ApiResponse.success(res, {
     course: {
       id: String(course._id),
@@ -426,7 +434,7 @@ router.get('/courses/:courseId/experience', asyncHandler(async (req, res) => {
     passMeter,
     passTarget: config?.passTarget ?? 70,
     targetExamDate: config?.targetExamDate || null,
-    chapters: chapterRows,
+    chapters: slimChapters,
     weakest,
     continueItem,
     exams: exams.map(exam => ({
