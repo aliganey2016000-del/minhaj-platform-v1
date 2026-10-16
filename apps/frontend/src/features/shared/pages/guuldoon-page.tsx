@@ -6,6 +6,7 @@ import { GuuldoonDevice } from '../components/guuldoon-device';
 import { GuuldoonDevicePolicy } from '../../admin/components/guuldoon-device-policy';
 import { GlobalSubscriptions } from '../components/global-subscriptions';
 import { GlobalCoursesPage } from './global-courses-page';
+import { GuuldoonMyProgress } from '../../student/pages/guuldoon-my-progress';
 
 type Page = 'overview' | 'courses' | 'performance' | 'subscriptions' | 'devices' | 'settings';
 const allowedPages: Record<string, Page[]> = {
@@ -50,6 +51,7 @@ export function GuuldoonPage({ page }: { page: Page }) {
   if (access === 'denied') return <p role="alert" className="p-6">You do not have access to this Guulgaar page.</p>;
   if (access === 'error') return <p role="alert" className="p-6">Unable to verify Guulgaar access. Please reload to try again.</p>;
   if (page === 'subscriptions' && role === 'student') return <GlobalSubscriptions />;
+  if (page === 'performance' && role === 'student') return <GuuldoonMyProgress />;
   if (page === 'courses') return <GlobalCoursesPage />;
   const title = page === 'overview' ? 'Overview' : page === 'performance' ? role === 'student' ? 'My Progress' : role === 'teacher' ? 'My Students’ Performance' : 'Student Performance' : page === 'subscriptions' ? role === 'student' ? 'My Subscription' : role === 'org_admin' ? 'Subscriptions' : 'Subscriptions & Payments' : page === 'devices' ? role === 'student' ? 'My Device' : 'Devices & Access' : 'Settings';
   return <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
