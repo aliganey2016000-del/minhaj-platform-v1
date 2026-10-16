@@ -213,6 +213,18 @@ export function GuuldoonCourseExperience() {
     }
   };
 
+  // Deep link from My Progress: ?tab=exams&exam=<id> opens that exam straight away.
+  const deepExam = searchParams.get('exam');
+  const deepExamDone = useRef(false);
+  useEffect(() => {
+    if (!data || !deepExam || deepExamDone.current) return;
+    const summary = data.exams.find(item => item.id === deepExam);
+    if (!summary) return;
+    deepExamDone.current = true;
+    setTab('exams');
+    void openExam(summary);
+  }, [data, deepExam]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const submitAnswer = async (question: ExamQuestion) => {
     if (answers[question._id] === undefined || answering) return;
     setAnswering(true);

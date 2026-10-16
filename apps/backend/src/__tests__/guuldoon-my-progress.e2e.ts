@@ -67,6 +67,8 @@ async function main() {
     assert.equal(progress.grade, 12);
     assert.equal(progress.answered, 2);
     assert.equal(progress.accuracy, 50);
+    assert.equal(progress.average, 50);
+    assert.equal(progress.attemptsCount, 2);
     assert.equal(progress.streak, 1);
     assert.equal(progress.week.length, 7);
     assert.equal(progress.week[6].n, 2);
@@ -88,6 +90,34 @@ async function main() {
     assert.equal(mine.items[0].answer, undefined, 'the raw answer key is never sent');
     const understand = (await request(app).get(`/api/v1/guuldoon/courses/${course._id}/chapters/${chapterId}/my-answers?kind=understand`).set(studentHeaders).set('Cookie', cookie).expect(200)).body.data;
     assert.equal(understand.answered, 0);
+
+    // Exam review before a retake: one right, one wrong, score from the marks.
+    const examId = past.body.data._id;
+    const review = (await request(app).get(`/api/v1/guuldoon/courses/${course._id}/exams/${examId}/my-answers`).set(studentHeaders).set('Cookie', cookie).expect(200)).body.data;
+    assert.equal(review.exam.year, 2021);
+    assert.equal(review.questionCount, 3);
+    assert.equal(review.answered, 2);
+    assert.equal(review.earned, 2);
+    assert.equal(review.average, 50);
+    assert.equal(review.items[0].answer, undefined, 'the raw answer key is never sent');
+    await request(app).get(`/api/v1/guuldoon/courses/${course._id}/exams/${practice.body.data._id}/my-answers`).set(studentHeaders).set('Cookie', cookie).expect(200);
+    await request(app).get(`/api/v1/guuldoon/courses/${course._id}/exams/000000000000000000000000/my-answers`).set(studentHeaders).set('Cookie', cookie).expect(404);
+
+    // Retaking: the standing follows the latest attempt, the average counts every attempt.
+    assert.equal((await answer(2, 2)).body.data.correct, true);
+    const again = (await request(app).get('/api/v1/guuldoon/my-progress').set(studentHeaders).expect(200)).body.data;
+    assert.equal(again.attemptsCount, 3);
+    assert.equal(again.average, 67);
+    assert.equal(again.accuracy, 50, 'first-try accuracy does not change on a retake');
+    const retaken = again.exams.find((row: any) => row.year === 2021);
+    assert.equal(retaken.rounds, 2);
+    assert.equal(retaken.earned, 4);
+    assert.equal(retaken.average, 67);
+    const reviewAfter = (await request(app).get(`/api/v1/guuldoon/courses/${course._id}/exams/${examId}/my-answers`).set(studentHeaders).set('Cookie', cookie).expect(200)).body.data;
+    assert.equal(reviewAfter.wrong, 0);
+    assert.equal(reviewAfter.right, 2);
+    assert.equal(reviewAfter.rounds, 2);
+    assert.equal(reviewAfter.items.find((item: any) => item.number === 2).firstTry, false);
 
     console.log('Guulgaar my-progress e2e passed');
   } finally {
