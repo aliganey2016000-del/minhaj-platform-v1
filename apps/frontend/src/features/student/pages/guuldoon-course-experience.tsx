@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowLeft,
@@ -124,6 +124,8 @@ function FormulaText({ text }: { text: string }) {
 export function GuuldoonCourseExperience() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const deepChapter = searchParams.get('chapter');
   const [tab, setTab] = useState<Tab>('chapters');
   const [data, setData] = useState<Experience | null>(null);
   const [loading, setLoading] = useState(true);
@@ -154,7 +156,7 @@ export function GuuldoonCourseExperience() {
       });
       const payload = response.data as Experience;
       setData(payload);
-      if (!hasData.current) setOpenChapter(payload.chapters[0]?.id || null);
+      if (!hasData.current) setOpenChapter(deepChapter && payload.chapters.some(item => item.id === deepChapter) ? deepChapter : payload.chapters[0]?.id || null);
       hasData.current = true;
     } catch (err: any) {
       setError(err.response?.data?.message || 'Guulgaar course-ka lama soo rari karin.');
@@ -389,6 +391,8 @@ export function GuuldoonCourseExperience() {
           passMeter={data.passMeter}
           chapters={data.chapters}
           initialChapterId={openChapter}
+          autoOpenHub={searchParams.get('hub') === '1'}
+          autoHubTab={searchParams.get('tab') === 'past' ? 'past' : 'understand'}
           onProgressChanged={refreshProgress}
         />
       )}

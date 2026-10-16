@@ -23,6 +23,7 @@ import GuuldoonResource from '../../models/guuldoon-resource.model';
 import GuuldoonGlossary from '../../models/guuldoon-glossary.model';
 import GuuldoonSubject from '../../models/guuldoon-subject.model';
 import GuuldoonUnmatchedAnswer from '../../models/guuldoon-unmatched-answer.model';
+import { compareEntries, computePoints } from '../../services/guuldoon-leaderboard.service';
 import { describeAnswer, gradeAnswer, isAnswerSpec, isAutoMarkable, normalizeText } from '../../services/guuldoon-marking.service';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -727,6 +728,148 @@ router.get('/courses/:courseId/mistakes', asyncHandler(async (req, res) => {
     .populate({ path: 'question', select: '-answer' })
     .lean();
   return ApiResponse.success(res, rows);
+}));
+
+const SOMALIA_OFFSET = 3 * 60 * 60 * 1000;
+const dayKey = (date: Date) => new Date(date.getTime() + SOMALIA_OFFSET).toISOString().slice(0, 10);
+const dayNo = (key: string) => Math.floor(Date.parse(`${key}T00:00:00Z`) / 86400000);
+
+/** Consecutive active days ending today or yesterday (Mogadishu days). */
+export function streakFromDays(days: string[], now = new Date()): number {
+  const set = new Set(days.map(dayNo));
+  let day = dayNo(dayKey(now));
+  if (!set.has(day)) day -= 1;
+  let run = 0;
+  while (set.has(day)) { run += 1; day -= 1; }
+  return run;
+}
+
+/** Student dashboard: every subject of the student's grade, chapter mastery, exams and activity. */
+router.get('/my-progress', asyncHandler(async (req, res) => {
+  if (req.user?.role !== 'student' || req.user.isStaff) throw new ForbiddenError('Student access required');
+  res.set('Cache-Control', 'no-store, private, max-age=0');
+  const userId = req.user.userId;
+  const student: any = await Student.findOne({ user: userId, school: req.user.organizationId, approvalStatus: 'approved', status: 'active' }).select('class profile').lean();
+  const classroom = student?.class ? await ClassModel.findOne({ _id: student.class }).select('gradeLevel').lean() : null;
+  const grade = classroom?.gradeLevel === 8 || classroom?.gradeLevel === 12 ? classroom.gradeLevel : null;
+  const profile = student?.profile ? await Profile.findById(student.profile).select('firstName').lean() : null;
+  const empty = { studentName: profile?.firstName || '', grade, passMeter: 0, passTarget: 70, streak: 0, answered: 0, accuracy: 0, rank: null, week: [], courses: [], exams: [] };
+  if (!grade) return ApiResponse.success(res, empty);
+
+  const courses = await Course.find({ scope: 'global', status: 'published', globalGrade: grade }).select('title').sort({ createdAt: 1 }).limit(12).lean();
+  if (!courses.length) return ApiResponse.success(res, empty);
+  const courseIds = courses.map((course: any) => course._id);
+
+  const attempts = await GuuldoonAttempt.find({ user: userId, course: { $in: courseIds }, correct: { $ne: null }, retry: { $ne: true } })
+    .sort({ createdAt: 1 }).limit(5000).select('question course correct createdAt').lean();
+  // The first marked attempt of a question decides whether it was known.
+  const first = new Map<string, any>();
+  for (const attempt of attempts as any[]) if (!first.has(String(attempt.question))) first.set(String(attempt.question), attempt);
+  const questionExam = new Map<string, string>();
+  if (first.size) {
+    const rows = await GuuldoonQuestion.find({ _id: { $in: [...first.keys()] } }).select('exam').lean();
+    for (const row of rows as any[]) questionExam.set(String(row._id), String(row.exam));
+  }
+  const examStats = new Map<string, { answered: number; correct: number }>();
+  for (const [question, attempt] of first) {
+    const exam = questionExam.get(question);
+    if (!exam) continue;
+    const entry = examStats.get(exam) || { answered: 0, correct: 0 };
+    entry.answered += 1;
+    if (attempt.correct) entry.correct += 1;
+    examStats.set(exam, entry);
+  }
+
+  const courseRows = await Promise.all((courses as any[]).map(async (course) => {
+    const shared = await loadCourseExperienceShared(course._id);
+    const stats = await chapterStats(userId, course._id, shared.chapterIds);
+    const manualWeights = new Map((shared.config?.chapterWeights || []).map((item: any) => [item.chapterId, item.examWeight]));
+    const questionsByChapter = new Map<string, number>();
+    const questionsByExam = new Map<string, number>();
+    for (const row of shared.chapterQuestionRows as any[]) {
+      questionsByChapter.set(String(row._id.chapterId), (questionsByChapter.get(String(row._id.chapterId)) || 0) + Number(row.count || 0));
+      questionsByExam.set(String(row._id.exam), (questionsByExam.get(String(row._id.exam)) || 0) + Number(row.count || 0));
+    }
+    const practiceByChapter = new Map<string, number>((shared.practiceRows as any[]).map((row: any) => [String(row._id), Number(row.count || 0)]));
+    const language = (shared.importedSubject as any)?.language || 'en';
+    const chapters = (shared.chapters as any[]).map((chapter) => {
+      const id = shared.usingUniversalImport ? String(chapter.externalId) : String(chapter._id);
+      const title = shared.usingUniversalImport
+        ? (language === 'ar' ? (chapter.titleAr || chapter.titleEn || chapter.titleSo) : language === 'so' ? (chapter.titleSo || chapter.titleEn || chapter.titleAr) : (chapter.titleEn || chapter.titleSo || chapter.titleAr))
+        : chapter.title;
+      const imported = shared.usingUniversalImport && chapter.examWeight !== null && chapter.examWeight !== undefined ? Number(chapter.examWeight) : undefined;
+      const examWeight = imported ?? manualWeights.get(id) ?? Math.round((shared.automaticWeights[id] || 0) * 10) / 10;
+      return { id, title, order: chapter.order, examWeight, mastery: stats[id]?.mastery || 0, attempts: stats[id]?.attempts || 0, questionCount: questionsByChapter.get(id) || 0, practiceCount: practiceByChapter.get(id) || 0 };
+    });
+    const totalWeight = chapters.reduce((sum, chapter) => sum + chapter.examWeight, 0);
+    const passMeter = totalWeight ? Math.round(chapters.reduce((sum, chapter) => sum + chapter.mastery * chapter.examWeight, 0) / totalWeight) : 0;
+    const exams = (shared.exams as any[]).map((exam) => {
+      const stat = examStats.get(String(exam._id)) || { answered: 0, correct: 0 };
+      return { examId: String(exam._id), courseId: String(course._id), year: exam.year, totalMarks: exam.totalMarks, durationMin: exam.durationMin, questionCount: questionsByExam.get(String(exam._id)) || 0, answered: stat.answered, correct: stat.correct };
+    });
+    return { course: { id: String(course._id), title: course.title, passMeter, passTarget: shared.config?.passTarget ?? 70, chapters }, exams };
+  }));
+
+  const days = [...new Set((attempts as any[]).map((attempt) => dayKey(new Date(attempt.createdAt))))];
+  const now = new Date();
+  const week = Array.from({ length: 7 }, (_, index) => {
+    const day = dayKey(new Date(now.getTime() - (6 - index) * 86400000));
+    return { day, n: (attempts as any[]).filter((attempt) => dayKey(new Date(attempt.createdAt)) === day).length };
+  });
+  const answered = first.size;
+  const correct = [...first.values()].filter((attempt) => attempt.correct).length;
+  // The rank is a nice-to-have: a slow or failing leaderboard query must not take the whole dashboard down.
+  const points = (await computePoints(grade, 'all').catch(() => [])).slice().sort(compareEntries);
+  const position = points.findIndex((entry) => entry.user === String(userId));
+  const withData = courseRows.map((row) => row.course);
+  const passMeter = withData.length ? Math.round(withData.reduce((sum, course) => sum + course.passMeter, 0) / withData.length) : 0;
+
+  return ApiResponse.success(res, {
+    studentName: profile?.firstName || '',
+    grade,
+    passMeter,
+    passTarget: withData[0]?.passTarget ?? 70,
+    streak: streakFromDays(days, now),
+    answered,
+    accuracy: answered ? Math.round((correct / answered) * 100) : 0,
+    rank: position >= 0 ? { position: position + 1, of: points.length } : null,
+    week,
+    courses: withData,
+    exams: courseRows.flatMap((row) => row.exams),
+  });
+}));
+
+/** The questions this student has answered in a chapter, with their own answer and whether it was right. */
+router.get('/courses/:courseId/chapters/:chapterId/my-answers', asyncHandler(async (req, res) => {
+  const { course } = await loadStudentAccess(req, req.params.courseId, false);
+  const kind = req.query.kind === 'past' ? 'past' : 'understand';
+  const exams = await GuuldoonExam.find({ course: course._id, published: true, kind: kind === 'understand' ? 'practice' : { $ne: 'practice' } }).select('_id year').lean();
+  const yearOf = new Map(exams.map((exam: any) => [String(exam._id), Number(exam.year)]));
+  const questions: any[] = await GuuldoonQuestion.find({ course: course._id, exam: { $in: exams.map((exam: any) => exam._id) }, chapterId: req.params.chapterId })
+    .select('+answer').sort({ number: 1 }).limit(500).lean();
+  const attempts: any[] = questions.length
+    ? await GuuldoonAttempt.find({ user: req.user!.userId, question: { $in: questions.map((question) => question._id) }, retry: { $ne: true } }).sort({ createdAt: 1 }).select('question answer correct createdAt').lean()
+    : [];
+  const firstBy = new Map<string, any>();
+  for (const attempt of attempts) if (!firstBy.has(String(attempt.question))) firstBy.set(String(attempt.question), attempt);
+  const items = questions.filter((question) => firstBy.has(String(question._id))).map((question) => {
+    const attempt = firstBy.get(String(question._id));
+    const verified = question.answerStatus === 'verified';
+    return {
+      ...safeQuestion(question),
+      examYear: yearOf.get(String(question.exam)) || null,
+      mine: describeAnswer(question.type, attempt.answer, question.options),
+      correct: attempt.correct,
+      right: verified ? describeAnswer(question.type, question.answer, question.options) : '',
+      answeredAt: attempt.createdAt,
+    };
+  }).sort((a, b) => Number(a.correct === true) - Number(b.correct === true) || +new Date(b.answeredAt) - +new Date(a.answeredAt));
+  return ApiResponse.success(res, {
+    answered: items.length,
+    right: items.filter((item) => item.correct === true).length,
+    wrong: items.filter((item) => item.correct === false).length,
+    items,
+  });
 }));
 
 // ---------------------------------------------------------------------------

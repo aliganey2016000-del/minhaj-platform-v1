@@ -112,6 +112,9 @@ type Props = {
   passMeter: number;
   chapters: GuuldoonStudentChapter[];
   initialChapterId?: string | null;
+  /** Deep link from My Progress: open this chapter's practice hub straight away, on the chosen tab. */
+  autoOpenHub?: boolean;
+  autoHubTab?: 'understand' | 'past';
   onProgressChanged?: () => void | Promise<void>;
 };
 
@@ -268,6 +271,8 @@ export function GuuldoonChaptersExperience({
   passMeter,
   chapters,
   initialChapterId,
+  autoOpenHub,
+  autoHubTab,
   onProgressChanged,
 }: Props) {
   const [filter, setFilter] = useState<Filter>('order');
@@ -437,6 +442,15 @@ export function GuuldoonChaptersExperience({
       setLoading(false);
     }
   };
+
+  const autoHubDone = useRef(false);
+  useEffect(() => {
+    if (!autoOpenHub || autoHubDone.current) return;
+    const chapter = chapters.find(item => item.id === initialChapterId);
+    if (!chapter) return;
+    autoHubDone.current = true;
+    void openHub(chapter).then(() => { if (autoHubTab === 'past') setHubTab('past'); });
+  }, [autoOpenHub, autoHubTab, initialChapterId, chapters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isReady = (question: Question) => {
     const value = answers[question._id];
