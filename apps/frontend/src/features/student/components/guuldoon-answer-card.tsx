@@ -6,7 +6,7 @@ export type AnswerItem = {
 };
 
 /** One answered question: the student's answer, whether it was right, and the right answer for mistakes. */
-export function AnswerCard({ item, onRetry }: { item: AnswerItem; onRetry?: () => void }) {
+export function AnswerCard({ item, onRetry, mineLabel = 'Jawaabtaada' }: { item: AnswerItem; onRetry?: () => void; mineLabel?: string }) {
   return (
     <article className={'space-y-2 rounded-2xl border p-3.5 ' + (item.correct === false ? 'border-rose-500/30 bg-rose-500/5' : item.correct ? 'border-emerald-500/30 bg-emerald-500/5' : '')}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-[var(--color-text-tertiary)]">
@@ -17,7 +17,7 @@ export function AnswerCard({ item, onRetry }: { item: AnswerItem; onRetry?: () =
       </div>
       <p className="whitespace-pre-line text-sm font-bold" dir="auto">{item.textSo || item.textEn}</p>
       <div>
-        <span className="block text-[11px] text-[var(--color-text-tertiary)]">Jawaabtaada</span>
+        <span className="block text-[11px] text-[var(--color-text-tertiary)]">{mineLabel}</span>
         <b className={'whitespace-pre-line break-words text-sm ' + (item.correct === false ? 'text-rose-500' : item.correct ? 'text-emerald-600' : '')} dir="auto">{item.mine || '—'}</b>
       </div>
       {item.correct === false && item.right && (

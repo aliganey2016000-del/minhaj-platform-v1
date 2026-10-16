@@ -1,4 +1,5 @@
 import guuldoonRoutes from './guuldoon.routes';
+import guuldoonChallengeRoutes from './guuldoon-challenge.routes';
 import guuldoonMediaRoutes from './guuldoon-media.routes';
 import globalSubscriptionRoutes from './global-subscription.routes';
 import guuldoonSchoolBonusRoutes from './guuldoon-school-bonus.routes';
@@ -71,6 +72,7 @@ import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
 router.use('/guuldoon-media', guuldoonMediaRoutes);
+router.use('/guuldoon-challenges', guuldoonChallengeRoutes);
 router.use('/guuldoon', guuldoonRoutes);
 router.use('/global-subscriptions/sms-webhook', globalSubscriptionSmsRoutes);
 router.use('/global-subscriptions', globalSubscriptionRoutes);

@@ -125,6 +125,9 @@ jobs:
       - name: Guulgaar student progress dashboard
         run: npx ts-node --files src/__tests__/guuldoon-my-progress.e2e.ts
 
+      - name: Guulgaar teacher challenges
+        run: npx ts-node --files src/__tests__/guuldoon-challenge.e2e.ts
+
       - name: Guuldoon deterministic marking engine
         run: npx ts-node --files src/__tests__/guuldoon-marking.e2e.ts
 
