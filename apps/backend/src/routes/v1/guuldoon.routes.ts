@@ -753,7 +753,7 @@ router.get('/my-progress', asyncHandler(async (req, res) => {
   const classroom = student?.class ? await ClassModel.findOne({ _id: student.class }).select('gradeLevel').lean() : null;
   const grade = classroom?.gradeLevel === 8 || classroom?.gradeLevel === 12 ? classroom.gradeLevel : null;
   const profile = student?.profile ? await Profile.findById(student.profile).select('firstName').lean() : null;
-  const empty = { studentName: profile?.firstName || '', grade, passMeter: 0, passTarget: 70, streak: 0, answered: 0, accuracy: 0, rank: null, week: [], courses: [], exams: [] };
+  const empty = { studentName: profile?.firstName || '', grade, passMeter: 0, passTarget: 70, streak: 0, answered: 0, accuracy: 0, average: 0, attemptsCount: 0, rank: null, week: [], courses: [], exams: [] };
   if (!grade) return ApiResponse.success(res, empty);
 
   const courses = await Course.find({ scope: 'global', status: 'published', globalGrade: grade }).select('title').sort({ createdAt: 1 }).limit(12).lean();
@@ -762,22 +762,38 @@ router.get('/my-progress', asyncHandler(async (req, res) => {
 
   const attempts = await GuuldoonAttempt.find({ user: userId, course: { $in: courseIds }, correct: { $ne: null }, retry: { $ne: true } })
     .sort({ createdAt: 1 }).limit(5000).select('question course correct createdAt').lean();
-  // The first marked attempt of a question decides whether it was known.
+  // First attempt = was it known; latest attempt = current standing; all attempts = the average.
   const first = new Map<string, any>();
-  for (const attempt of attempts as any[]) if (!first.has(String(attempt.question))) first.set(String(attempt.question), attempt);
-  const questionExam = new Map<string, string>();
-  if (first.size) {
-    const rows = await GuuldoonQuestion.find({ _id: { $in: [...first.keys()] } }).select('exam').lean();
-    for (const row of rows as any[]) questionExam.set(String(row._id), String(row.exam));
+  const latest = new Map<string, any>();
+  const perQuestion = new Map<string, number>();
+  for (const attempt of attempts as any[]) {
+    const key = String(attempt.question);
+    if (!first.has(key)) first.set(key, attempt);
+    latest.set(key, attempt);
+    perQuestion.set(key, (perQuestion.get(key) || 0) + 1);
   }
-  const examStats = new Map<string, { answered: number; correct: number }>();
-  for (const [question, attempt] of first) {
-    const exam = questionExam.get(question);
-    if (!exam) continue;
-    const entry = examStats.get(exam) || { answered: 0, correct: 0 };
+  const questionInfo = new Map<string, { exam: string; marks: number }>();
+  if (first.size) {
+    const rows = await GuuldoonQuestion.find({ _id: { $in: [...first.keys()] } }).select('exam marks').lean();
+    for (const row of rows as any[]) questionInfo.set(String(row._id), { exam: String(row.exam), marks: Number(row.marks || 0) });
+  }
+  const examStats = new Map<string, { answered: number; correct: number; earned: number; tries: number; triesRight: number; rounds: number }>();
+  for (const [question, firstAttempt] of first) {
+    const info = questionInfo.get(question);
+    if (!info) continue;
+    const entry = examStats.get(info.exam) || { answered: 0, correct: 0, earned: 0, tries: 0, triesRight: 0, rounds: 0 };
     entry.answered += 1;
-    if (attempt.correct) entry.correct += 1;
-    examStats.set(exam, entry);
+    if (firstAttempt.correct) entry.correct += 1;
+    if (latest.get(question)?.correct) entry.earned += info.marks;
+    entry.rounds = Math.max(entry.rounds, perQuestion.get(question) || 0);
+    examStats.set(info.exam, entry);
+  }
+  for (const attempt of attempts as any[]) {
+    const info = questionInfo.get(String(attempt.question));
+    const entry = info && examStats.get(info.exam);
+    if (!entry) continue;
+    entry.tries += 1;
+    if (attempt.correct) entry.triesRight += 1;
   }
 
   const courseRows = await Promise.all((courses as any[]).map(async (course) => {
@@ -804,8 +820,8 @@ router.get('/my-progress', asyncHandler(async (req, res) => {
     const totalWeight = chapters.reduce((sum, chapter) => sum + chapter.examWeight, 0);
     const passMeter = totalWeight ? Math.round(chapters.reduce((sum, chapter) => sum + chapter.mastery * chapter.examWeight, 0) / totalWeight) : 0;
     const exams = (shared.exams as any[]).map((exam) => {
-      const stat = examStats.get(String(exam._id)) || { answered: 0, correct: 0 };
-      return { examId: String(exam._id), courseId: String(course._id), year: exam.year, totalMarks: exam.totalMarks, durationMin: exam.durationMin, questionCount: questionsByExam.get(String(exam._id)) || 0, answered: stat.answered, correct: stat.correct };
+      const stat = examStats.get(String(exam._id)) || { answered: 0, correct: 0, earned: 0, tries: 0, triesRight: 0, rounds: 0 };
+      return { examId: String(exam._id), courseId: String(course._id), year: exam.year, totalMarks: exam.totalMarks, durationMin: exam.durationMin, questionCount: questionsByExam.get(String(exam._id)) || 0, answered: stat.answered, correct: stat.correct, earned: stat.earned, rounds: stat.rounds, average: stat.tries ? Math.round((stat.triesRight / stat.tries) * 100) : 0 };
     });
     return { course: { id: String(course._id), title: course.title, passMeter, passTarget: shared.config?.passTarget ?? 70, chapters }, exams };
   }));
@@ -832,12 +848,49 @@ router.get('/my-progress', asyncHandler(async (req, res) => {
     streak: streakFromDays(days, now),
     answered,
     accuracy: answered ? Math.round((correct / answered) * 100) : 0,
+    // Average over every attempt, retakes included.
+    average: attempts.length ? Math.round(((attempts as any[]).filter((attempt) => attempt.correct).length / attempts.length) * 100) : 0,
+    attemptsCount: attempts.length,
     rank: position >= 0 ? { position: position + 1, of: points.length } : null,
     week,
     courses: withData,
     exams: courseRows.flatMap((row) => row.exams),
   });
 }));
+
+/** Shapes the questions a student answered: latest result, own answer, key (only when verified), attempts and average. */
+function buildMyAnswers(questions: any[], attempts: any[], yearOf?: Map<string, number>) {
+  const byQuestion = new Map<string, any[]>();
+  for (const attempt of attempts) {
+    const list = byQuestion.get(String(attempt.question)) || [];
+    list.push(attempt);
+    byQuestion.set(String(attempt.question), list);
+  }
+  const items = questions.filter((question) => byQuestion.has(String(question._id))).map((question) => {
+    const list = byQuestion.get(String(question._id))!;
+    const last = list[list.length - 1];
+    const verified = question.answerStatus === 'verified';
+    return {
+      ...safeQuestion(question),
+      examYear: yearOf?.get(String(question.exam)) || null,
+      mine: describeAnswer(question.type, last.answer, question.options),
+      correct: last.correct,
+      firstTry: list[0].correct,
+      attempts: list.length,
+      right: verified ? describeAnswer(question.type, question.answer, question.options) : '',
+      answeredAt: last.createdAt,
+    };
+  });
+  const marked = attempts.filter((attempt) => attempt.correct !== null);
+  return {
+    items,
+    answered: items.length,
+    right: items.filter((item) => item.correct === true).length,
+    wrong: items.filter((item) => item.correct === false).length,
+    attempts: marked.length,
+    average: marked.length ? Math.round((marked.filter((attempt) => attempt.correct).length / marked.length) * 100) : 0,
+  };
+}
 
 /** The questions this student has answered in a chapter, with their own answer and whether it was right. */
 router.get('/courses/:courseId/chapters/:chapterId/my-answers', asyncHandler(async (req, res) => {
@@ -850,25 +903,30 @@ router.get('/courses/:courseId/chapters/:chapterId/my-answers', asyncHandler(asy
   const attempts: any[] = questions.length
     ? await GuuldoonAttempt.find({ user: req.user!.userId, question: { $in: questions.map((question) => question._id) }, retry: { $ne: true } }).sort({ createdAt: 1 }).select('question answer correct createdAt').lean()
     : [];
-  const firstBy = new Map<string, any>();
-  for (const attempt of attempts) if (!firstBy.has(String(attempt.question))) firstBy.set(String(attempt.question), attempt);
-  const items = questions.filter((question) => firstBy.has(String(question._id))).map((question) => {
-    const attempt = firstBy.get(String(question._id));
-    const verified = question.answerStatus === 'verified';
-    return {
-      ...safeQuestion(question),
-      examYear: yearOf.get(String(question.exam)) || null,
-      mine: describeAnswer(question.type, attempt.answer, question.options),
-      correct: attempt.correct,
-      right: verified ? describeAnswer(question.type, question.answer, question.options) : '',
-      answeredAt: attempt.createdAt,
-    };
-  }).sort((a, b) => Number(a.correct === true) - Number(b.correct === true) || +new Date(b.answeredAt) - +new Date(a.answeredAt));
+  const result = buildMyAnswers(questions, attempts, yearOf);
+  result.items.sort((a, b) => Number(a.correct === true) - Number(b.correct === true) || +new Date(b.answeredAt) - +new Date(a.answeredAt));
+  return ApiResponse.success(res, result);
+}));
+
+/** One past exam reviewed: score, average of all attempts, and every question the student answered. */
+router.get('/courses/:courseId/exams/:examId/my-answers', asyncHandler(async (req, res) => {
+  const { course } = await loadStudentAccess(req, req.params.courseId, false);
+  const exam: any = await GuuldoonExam.findOne({ _id: objectId(req.params.examId, 'exam ID'), course: course._id, published: true }).lean();
+  if (!exam) throw new NotFoundError('Guulgaar exam');
+  const questions: any[] = await GuuldoonQuestion.find({ course: course._id, exam: exam._id }).select('+answer').sort({ number: 1 }).limit(500).lean();
+  const attempts: any[] = questions.length
+    ? await GuuldoonAttempt.find({ user: req.user!.userId, question: { $in: questions.map((question) => question._id) }, retry: { $ne: true } }).sort({ createdAt: 1 }).select('question answer correct createdAt').lean()
+    : [];
+  const result = buildMyAnswers(questions, attempts, new Map([[String(exam._id), Number(exam.year)]]));
+  const marksOf = new Map(questions.map((question) => [String(question._id), Number(question.marks || 0)]));
+  const earned = result.items.filter((item: any) => item.correct === true).reduce((sum: number, item: any) => sum + (marksOf.get(String(item._id)) || 0), 0);
+  const rounds = result.items.reduce((max: number, item: any) => Math.max(max, item.attempts), 0);
   return ApiResponse.success(res, {
-    answered: items.length,
-    right: items.filter((item) => item.correct === true).length,
-    wrong: items.filter((item) => item.correct === false).length,
-    items,
+    exam: { id: String(exam._id), year: exam.year, kind: exam.kind || 'past', totalMarks: exam.totalMarks, durationMin: exam.durationMin },
+    questionCount: questions.length,
+    earned,
+    rounds,
+    ...result,
   });
 }));
 
