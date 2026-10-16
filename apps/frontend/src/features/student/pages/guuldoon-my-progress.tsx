@@ -189,32 +189,6 @@ export function GuuldoonMyProgress() {
         </div>
       )}
 
-      {tab === 'exams' && (
-        <div className="space-y-3">
-          <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Maado">
-            {[{ id: 'all', name: 'Dhammaan' }, ...data.courses.map((course) => ({ id: course.id, name: courseTitle(course.title) }))].map((option) => (
-              <button key={option.id} type="button" aria-pressed={filter === option.id} onClick={() => setFilter(option.id)} className={'shrink-0 rounded-full border px-4 py-2 text-xs font-extrabold ' + (filter === option.id ? 'border-emerald-600 bg-emerald-600 text-white' : '')}>{option.name}</button>
-            ))}
-          </div>
-          <section className="student-glass-card rounded-[24px] p-4">
-            <div className="flex items-baseline justify-between"><h2 className="font-black">Dhammaan imtixaannada</h2><span className="text-xs text-[var(--color-text-tertiary)]">{exams.filter((row) => row.answered > 0).length} / {exams.length} la isku dayay</span></div>
-            {exams.length === 0 && <p className="mt-3 text-sm text-[var(--color-text-secondary)]">Imtixaanno wali looma daabicin.</p>}
-            <div className="mt-3 space-y-2">
-              {exams.map((row) => {
-                const done = row.answered > 0;
-                return (
-                  <article key={row.examId} className={'grid grid-cols-[52px_1fr_auto] items-center gap-3 rounded-2xl border p-3 ' + (done ? 'border-emerald-500/30 bg-emerald-500/5' : '')}>
-                    <strong className="text-lg">{row.year}</strong>
-                    <div className="min-w-0"><p className="truncate text-sm font-extrabold" dir="auto">{courseNames.get(row.courseId)}</p><p className="text-xs text-[var(--color-text-secondary)]">{done ? `${row.correct} saxday · ${row.answered}/${row.questionCount} la jawaabay` : `${row.questionCount} su’aalood · weli lama isku dayin`}</p></div>
-                    <button type="button" onClick={() => navigate(`/student/guuldoon/courses/${row.courseId}`)} className={'rounded-xl px-3 py-2 text-xs font-black ' + (done ? 'border' : 'bg-emerald-600 text-white')}>{done ? 'Dib u day' : 'Bilow'}</button>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        </div>
-      )}
-
       <p className="flex items-center justify-center gap-1 text-center text-xs text-[var(--color-text-tertiary)]"><BookOpen size={12} /> Horumarkaaga waxaa lagu xisaabiyaa jawaabaha markii ugu horreysay.</p>
     </main>
   );
