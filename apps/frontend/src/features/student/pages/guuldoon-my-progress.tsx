@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Award, BookOpen, CheckCircle2, ChevronDown, ChevronRight, Flame, Loader2, Target, Trophy } from 'lucide-react';
 import api from '../../../lib/axios';
 
+type Challenge = { id: string; title: string; deadline: string | null; courseId: string; total: number; done: number; right: number; chapterId: string; examId: string; source: string };
 type Chapter = { id: string; title: string; order: number; examWeight: number; mastery: number; attempts: number; questionCount: number; practiceCount: number };
 type Course = { id: string; title: { en?: string; so?: string; ar?: string } | string; passMeter: number; passTarget: number; chapters: Chapter[] };
 type ExamRow = { examId: string; courseId: string; year: number; totalMarks: number; durationMin: number; questionCount: number; answered: number; correct: number; earned: number; rounds: number; average: number };
@@ -43,6 +44,7 @@ export function GuuldoonMyProgress() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'courses' | 'exams'>('courses');
   const [filter, setFilter] = useState('all');
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
 
   const load = useCallback(() => {
     setError('');
@@ -51,6 +53,7 @@ export function GuuldoonMyProgress() {
       .catch((err) => setError(err.response?.data?.message || 'Horumarkaaga lama soo rari karin.'));
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.get('/guuldoon-challenges/mine/list').then(({ data: response }) => setChallenges(response.data as Challenge[])).catch(() => setChallenges([])); }, []);
 
   const courseNames = useMemo(() => new Map((data?.courses || []).map((course) => [course.id, courseTitle(course.title)])), [data]);
   const exams = useMemo(() => (data?.exams || []).filter((row) => filter === 'all' || row.courseId === filter).sort((a, b) => b.year - a.year), [data, filter]);
@@ -66,6 +69,28 @@ export function GuuldoonMyProgress() {
   return (
     <main className="mx-auto max-w-3xl space-y-4 p-4 pb-24 sm:p-6">
       <header><p className="text-sm font-semibold text-emerald-600">Guulgaar{data.grade ? ` · Grade ${data.grade}` : ''}</p><h1 className="mt-1 text-2xl font-black">Horumarkayga</h1></header>
+
+      {challenges.length > 0 && (
+        <section className="space-y-2" aria-label="Tartanada macalinka">
+          <h2 className="text-sm font-black">Tartanada macalinka</h2>
+          {challenges.map((challenge) => {
+            const link = challenge.examId
+              ? `/student/guuldoon/courses/${challenge.courseId}?tab=exams&exam=${challenge.examId}`
+              : `/student/guuldoon/courses/${challenge.courseId}?chapter=${challenge.chapterId}&hub=1&tab=${challenge.source === 'past' ? 'past' : 'understand'}`;
+            const percent = challenge.total ? Math.round((challenge.done / challenge.total) * 100) : 0;
+            return (
+              <div key={challenge.id} className="student-glass-card flex flex-wrap items-center justify-between gap-3 rounded-[22px] p-4">
+                <div className="min-w-0 flex-1">
+                  <b className="block text-sm" dir="auto">{challenge.title}</b>
+                  <span className="text-xs text-[var(--color-text-tertiary)]">{challenge.done}/{challenge.total} suaal{challenge.deadline ? ` · Dhammaad ${new Date(challenge.deadline).toLocaleDateString()}` : ''}</span>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-500/20"><div className="h-full bg-emerald-500" style={{ width: `${percent}%` }} /></div>
+                </div>
+                <button type="button" onClick={() => navigate(link)} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white">{challenge.done ? 'Sii wad' : 'Bilow hadda'}</button>
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       <section className="grid grid-cols-[auto_1fr] items-center gap-4 rounded-3xl bg-gradient-to-br from-emerald-700 to-sky-700 p-5 text-white shadow-lg" aria-label="Pass Meter">
         <Ring value={data.passMeter} />

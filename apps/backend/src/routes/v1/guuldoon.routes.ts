@@ -130,7 +130,7 @@ async function loadAdminCourse(req: Request, courseId: string) {
   return loadGlobalCourse(courseId, false);
 }
 
-function safeQuestion(question: any) {
+export function safeQuestion(question: any) {
   const {
     answer: _answer,
     __v: _v,
@@ -249,7 +249,7 @@ async function buildCourseExperienceShared(courseId: mongoose.Types.ObjectId) {
  * One in-flight/cached load per course. Concurrent students share the same
  * promise (no stampede); a failed load is evicted so the next request retries.
  */
-function loadCourseExperienceShared(courseId: mongoose.Types.ObjectId) {
+export function loadCourseExperienceShared(courseId: mongoose.Types.ObjectId) {
   const key = String(courseId);
   const hit = experienceCache.get(key);
   if (hit && Date.now() - hit.at < EXPERIENCE_CACHE_TTL_MS) return hit.value as ReturnType<typeof buildCourseExperienceShared>;
@@ -859,7 +859,7 @@ router.get('/my-progress', asyncHandler(async (req, res) => {
 }));
 
 /** Shapes the questions a student answered: latest result, own answer, key (only when verified), attempts and average. */
-function buildMyAnswers(questions: any[], attempts: any[], yearOf?: Map<string, number>) {
+export function buildMyAnswers(questions: any[], attempts: any[], yearOf?: Map<string, number>) {
   const byQuestion = new Map<string, any[]>();
   for (const attempt of attempts) {
     const list = byQuestion.get(String(attempt.question)) || [];

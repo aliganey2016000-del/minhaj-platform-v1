@@ -10,6 +10,7 @@ const starts = (pathname: string, prefix: string) =>
 
 const rules: RouteRule[] = [
   { matches: (p) => starts(p, '/teacher/guuldoon/performance'), keys: ['group:guuldoon', 'teacher/guuldoon/performance'] },
+  { matches: (p) => starts(p, '/teacher/guuldoon/challenges'), keys: ['group:guuldoon', 'teacher/guuldoon/performance'] },
   { matches: (p) => starts(p, '/teacher/guuldoon/leaderboard'), keys: ['group:guuldoon', 'teacher/guuldoon/leaderboard'] },
   { matches: (p) => starts(p, '/teacher/global-courses'), keys: ['group:guuldoon', 'teacher/global-courses'] },
   { matches: (p) => p === '/teacher' || p === '/teacher/', keys: ['teacher'] },
@@ -74,6 +75,7 @@ const fallbackCandidates: Array<{ path: string; keys: string[] }> = [
   { path: '/teacher/profile', keys: ['teacher/profile'] },
   { path: '/teacher/settings', keys: ['teacher/settings'] },
   { path: '/teacher/guuldoon/performance', keys: ['group:guuldoon', 'teacher/guuldoon/performance'] },
+  { path: '/teacher/guuldoon/challenges', keys: ['group:guuldoon', 'teacher/guuldoon/performance'] },
   { path: '/teacher/guuldoon/leaderboard', keys: ['group:guuldoon', 'teacher/guuldoon/leaderboard'] },
   { path: '/teacher/global-courses', keys: ['group:guuldoon', 'teacher/global-courses'] },
 ];
