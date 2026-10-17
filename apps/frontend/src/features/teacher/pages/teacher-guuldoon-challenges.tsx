@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { CalendarClock, Check, ChevronRight, GraduationCap, Loader2, Plus, School, Trophy, Users, X } from 'lucide-react';
 import api from '../../../lib/axios';
+import { GuuldoonQuestionPicker } from '../components/guuldoon-question-picker';
 
 type Chapter = { id: string; number: number; title: string; understand: number; past: number };
 type Exam = { id: string; year: number; questions: number; durationMin: number; totalMarks: number };
@@ -50,6 +51,8 @@ export function TeacherGuuldoonChallenges() {
   const [classIds, setClassIds] = useState<string[]>([]);
   const [allSchools, setAllSchools] = useState(false);
   const [deadline, setDeadline] = useState('');
+  const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const [picker, setPicker] = useState<{ key: string; title: string; chapterId?: string; examId?: string; source?: 'understand' | 'past' } | null>(null);
   const [count, setCount] = useState<{ questions: number; tooMany: boolean; max: number } | null>(null);
 
   const load = useCallback(() => {
@@ -69,24 +72,26 @@ export function TeacherGuuldoonChallenges() {
     return [...groups.entries()];
   }, [classes]);
   const toggle = (list: string[], set: (value: string[]) => void, id: string) => set(list.includes(id) ? list.filter((item) => item !== id) : [...list, id]);
-  const pickCourse = (id: string) => { setCourseId(id); setChapterIds([]); setExamIds([]); setClassIds([]); setAllSchools(false); setCount(null); };
-  const hasMaterial = (chapterIds.length > 0 && sources.length > 0) || examIds.length > 0;
+  const pickCourse = (id: string) => { setCourseId(id); setChapterIds([]); setExamIds([]); setClassIds([]); setAllSchools(false); setCount(null); setPicks({}); setPicker(null); };
+  const pickedIds = useMemo(() => [...new Set(Object.values(picks).flat())], [picks]);
+  const pickedIn = (prefix: string) => Object.entries(picks).filter(([key]) => key.startsWith(prefix)).reduce((sum, [, ids]) => sum + ids.length, 0);
+  const hasMaterial = (chapterIds.length > 0 && sources.length > 0) || examIds.length > 0 || pickedIds.length > 0;
 
   // Exact question count for the current selection.
   useEffect(() => {
     if (!courseId || !hasMaterial) { setCount(null); return undefined; }
     const handle = window.setTimeout(() => {
-      api.post('/guuldoon-challenges/preview', { courseId, chapterIds, sources, examIds }).then(({ data }) => setCount(data.data)).catch(() => setCount(null));
+      api.post('/guuldoon-challenges/preview', { courseId, chapterIds, sources, examIds, questionIds: pickedIds }).then(({ data }) => setCount(data.data)).catch(() => setCount(null));
     }, 250);
     return () => window.clearTimeout(handle);
-  }, [courseId, chapterIds, sources, examIds, hasMaterial]);
+  }, [courseId, chapterIds, sources, examIds, pickedIds, hasMaterial]);
 
   const ready = !!title.trim() && !!courseId && hasMaterial && (allSchools || classIds.length > 0) && !count?.tooMany;
   const submit = async () => {
     setError(''); setSaving(true);
     try {
       const { data } = await api.post('/guuldoon-challenges', {
-        title, courseId, chapterIds, sources: chapterIds.length ? sources : [], examIds,
+        title, courseId, chapterIds, sources: chapterIds.length ? sources : [], examIds, questionIds: pickedIds,
         classIds: allSchools ? undefined : classIds, allSchools: allSchools || undefined,
         deadline: deadline ? new Date(deadline).toISOString() : undefined,
       });
@@ -160,35 +165,51 @@ export function TeacherGuuldoonChallenges() {
                     <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                       {course.chapters.map((chapter) => {
                         const on = chapterIds.includes(chapter.id);
+                        const partial = pickedIn(`chapter:${chapter.id}:`);
                         return (
-                          <button key={chapter.id} type="button" aria-pressed={on} onClick={() => toggle(chapterIds, setChapterIds, chapter.id)}
-                            className={'flex min-h-[76px] items-start gap-3 rounded-2xl border-2 p-3 text-left transition ' + (on ? 'border-sky-500 bg-sky-500/10 shadow-md' : 'border-[var(--color-border-subtle)] hover:border-sky-500/40')}>
-                            <span className={'grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sm font-black ' + (on ? 'bg-sky-600 text-white' : 'bg-sky-500/15 text-sky-600')}>{on ? <Check size={17} /> : chapter.number}</span>
-                            <span className="min-w-0 flex-1">
-                              <b className="block break-words text-sm leading-5" dir={rtl}>{chapter.title}</b>
-                              <span className="mt-1 flex flex-wrap gap-1.5 text-[11px] font-bold">
-                                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-600">Fahan {chapter.understand}</span>
-                                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600">Imtixaan {chapter.past}</span>
+                          <div key={chapter.id} className={'flex flex-col rounded-2xl border-2 transition ' + (on ? 'border-sky-500 bg-sky-500/10 shadow-md' : partial ? 'border-sky-400/60 bg-sky-500/5' : 'border-[var(--color-border-subtle)] hover:border-sky-500/40')}>
+                            <button type="button" aria-pressed={on} onClick={() => toggle(chapterIds, setChapterIds, chapter.id)} className="flex min-h-[76px] flex-1 items-start gap-3 p-3 text-left">
+                              <span className={'grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sm font-black ' + (on ? 'bg-sky-600 text-white' : 'bg-sky-500/15 text-sky-600')}>{on ? <Check size={17} /> : chapter.number}</span>
+                              <span className="min-w-0 flex-1">
+                                <b className="block break-words text-sm leading-5" dir={rtl}>{chapter.title}</b>
+                                <span className="mt-1 flex flex-wrap gap-1.5 text-[11px] font-bold">
+                                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-600">Fahan {chapter.understand}</span>
+                                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600">Imtixaan {chapter.past}</span>
+                                </span>
                               </span>
-                            </span>
-                          </button>
+                            </button>
+                            {!on && (
+                              <button type="button" onClick={() => setPicker({ key: `chapter:${chapter.id}:${sources.includes('past') && !sources.includes('understand') ? 'past' : 'understand'}`, title: chapter.title, chapterId: chapter.id, source: sources.includes('past') && !sources.includes('understand') ? 'past' : 'understand' })}
+                                className="mx-3 mb-3 min-h-[40px] rounded-xl border border-sky-500/50 bg-sky-500/10 px-3 text-xs font-extrabold text-sky-700">
+                                {partial ? `${partial} su’aal la doortay · wax ka beddel` : 'Dooro qaar kamid ah'}
+                              </button>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
                   </Step>
 
                   {course.exams.length > 0 && (
-                    <Step n={4} title="Imtixaan dhan (ikhtiyaari)" hint="Ama ku dar imtixaan sannad dhan" tone="bg-gradient-to-r from-amber-500 to-orange-500">
+                    <Step n={4} title="Imtixaannada (ikhtiyaari)" hint="Dhan ama dooro qaar kamid ah" tone="bg-gradient-to-r from-amber-500 to-orange-500">
                       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
                         {course.exams.map((exam) => {
                           const on = examIds.includes(exam.id);
+                          const partial = pickedIn(`exam:${exam.id}`);
                           return (
-                            <button key={exam.id} type="button" aria-pressed={on} onClick={() => toggle(examIds, setExamIds, exam.id)}
-                              className={'rounded-2xl border-2 p-3 text-left transition ' + (on ? 'border-amber-500 bg-amber-500/10 shadow-md' : 'border-[var(--color-border-subtle)] hover:border-amber-500/40')}>
-                              <div className="flex items-center justify-between"><strong className="text-2xl font-black">{exam.year}</strong>{on && <Check size={17} className="text-amber-600" />}</div>
-                              <p className="mt-1 text-[11px] font-bold text-[var(--color-text-secondary)]">{exam.questions} suaal</p>
-                              <p className="text-[11px] text-[var(--color-text-tertiary)]">{exam.durationMin} daq · {exam.totalMarks} dhibcood</p>
-                            </button>
+                            <div key={exam.id} className={'flex flex-col rounded-2xl border-2 transition ' + (on ? 'border-amber-500 bg-amber-500/10 shadow-md' : partial ? 'border-amber-400/60 bg-amber-500/5' : 'border-[var(--color-border-subtle)] hover:border-amber-500/40')}>
+                              <button type="button" aria-pressed={on} onClick={() => toggle(examIds, setExamIds, exam.id)} className="p-3 text-left">
+                                <div className="flex items-center justify-between"><strong className="text-2xl font-black">{exam.year}</strong>{on && <Check size={17} className="text-amber-600" />}</div>
+                                <p className="mt-1 text-[11px] font-bold text-[var(--color-text-secondary)]">{exam.questions} suaal</p>
+                                <p className="text-[11px] text-[var(--color-text-tertiary)]">{exam.durationMin} daq · {exam.totalMarks} dhibcood</p>
+                              </button>
+                              {!on && (
+                                <button type="button" onClick={() => setPicker({ key: `exam:${exam.id}`, title: `Imtixaanka ${exam.year}`, examId: exam.id })}
+                                  className="mx-3 mb-3 min-h-[40px] rounded-xl border border-amber-500/50 bg-amber-500/10 px-2 text-xs font-extrabold text-amber-700">
+                                  {partial ? `${partial} la doortay` : 'Dooro qaar'}
+                                </button>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -257,6 +278,12 @@ export function TeacherGuuldoonChallenges() {
           );
         })}
       </ul>
+
+      {picker && course && (
+        <GuuldoonQuestionPicker courseId={course.id} chapterId={picker.chapterId} examId={picker.examId} source={picker.source} title={picker.title} rtl={rtl}
+          onSourceChange={picker.chapterId ? (next) => setPicker({ ...picker, source: next, key: `chapter:${picker.chapterId}:${next}` }) : undefined}
+          selected={picks[picker.key] || []} onChange={(ids) => setPicks((current) => ({ ...current, [picker.key]: ids }))} onClose={() => setPicker(null)} />
+      )}
 
       {open && options && course && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)]/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:left-[var(--sidebar-width,0px)]">
