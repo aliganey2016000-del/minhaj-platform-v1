@@ -67,6 +67,23 @@ async function main() {
     assert.equal(preview.questions, 3, 'the same questions are not counted twice');
     await request(app).get('/api/v1/guuldoon-challenges/options').set(H(ali)).expect(403);
 
+    // Picking part of a chapter or exam: the picker lists questions (never answers) and a challenge can hold just those.
+    const pickable = (await request(app).get(`/api/v1/guuldoon-challenges/questions?courseId=${course._id}&chapterId=${chapterId}&source=past`).set(H(teacher)).expect(200)).body.data;
+    assert.equal(pickable.length, 3);
+    assert.equal(pickable[0].answer, undefined, 'answers are never listed');
+    assert.equal((await request(app).get(`/api/v1/guuldoon-challenges/questions?courseId=${course._id}&examId=${options.courses[0].exams[0].id}`).set(H(teacher)).expect(200)).body.data.length, 3);
+    assert.equal((await request(app).get(`/api/v1/guuldoon-challenges/questions?courseId=${course._id}&chapterId=${chapterId}&source=understand`).set(H(teacher)).expect(200)).body.data.length, 0);
+    await request(app).get(`/api/v1/guuldoon-challenges/questions?courseId=${course._id}&chapterId=${chapterId}`).set(H(ali)).expect(403);
+    const twoIds = pickable.slice(0, 2).map((item: any) => item.id);
+    const partial = (await request(app).post('/api/v1/guuldoon-challenges/preview').set(H(teacher)).send({ courseId: String(course._id), questionIds: twoIds }).expect(200)).body.data;
+    assert.equal(partial.questions, 2, 'only the picked questions count');
+    await request(app).post('/api/v1/guuldoon-challenges').set(H(teacher)).send({ title: 'Qaar', courseId: String(course._id), questionIds: ['000000000000000000000000'], classIds: [String(classroom._id)] }).expect(400);
+    const partialChallenge = await request(app).post('/api/v1/guuldoon-challenges').set(H(teacher)).send({ title: 'Qaar', courseId: String(course._id), questionIds: twoIds, classIds: [String(classroom._id)] }).expect(201);
+    assert.equal(partialChallenge.body.data.questions, 2);
+    const { default: Challenge } = await import('../models/guuldoon-challenge.model');
+    await Challenge.deleteOne({ _id: partialChallenge.body.data.id });
+    await Notification.deleteMany({ 'metadata.dedupeKey': `challenge:${partialChallenge.body.data.id}` });
+
     // Validation
     const base = { title: 'Cutubka 1', courseId: String(course._id), chapterIds: [chapterId], sources: ['past'], classIds: [String(classroom._id)] };
     await request(app).post('/api/v1/guuldoon-challenges').set(H(teacher)).send({ ...base, title: '' }).expect(400);

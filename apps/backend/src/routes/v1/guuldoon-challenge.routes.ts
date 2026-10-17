@@ -127,7 +127,7 @@ router.get('/options', asyncHandler(async (req, res) => {
 }));
 
 /** The question ids a chapter/exam selection resolves to (capped one over the limit so callers can detect "too many"). */
-async function resolveQuestionIds(courseId: mongoose.Types.ObjectId, chapterIds: string[], sources: string[], examIds: mongoose.Types.ObjectId[]) {
+async function resolveQuestionIds(courseId: mongoose.Types.ObjectId, chapterIds: string[], sources: string[], examIds: mongoose.Types.ObjectId[], pickedIds: mongoose.Types.ObjectId[] = []) {
   const published: any[] = await GuuldoonExam.find({ course: courseId, published: true }).select('_id kind').lean();
   const understandExams = published.filter((exam) => exam.kind === 'practice').map((exam) => exam._id);
   const pastExams = published.filter((exam) => exam.kind !== 'practice').map((exam) => exam._id);
@@ -137,6 +137,8 @@ async function resolveQuestionIds(courseId: mongoose.Types.ObjectId, chapterIds:
   if (chapterIds.length && sources.includes('understand') && understandExams.length) filters.push({ exam: { $in: understandExams }, chapterId: { $in: chapterIds } });
   if (chapterIds.length && sources.includes('past') && pastExams.length) filters.push({ exam: { $in: pastExams }, chapterId: { $in: chapterIds } });
   if (examIds.length) filters.push({ exam: { $in: examIds } });
+  // Individually picked questions (part of a chapter or exam); only ones that really belong to this course's published exams.
+  if (pickedIds.length) filters.push({ _id: { $in: pickedIds }, exam: { $in: published.map((exam) => exam._id) } });
   const questions: any[] = filters.length
     ? await GuuldoonQuestion.find({ course: courseId, $or: filters }).select('_id').limit(MAX_QUESTIONS + 1).lean()
     : [];
@@ -147,19 +149,46 @@ function parseSelection(body: any) {
   const chapterIds: string[] = Array.isArray(body.chapterIds) ? body.chapterIds.filter((id: unknown) => typeof id === 'string').slice(0, 100) : [];
   const sources: Array<'understand' | 'past'> = Array.isArray(body.sources) ? body.sources.filter((value: unknown) => value === 'understand' || value === 'past') : [];
   const examIds: mongoose.Types.ObjectId[] = Array.isArray(body.examIds) ? body.examIds.slice(0, 50).map((id: unknown) => oid(id, 'exam ID')) : [];
-  return { chapterIds, sources, examIds };
+  const pickedIds: mongoose.Types.ObjectId[] = Array.isArray(body.questionIds) ? body.questionIds.slice(0, MAX_QUESTIONS).map((id: unknown) => oid(id, 'question ID')) : [];
+  return { chapterIds, sources, examIds, pickedIds };
 }
 
 // ---------------------------------------------------------------------------
 // Teacher: create and list
 // ---------------------------------------------------------------------------
 
+/** The questions of one chapter (understanding or past papers) or one exam, so a teacher can pick some of them. Never sends answers. */
+router.get('/questions', asyncHandler(async (req, res) => {
+  requireStaff(req);
+  const courseId = oid(req.query.courseId, 'course ID');
+  const course = await Course.exists({ _id: courseId, scope: 'global', status: 'published' });
+  if (!course) throw new NotFoundError('Guulgaar course');
+  let filter: any;
+  if (typeof req.query.examId === 'string' && req.query.examId) {
+    const exam = await GuuldoonExam.exists({ _id: oid(req.query.examId, 'exam ID'), course: courseId, published: true });
+    if (!exam) throw new NotFoundError('Guulgaar exam');
+    filter = { exam: oid(req.query.examId, 'exam ID') };
+  } else {
+    const chapterId = typeof req.query.chapterId === 'string' ? req.query.chapterId : '';
+    if (!chapterId) throw new BadRequestError('chapterId or examId is required');
+    const exams: any[] = await GuuldoonExam.find({ course: courseId, published: true, kind: req.query.source === 'past' ? { $ne: 'practice' } : 'practice' }).select('_id').lean();
+    filter = { exam: { $in: exams.map((exam) => exam._id) }, chapterId };
+  }
+  const rows: any[] = await GuuldoonQuestion.find({ course: courseId, ...filter }).select('number type textSo textEn marks exam').populate('exam', 'year').sort({ number: 1 }).limit(500).lean();
+  const items = rows.map((row) => ({
+    id: String(row._id), number: row.number, type: row.type, marks: row.marks, year: row.exam?.year || null,
+    text: String(row.textSo || row.textEn || '').slice(0, 220),
+  }));
+  items.sort((a, b) => (b.year || 0) - (a.year || 0) || a.number - b.number);
+  return ApiResponse.success(res, items);
+}));
+
 /** How many questions a selection holds, so the form can show it live. */
 router.post('/preview', asyncHandler(async (req, res) => {
   requireStaff(req);
   const courseId = oid(req.body?.courseId, 'course ID');
-  const { chapterIds, sources, examIds } = parseSelection(req.body || {});
-  const ids = await resolveQuestionIds(courseId, chapterIds, sources, examIds);
+  const { chapterIds, sources, examIds, pickedIds } = parseSelection(req.body || {});
+  const ids = await resolveQuestionIds(courseId, chapterIds, sources, examIds, pickedIds);
   return ApiResponse.success(res, { questions: Math.min(ids.length, MAX_QUESTIONS), tooMany: ids.length > MAX_QUESTIONS, max: MAX_QUESTIONS });
 }));
 
@@ -172,8 +201,8 @@ router.post('/', asyncHandler(async (req, res) => {
   const course: any = await Course.findOne({ _id: courseId, scope: 'global', status: 'published' }).select('globalGrade').lean();
   if (!course) throw new NotFoundError('Guulgaar course');
 
-  const { chapterIds, sources, examIds } = parseSelection(body);
-  if (!(chapterIds.length && sources.length) && !examIds.length) throw new BadRequestError('Choose at least one chapter or exam');
+  const { chapterIds, sources, examIds, pickedIds } = parseSelection(body);
+  if (!(chapterIds.length && sources.length) && !examIds.length && !pickedIds.length) throw new BadRequestError('Choose at least one chapter, exam or question');
 
   let classIds: mongoose.Types.ObjectId[];
   if (!school && body.allSchools === true) {
@@ -193,7 +222,7 @@ router.post('/', asyncHandler(async (req, res) => {
     if (Number.isNaN(deadline.getTime()) || deadline.getTime() < Date.now()) throw new BadRequestError('Deadline must be a future date');
   }
 
-  const questions = await resolveQuestionIds(courseId, chapterIds, sources, examIds).then((ids) => ids.map((id) => ({ _id: id })));
+  const questions = await resolveQuestionIds(courseId, chapterIds, sources, examIds, pickedIds).then((ids) => ids.map((id) => ({ _id: id })));
   if (!questions.length) throw new BadRequestError('The chosen material has no questions yet');
   if (questions.length > MAX_QUESTIONS) throw new BadRequestError(`A challenge can hold at most ${MAX_QUESTIONS} questions`);
 
@@ -385,14 +414,14 @@ router.get('/mine/list', asyncHandler(async (req, res) => {
     const done = new Set(attempts.map((attempt: any) => String(attempt.question))).size;
     const correct = new Map<string, boolean>();
     for (const attempt of attempts as any[]) correct.set(String(attempt.question), attempt.correct === true);
-    const first: any = await GuuldoonQuestion.findById(challenge.questionIds[0]).select('exam chapterId').lean();
+    const first: any = await GuuldoonQuestion.findById(challenge.questionIds[0]).select('exam chapterId').populate('exam', 'kind').lean();
     return {
       id: String(challenge._id), title: challenge.title, deadline: challenge.deadline || null,
       courseId: String(challenge.course), total: challenge.questionIds.length, done,
       right: [...correct.values()].filter(Boolean).length,
       chapterId: challenge.chapterIds[0] || first?.chapterId || '',
       examId: challenge.examIds[0] ? String(challenge.examIds[0]) : '',
-      source: challenge.sources[0] || '',
+      source: challenge.sources[0] || (first?.exam?.kind && first.exam.kind !== 'practice' ? 'past' : ''),
     };
   }));
   return ApiResponse.success(res, rows);
