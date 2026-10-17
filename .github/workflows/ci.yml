@@ -198,6 +198,9 @@ jobs:
       - name: Class schedule follows the course teacher
         run: npx ts-node --files src/__tests__/class-schedule-teacher-sync.e2e.ts
 
+      - name: Student next login email
+        run: npx ts-node --files src/__tests__/student-next-email.e2e.ts
+
       - name: Attendance lock audit regression
         run: npx ts-node src/__tests__/attendance-lock-audit.e2e.ts
 

@@ -43,7 +43,17 @@ function StudentModal({ student, organization, classes, onClose, onSaved }: { st
   } : { ...emptyForm });
   const [password, setPassword] = useState('');
   const [copied, setCopied] = useState(false);
+  const [suggestedEmail, setSuggestedEmail] = useState('');
   const [saving, setSaving] = useState(false); const [error, setError] = useState('');
+  // New students continue the login-email pattern of the last one (student732@… -> student733@…).
+  useEffect(() => {
+    if (editing) return undefined;
+    let live = true;
+    api.get('/students/next-email', { params: { school: organization._id } })
+      .then(response => { const email = response?.data?.data?.email; if (live && email) { setSuggestedEmail(email); setForm(v => v.email ? v : { ...v, email }); } })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [editing, organization._id]);
   const currentClassId = student?.class?._id || '';
   const availableClasses = useMemo(() => classes.filter(c => c.status === 'active' || c._id === currentClassId), [classes, currentClassId]);
   const selectedClass = classes.find(c => c._id === form.classId);
@@ -80,7 +90,7 @@ function StudentModal({ student, organization, classes, onClose, onSaved }: { st
           <Field label="First Name *"><input className={inputClass} name="firstName" value={form.firstName} onChange={change} required /></Field>
           <Field label="Last Name" hint="Optional"><input className={inputClass} name="lastName" value={form.lastName} onChange={change} /></Field>
           <Field label="Gender *"><select className={inputClass} name="gender" value={form.gender} onChange={change}><option value="male">Male</option><option value="female">Female</option></select></Field>
-          <Field label="Email" hint="Optional — system creates one if blank"><input className={inputClass} type="email" name="email" value={form.email} onChange={change} /></Field>
+          <Field label="Email" hint={!editing && suggestedEmail && form.email === suggestedEmail ? 'Suggested: continues from the last student. Change it if you need another.' : 'Login email for the student'}><input className={inputClass} type="email" name="email" value={form.email} onChange={change} /></Field>
           <Field label="Enrollment Date" hint="Optional — defaults to today"><input className={inputClass} type="date" name="enrollmentDate" value={form.enrollmentDate} onChange={change} /></Field>
           <Field label="Medical Notes" hint="Optional"><input className={inputClass} name="medicalNotes" value={form.medicalNotes} onChange={change} /></Field>
         </div></section>
