@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Loader2, Plus, Trophy } from 'lucide-react';
 import api from '../../../lib/axios';
 
 type Option = {
   courses: { id: string; title: string; grade: number; chapters: { id: string; title: string }[]; exams: { id: string; year: number }[] }[];
-  classes: { id: string; title: string; grade: number }[];
+  classes: { id: string; title: string; grade: number; school: string }[];
+  platformWide: boolean;
 };
 type Row = { id: string; title: string; status: string; deadline: string | null; questions: number; students: number; done: number; started: number };
 
@@ -14,6 +15,7 @@ const input = 'w-full rounded-xl border border-[var(--color-border)] bg-[var(--c
 /** Teacher: list of challenges and the form to open a new one. */
 export function TeacherGuuldoonChallenges() {
   const navigate = useNavigate();
+  const base = useLocation().pathname.startsWith('/admin') ? '/admin' : '/teacher';
   const [rows, setRows] = useState<Row[] | null>(null);
   const [options, setOptions] = useState<Option | null>(null);
   const [open, setOpen] = useState(false);
@@ -25,6 +27,7 @@ export function TeacherGuuldoonChallenges() {
   const [sources, setSources] = useState<string[]>(['understand']);
   const [examIds, setExamIds] = useState<string[]>([]);
   const [classIds, setClassIds] = useState<string[]>([]);
+  const [allSchools, setAllSchools] = useState(false);
   const [deadline, setDeadline] = useState('');
 
   const load = useCallback(() => {
@@ -40,15 +43,15 @@ export function TeacherGuuldoonChallenges() {
   const classes = useMemo(() => (options?.classes || []).filter((item) => !course || item.grade === course.grade), [options, course]);
   const toggle = (list: string[], set: (value: string[]) => void, id: string) => set(list.includes(id) ? list.filter((item) => item !== id) : [...list, id]);
 
-  const pickCourse = (id: string) => { setCourseId(id); setChapterIds([]); setExamIds([]); setClassIds([]); };
+  const pickCourse = (id: string) => { setCourseId(id); setChapterIds([]); setExamIds([]); setClassIds([]); setAllSchools(false); };
   const submit = async () => {
     setError(''); setSaving(true);
     try {
       const { data } = await api.post('/guuldoon-challenges', {
-        title, courseId, chapterIds, sources: chapterIds.length ? sources : [], examIds, classIds,
+        title, courseId, chapterIds, sources: chapterIds.length ? sources : [], examIds, classIds: allSchools ? undefined : classIds, allSchools: allSchools || undefined,
         deadline: deadline ? new Date(deadline).toISOString() : undefined,
       });
-      navigate(`/teacher/guuldoon/challenges/${data.data.id}`);
+      navigate(`${base}/guuldoon/challenges/${data.data.id}`);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Tartanka lama abuuri karin.');
     } finally { setSaving(false); }
@@ -100,18 +103,21 @@ export function TeacherGuuldoonChallenges() {
                     </fieldset>
                   )}
                   <fieldset className="space-y-2"><legend className="text-xs font-bold">Fasallada</legend>
+                    {options.platformWide && (
+                      <label className="inline-flex items-center gap-2 text-xs font-extrabold"><input type="checkbox" checked={allSchools} onChange={(event) => setAllSchools(event.target.checked)} />Dhammaan iskuullada (Grade {course.grade})</label>
+                    )}
                     {classes.length === 0 && <p className="text-xs text-[var(--color-text-tertiary)]">Fasal Grade {course.grade} ah ma jiro.</p>}
-                    <div className="flex flex-wrap gap-2">{classes.map((item) => (
+                    {!allSchools && <div className="flex flex-wrap gap-2">{classes.map((item) => (
                       <button key={item.id} type="button" aria-pressed={classIds.includes(item.id)} onClick={() => toggle(classIds, setClassIds, item.id)}
-                        className={'rounded-full border px-3 py-1.5 text-xs font-bold ' + (classIds.includes(item.id) ? 'border-emerald-600 bg-emerald-600 text-white' : '')}>{item.title}</button>
-                    ))}</div>
+                        className={'rounded-full border px-3 py-1.5 text-xs font-bold ' + (classIds.includes(item.id) ? 'border-emerald-600 bg-emerald-600 text-white' : '')}>{item.school ? `${item.school} · ` : ''}{item.title}</button>
+                    ))}</div>}
                   </fieldset>
                 </>
               )}
               <label className="block text-xs font-bold">Dhammaadka (ikhtiyaari)
                 <input type="datetime-local" className={input + ' mt-1'} value={deadline} onChange={(event) => setDeadline(event.target.value)} />
               </label>
-              <button type="button" disabled={saving || !title.trim() || !courseId || !classIds.length || (!examIds.length && !chapterIds.length)} onClick={submit}
+              <button type="button" disabled={saving || !title.trim() || !courseId || (!allSchools && !classIds.length) || (!examIds.length && !chapterIds.length)} onClick={submit}
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white disabled:opacity-50">{saving && <Loader2 size={15} className="animate-spin" />}Bilow tartanka</button>
             </>
           )}
@@ -123,7 +129,7 @@ export function TeacherGuuldoonChallenges() {
       <ul className="space-y-3">
         {rows?.map((row) => (
           <li key={row.id}>
-            <button type="button" onClick={() => navigate(`/teacher/guuldoon/challenges/${row.id}`)} className="student-glass-card block w-full rounded-[22px] p-4 text-left">
+            <button type="button" onClick={() => navigate(`${base}/guuldoon/challenges/${row.id}`)} className="student-glass-card block w-full rounded-[22px] p-4 text-left">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <b className="text-base" dir="auto">{row.title}</b>
                 <span className={'rounded-full px-2.5 py-1 text-[11px] font-extrabold ' + (row.status === 'closed' ? 'bg-slate-500/15' : 'bg-emerald-500/15 text-emerald-600')}>{row.status === 'closed' ? 'La xiray' : 'Furan'}</span>

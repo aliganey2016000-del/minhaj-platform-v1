@@ -11,7 +11,7 @@ import {
   FileText, Gift, GraduationCap, History, Image, KeyRound, LayoutDashboard, ListChecks, LogOut,
   Megaphone, MessagesSquare, Newspaper, NotebookPen, Palette, PanelLeftClose, PanelLeftOpen,
   PartyPopper, PieChart, Presentation, Receipt, School, ScrollText, Settings,
-  Medal, ShieldCheck, Trash2, TrendingUp, User, UserCog, UserRound, Users, Zap,
+  Medal, ShieldCheck, Trophy, Trash2, TrendingUp, User, UserCog, UserRound, Users, Zap,
 } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
 import api from '../../../lib/axios';
@@ -77,6 +77,7 @@ const navSections: { title: string; items: NavEntry[] }[] = [
     { path: '/admin/guuldoon', label: 'Overview', icon: LayoutDashboard },
     { path: '/admin/global-courses', label: 'Courses', icon: BookOpen },
     { path: '/admin/guuldoon/performance', label: 'Student Performance', icon: TrendingUp },
+    { path: '/admin/guuldoon/challenges', label: 'Challenges', icon: Trophy },
     { path: '/admin/guuldoon/leaderboard', label: 'Leaderboard', icon: Medal },
     { path: '/admin/guuldoon/subscriptions', label: 'Subscriptions & Payments', icon: CreditCard },
     {

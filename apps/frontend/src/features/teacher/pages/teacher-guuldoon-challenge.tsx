@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { AnswerCard, type AnswerItem } from '../../student/components/guuldoon-answer-card';
@@ -21,6 +21,7 @@ const tone = (value: number | null) => (value === null ? '' : value >= 70 ? 'tex
 export function TeacherGuuldoonChallenge() {
   const { challengeId } = useParams<{ challengeId: string }>();
   const navigate = useNavigate();
+  const base = useLocation().pathname.startsWith('/admin') ? '/admin' : '/teacher';
   const [data, setData] = useState<Results | null>(null);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'students' | 'questions' | 'reteach'>('students');
@@ -51,7 +52,7 @@ export function TeacherGuuldoonChallenge() {
 
   return (
     <main className="mx-auto max-w-4xl space-y-4 p-4 pb-24 sm:p-6">
-      <button type="button" onClick={() => navigate('/teacher/guuldoon/challenges')} className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-tertiary)]"><ArrowLeft size={15} /> Tartanada</button>
+      <button type="button" onClick={() => navigate(`${base}/guuldoon/challenges`)} className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-tertiary)]"><ArrowLeft size={15} /> Tartanada</button>
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0"><h1 className="text-2xl font-black" dir="auto">{data.challenge.title}</h1>
           <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{data.challenge.questions} suaal{data.challenge.deadline ? ` · Dhammaad ${new Date(data.challenge.deadline).toLocaleString()}` : ''}{data.challenge.status === 'closed' ? ' · La xiray' : ''}</p></div>
