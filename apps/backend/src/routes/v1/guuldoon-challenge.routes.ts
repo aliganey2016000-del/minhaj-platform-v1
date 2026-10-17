@@ -174,9 +174,11 @@ router.get('/questions', asyncHandler(async (req, res) => {
     const exams: any[] = await GuuldoonExam.find({ course: courseId, published: true, kind: req.query.source === 'past' ? { $ne: 'practice' } : 'practice' }).select('_id').lean();
     filter = { exam: { $in: exams.map((exam) => exam._id) }, chapterId };
   }
-  const rows: any[] = await GuuldoonQuestion.find({ course: courseId, ...filter }).select('number type textSo textEn marks exam').populate('exam', 'year').sort({ number: 1 }).limit(500).lean();
+  const rows: any[] = await GuuldoonQuestion.find({ course: courseId, ...filter }).select('number type textSo textEn marks exam').populate('exam', 'year kind').sort({ number: 1 }).limit(500).lean();
   const items = rows.map((row) => ({
-    id: String(row._id), number: row.number, type: row.type, marks: row.marks, year: row.exam?.year || null,
+    id: String(row._id), number: row.number, type: row.type, marks: row.marks,
+    // Understanding (practice) sets carry a placeholder year, so only real past papers show one.
+    year: row.exam?.kind === 'practice' ? null : row.exam?.year || null,
     text: String(row.textSo || row.textEn || '').slice(0, 220),
   }));
   items.sort((a, b) => (b.year || 0) - (a.year || 0) || a.number - b.number);
