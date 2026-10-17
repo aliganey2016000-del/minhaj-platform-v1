@@ -60,6 +60,11 @@ async function main() {
     assert.equal(options.classes.length, 1);
     assert.equal(options.courses[0].chapters[0].id, chapterId);
     assert.equal(options.courses[0].exams.length, 1);
+    assert.equal(options.courses[0].exams[0].questions, 3, 'exam cards show their question count');
+    assert.equal(options.courses[0].chapters[0].past, 3);
+    assert.equal(options.courses[0].language, 'en');
+    const preview = (await request(app).post('/api/v1/guuldoon-challenges/preview').set(H(teacher)).send({ courseId: String(course._id), chapterIds: [chapterId], sources: ['past'], examIds: [options.courses[0].exams[0].id] }).expect(200)).body.data;
+    assert.equal(preview.questions, 3, 'the same questions are not counted twice');
     await request(app).get('/api/v1/guuldoon-challenges/options').set(H(ali)).expect(403);
 
     // Validation
