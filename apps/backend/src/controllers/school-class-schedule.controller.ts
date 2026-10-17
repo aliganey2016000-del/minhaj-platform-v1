@@ -237,11 +237,13 @@ async function assertNoConflicts(params: {
   };
   if (params.excludeId) filter._id = { $ne: params.excludeId };
 
-  const overlaps = await ClassSchedule.find(filter)
+  // A lesson whose class no longer exists is not on anyone's timetable, so it
+  // must not block a new one (it only showed up as an unexplained conflict).
+  const overlaps = (await ClassSchedule.find(filter)
     .populate(CLASS_POPULATE)
     .populate('course', 'title')
     .populate(TEACHER_POPULATE)
-    .lean();
+    .lean()).filter((item: any) => !!item.class);
 
   const duplicate = overlaps.find((item: any) =>
     String(item.class?._id || item.class) === params.classId &&
@@ -268,7 +270,8 @@ async function assertNoConflicts(params: {
   if (params.teacherId) {
     const teacherConflict = overlaps.find((item: any) => String(item.teacher?._id || item.teacher || '') === params.teacherId);
     if (teacherConflict) {
-      throw new BadRequestError(`Teacher conflict: ${teacherLabel(teacherConflict.teacher) || 'this teacher'} is already scheduled from ${teacherConflict.startTime} to ${teacherConflict.endTime}`);
+      const where = `${teacherConflict.course?.title?.en || 'another lesson'}${classLabel(teacherConflict.class) ? ` in ${classLabel(teacherConflict.class)}` : ''}`;
+      throw new BadRequestError(`Teacher conflict: ${teacherLabel(teacherConflict.teacher) || 'this teacher'} is already scheduled for ${where} from ${teacherConflict.startTime} to ${teacherConflict.endTime}`);
     }
   }
 }
