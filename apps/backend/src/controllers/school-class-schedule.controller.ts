@@ -1,3 +1,4 @@
+import { isLiveClass } from '../middleware/timetable-room-conflict.middleware';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
@@ -41,7 +42,7 @@ const TEACHER_POPULATE = {
   ],
 };
 
-const CLASS_POPULATE = { path: 'class', select: 'title section room' };
+const CLASS_POPULATE = { path: 'class', select: 'title section room status' };
 
 function normalize(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -237,13 +238,14 @@ async function assertNoConflicts(params: {
   };
   if (params.excludeId) filter._id = { $ne: params.excludeId };
 
-  // A lesson whose class no longer exists is not on anyone's timetable, so it
-  // must not block a new one (it only showed up as an unexplained conflict).
+  // Lessons of a deleted, inactive or completed class are on no timetable, so
+  // they must not block a new lesson (they only showed up as conflicts nobody
+  // could see).
   const overlaps = (await ClassSchedule.find(filter)
     .populate(CLASS_POPULATE)
     .populate('course', 'title')
     .populate(TEACHER_POPULATE)
-    .lean()).filter((item: any) => !!item.class);
+    .lean()).filter((item: any) => isLiveClass(item.class));
 
   const duplicate = overlaps.find((item: any) =>
     String(item.class?._id || item.class) === params.classId &&
