@@ -6,7 +6,8 @@ import mongoose, { Schema, Document } from 'mongoose';
  * more classes with a deadline.
  */
 export interface IGuuldoonChallenge extends Document {
-  school: mongoose.Types.ObjectId;
+  /** Unset for a platform-wide challenge set by the Super Admin. */
+  school?: mongoose.Types.ObjectId;
   createdBy: mongoose.Types.ObjectId;
   course: mongoose.Types.ObjectId;
   title: string;
@@ -22,7 +23,7 @@ export interface IGuuldoonChallenge extends Document {
 }
 
 const schema = new Schema<IGuuldoonChallenge>({
-  school: { type: Schema.Types.ObjectId, ref: 'School', required: true, index: true },
+  school: { type: Schema.Types.ObjectId, ref: 'School', default: undefined, index: true },
   createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   course: { type: Schema.Types.ObjectId, ref: 'Course', required: true },
   title: { type: String, required: true, trim: true, maxlength: 160 },

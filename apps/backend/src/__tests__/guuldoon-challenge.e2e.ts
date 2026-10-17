@@ -131,6 +131,21 @@ async function main() {
     await request(app).patch(`/api/v1/guuldoon-challenges/${id}`).set(H(teacher)).send({ status: 'closed' }).expect(200);
     assert.equal((await request(app).get('/api/v1/guuldoon-challenges/mine/list').set(H(ali)).expect(200)).body.data.length, 0);
 
+    // Super Admin: works across schools, can reach every school's class of the grade.
+    const adminOptions = (await request(app).get('/api/v1/guuldoon-challenges/options').set(adminHeaders).expect(200)).body.data;
+    assert.equal(adminOptions.platformWide, true);
+    assert.equal(adminOptions.classes.length, 2);
+    assert.ok(adminOptions.classes.every((entry: any) => entry.school), 'the school name is shown to the Super Admin');
+    const platform = await request(app).post('/api/v1/guuldoon-challenges').set(adminHeaders).send({ title: 'Dhammaan iskuullada', courseId: String(course._id), chapterIds: [chapterId], sources: ['past'], allSchools: true }).expect(201);
+    assert.equal(platform.body.data.students, 3, 'both schools are included');
+    assert.equal(await Notification.countDocuments({ user: outsider._id, title: 'Tartan cusub' }), 1);
+    const platformResults = (await request(app).get(`/api/v1/guuldoon-challenges/${platform.body.data.id}/results`).set(adminHeaders).expect(200)).body.data;
+    assert.equal(platformResults.summary.students, 3);
+    assert.equal((await request(app).get('/api/v1/guuldoon-challenges/mine/list').set(H(outsider)).expect(200)).body.data.length, 1, 'a student of another school sees it');
+    await request(app).get(`/api/v1/guuldoon-challenges/${platform.body.data.id}/results`).set(H(teacher)).expect(404);
+    assert.equal((await request(app).get('/api/v1/guuldoon-challenges').set(H(teacher)).expect(200)).body.data.length, 1, 'a teacher does not see the platform challenge');
+    await request(app).post('/api/v1/guuldoon-challenges').set(adminHeaders).send({ title: 'x', courseId: String(course._id), chapterIds: [chapterId], sources: ['past'], classIds: [] }).expect(400);
+
     console.log('Guulgaar challenge e2e passed');
   } finally {
     await db.stop();

@@ -34,23 +34,30 @@ function plainTitle(title: any): string {
   return title.so || title.en || title.ar || Object.values(title).find((value) => typeof value === 'string') as string || '';
 }
 
-function requireStaff(req: any) {
-  if (!isStaff(req.user?.role) || req.user?.isStaff || !req.user?.organizationId) throw new ForbiddenError('Teacher access required');
+/**
+ * Teachers and school administrators work inside their own school. The Super
+ * Admin works across schools: `school` is null and every school's classes are in reach.
+ */
+function requireStaff(req: any): mongoose.Types.ObjectId | null {
+  if (req.user?.isStaff) throw new ForbiddenError('Teacher access required');
+  if (req.user?.role === 'admin') return null;
+  if (!isStaff(req.user?.role) || !req.user?.organizationId) throw new ForbiddenError('Teacher access required');
   return new mongoose.Types.ObjectId(req.user.organizationId);
 }
+const schoolFilter = (school: mongoose.Types.ObjectId | null) => (school ? { school } : {});
 
 /** A teacher sees their own challenges; a school administrator sees the whole school's. */
 async function loadOwnChallenge(req: any, id: string) {
   const school = requireStaff(req);
-  const challenge = await GuuldoonChallenge.findOne({ _id: oid(id, 'challenge ID'), school }).lean();
+  const challenge = await GuuldoonChallenge.findOne({ _id: oid(id, 'challenge ID'), ...schoolFilter(school) }).lean();
   if (!challenge) throw new NotFoundError('Challenge');
   if (req.user.role === 'teacher' && String(challenge.createdBy) !== String(req.user.userId)) throw new NotFoundError('Challenge');
   return challenge;
 }
 
-async function classRoster(school: mongoose.Types.ObjectId, classIds: mongoose.Types.ObjectId[]) {
-  const students: any[] = await Student.find({ school, class: { $in: classIds }, status: 'active', approvalStatus: 'approved' })
-    .select('user profile class studentId').lean();
+async function classRoster(school: mongoose.Types.ObjectId | null, classIds: mongoose.Types.ObjectId[]) {
+  const students: any[] = await Student.find({ ...schoolFilter(school), class: { $in: classIds }, status: 'active', approvalStatus: 'approved' })
+    .select('user profile class studentId').limit(5000).lean();
   const profiles: any[] = await Profile.find({ _id: { $in: students.map((student) => student.profile).filter(Boolean) } }).select('firstName lastName').lean();
   const nameOf = new Map(profiles.map((profile) => [String(profile._id), `${profile.firstName || ''} ${profile.lastName || ''}`.trim()]));
   return students.map((student) => ({
@@ -79,7 +86,7 @@ router.get('/options', asyncHandler(async (req, res) => {
   const school = requireStaff(req);
   const [courses, classes] = await Promise.all([
     Course.find({ scope: 'global', status: 'published', globalGrade: { $in: [8, 12] } }).select('title globalGrade').lean(),
-    ClassModel.find({ school, gradeLevel: { $in: [8, 12] } }).select('title gradeLevel').lean(),
+    ClassModel.find({ ...schoolFilter(school), gradeLevel: { $in: [8, 12] } }).select('title gradeLevel school').populate('school', 'name').limit(2000).lean(),
   ]);
   const courseRows = await Promise.all((courses as any[]).map(async (course) => {
     const shared: any = await loadCourseExperienceShared(course._id);
@@ -97,7 +104,8 @@ router.get('/options', asyncHandler(async (req, res) => {
   }));
   return ApiResponse.success(res, {
     courses: courseRows,
-    classes: (classes as any[]).map((classroom) => ({ id: String(classroom._id), title: classroom.title, grade: classroom.gradeLevel })),
+    classes: (classes as any[]).map((classroom) => ({ id: String(classroom._id), title: classroom.title, grade: classroom.gradeLevel, school: school ? '' : classroom.school?.name || '' })),
+    platformWide: !school,
   });
 }));
 
@@ -119,10 +127,17 @@ router.post('/', asyncHandler(async (req, res) => {
   const examIds: mongoose.Types.ObjectId[] = Array.isArray(body.examIds) ? body.examIds.slice(0, 50).map((id: unknown) => oid(id, 'exam ID')) : [];
   if (!(chapterIds.length && sources.length) && !examIds.length) throw new BadRequestError('Choose at least one chapter or exam');
 
-  const classIds: mongoose.Types.ObjectId[] = Array.isArray(body.classIds) ? body.classIds.slice(0, MAX_CLASSES).map((id: unknown) => oid(id, 'class ID')) : [];
+  let classIds: mongoose.Types.ObjectId[];
+  if (!school && body.allSchools === true) {
+    // Super Admin: every class of the course grade, in every school.
+    const every: any[] = await ClassModel.find({ gradeLevel: course.globalGrade }).select('_id').limit(5000).lean();
+    classIds = every.map((classroom) => classroom._id);
+  } else {
+    classIds = Array.isArray(body.classIds) ? body.classIds.slice(0, school ? MAX_CLASSES : 500).map((id: unknown) => oid(id, 'class ID')) : [];
+    const classes: any[] = await ClassModel.find({ _id: { $in: classIds }, ...schoolFilter(school), gradeLevel: course.globalGrade }).select('_id').lean();
+    if (classes.length !== classIds.length) throw new BadRequestError('Every class must belong to your school and match the course grade');
+  }
   if (!classIds.length) throw new BadRequestError('Choose at least one class');
-  const classes: any[] = await ClassModel.find({ _id: { $in: classIds }, school, gradeLevel: course.globalGrade }).select('_id').lean();
-  if (classes.length !== classIds.length) throw new BadRequestError('Every class must belong to your school and match the course grade');
 
   let deadline: Date | undefined;
   if (body.deadline) {
@@ -147,7 +162,7 @@ router.post('/', asyncHandler(async (req, res) => {
   if (questions.length > MAX_QUESTIONS) throw new BadRequestError(`A challenge can hold at most ${MAX_QUESTIONS} questions`);
 
   const challenge = await GuuldoonChallenge.create({
-    school, createdBy: req.user!.userId, course: courseId, title, chapterIds, sources, examIds,
+    ...(school ? { school } : {}), createdBy: req.user!.userId, course: courseId, title, chapterIds, sources, examIds,
     classes: classIds, deadline, questionIds: questions.map((question) => question._id),
   });
 
@@ -159,7 +174,7 @@ router.post('/', asyncHandler(async (req, res) => {
       title: 'Tartan cusub',
       message: `${title}${deadline ? ` · Dhammaad: ${deadline.toISOString().slice(0, 10)}` : ''}`,
       type: 'info',
-      link: '/student/guuldoon/performance',
+      link: '/student/guuldoon/challenges',
       metadata: { dedupeKey: `challenge:${challenge._id}` },
     })), { ordered: false });
   }
@@ -168,7 +183,7 @@ router.post('/', asyncHandler(async (req, res) => {
 
 router.get('/', asyncHandler(async (req, res) => {
   const school = requireStaff(req);
-  const filter: any = { school };
+  const filter: any = { ...schoolFilter(school) };
   if (req.user!.role === 'teacher') filter.createdBy = req.user!.userId;
   const challenges: any[] = await GuuldoonChallenge.find(filter).sort({ createdAt: -1 }).limit(50).lean();
   const rows = await Promise.all(challenges.map(async (challenge) => {
@@ -197,7 +212,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
 router.get('/:id/results', asyncHandler(async (req, res) => {
   const challenge: any = await loadOwnChallenge(req, req.params.id);
-  const school = new mongoose.Types.ObjectId(req.user!.organizationId);
+  const school = requireStaff(req);
   const roster = await classRoster(school, challenge.classes);
   const attempts = await latestAttempts(challenge, roster.map((student) => student.userId));
   const questions: any[] = await GuuldoonQuestion.find({ _id: { $in: challenge.questionIds } })
@@ -272,7 +287,7 @@ router.get('/:id/results', asyncHandler(async (req, res) => {
 
 router.get('/:id/students/:userId', asyncHandler(async (req, res) => {
   const challenge: any = await loadOwnChallenge(req, req.params.id);
-  const school = new mongoose.Types.ObjectId(req.user!.organizationId);
+  const school = requireStaff(req);
   const roster = await classRoster(school, challenge.classes);
   const student = roster.find((entry) => entry.userId === req.params.userId);
   if (!student) throw new NotFoundError('Student');
@@ -285,7 +300,7 @@ router.get('/:id/students/:userId', asyncHandler(async (req, res) => {
 
 router.post('/:id/remind', asyncHandler(async (req, res) => {
   const challenge: any = await loadOwnChallenge(req, req.params.id);
-  const school = new mongoose.Types.ObjectId(req.user!.organizationId);
+  const school = requireStaff(req);
   const roster = await classRoster(school, challenge.classes);
   const attempts = await latestAttempts(challenge, roster.map((student) => student.userId));
   const answered = new Map<string, Set<string>>();
@@ -306,7 +321,7 @@ router.post('/:id/remind', asyncHandler(async (req, res) => {
       title: 'Xusuusin tartan',
       message: `Ku dhammaystir tartanka: ${challenge.title}`,
       type: 'warning',
-      link: '/student/guuldoon/performance',
+      link: '/student/guuldoon/challenges',
     })), { ordered: false });
   }
   return ApiResponse.success(res, { sent: targets.length });
@@ -328,7 +343,7 @@ router.get('/mine/list', asyncHandler(async (req, res) => {
   if (req.user?.role !== 'student' || req.user.isStaff) throw new ForbiddenError('Student access required');
   const student: any = await Student.findOne({ user: req.user.userId, school: req.user.organizationId, status: 'active', approvalStatus: 'approved' }).select('class').lean();
   if (!student?.class) return ApiResponse.success(res, []);
-  const challenges: any[] = await GuuldoonChallenge.find({ school: req.user.organizationId, classes: student.class, status: 'active' }).sort({ createdAt: -1 }).limit(20).lean();
+  const challenges: any[] = await GuuldoonChallenge.find({ classes: student.class, status: 'active' }).sort({ createdAt: -1 }).limit(20).lean();
   const rows = await Promise.all(challenges.map(async (challenge) => {
     const attempts = await latestAttempts(challenge, [String(req.user!.userId)]);
     const done = new Set(attempts.map((attempt: any) => String(attempt.question))).size;
