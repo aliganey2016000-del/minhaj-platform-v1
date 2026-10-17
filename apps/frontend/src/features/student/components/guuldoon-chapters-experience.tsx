@@ -1,3 +1,4 @@
+import { optionText } from '../lib-option-label';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
@@ -817,7 +818,7 @@ export function GuuldoonChaptersExperience({
                 <QuestionFigures question={question} />
                 {question.type === 'mcq' && question.options?.length ? (
                   <ol className="mt-3 space-y-1.5 text-sm">
-                    {question.options.map((option, index) => <li key={index} className="rounded-xl bg-[var(--color-surface-tertiary)]/50 px-3 py-2"><b className="mr-1.5">{String.fromCharCode(65 + index)}.</b><FormulaText text={option} /></li>)}
+                    {question.options.map((option, index) => <li key={index} className="rounded-xl bg-[var(--color-surface-tertiary)]/50 px-3 py-2"><b className="mr-1.5">{String.fromCharCode(65 + index)}.</b><FormulaText text={optionText(option)} /></li>)}
                   </ol>
                 ) : null}
                 {question.answerDisplay
@@ -896,7 +897,7 @@ export function GuuldoonChaptersExperience({
               <div className="mt-5 grid gap-3">
                 {currentQuestion.options.map((option, index) => (
                   <button key={index} disabled={!!currentFeedback || retryNotice[currentQuestion._id]} onClick={() => setAnswers(current => ({ ...current, [currentQuestion._id]: index }))} className={'rounded-2xl border p-4 text-left text-sm font-semibold transition ' + (answers[currentQuestion._id] === index ? (currentFeedback?.marked ? (currentFeedback.correct ? 'border-emerald-500 bg-emerald-500/20 ring-2 ring-emerald-500/40' : 'border-red-500 bg-red-500/15 ring-2 ring-red-500/30') : retryNotice[currentQuestion._id] ? 'border-red-500 bg-red-500/10' : 'border-emerald-500 bg-emerald-500/10') : 'border-[var(--color-border-subtle)] hover:border-emerald-500/40')}>
-                    {String.fromCharCode(65 + index)}. {option}
+                    {String.fromCharCode(65 + index)}. {optionText(option)}
                   </button>
                 ))}
               </div>

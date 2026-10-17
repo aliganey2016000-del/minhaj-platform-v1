@@ -1,3 +1,4 @@
+import { optionText } from '../lib-option-label';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -441,7 +442,7 @@ export function GuuldoonCourseExperience() {
                   {questionGlossary.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{questionGlossary.map(term => <button key={term.termEn} type="button" onClick={() => setGlossaryTerm(term)} className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600">{term.termSo} · {term.termEn}</button>)}</div>}
                   {currentQuestion.type === 'mcq' && currentQuestion.options ? (
                     <div className="mt-5 grid gap-3">{currentQuestion.options.map((option, index) => (
-                      <button key={index} disabled={!!feedback[currentQuestion._id]} onClick={() => setAnswers(current => ({ ...current, [currentQuestion._id]: index }))} className={`rounded-2xl border p-4 text-left text-sm font-semibold transition ${answers[currentQuestion._id] === index ? 'border-emerald-500 bg-emerald-500/10' : 'border-[var(--color-border-subtle)] hover:border-emerald-500/40'}`}>{String.fromCharCode(65 + index)}. {option}</button>
+                      <button key={index} disabled={!!feedback[currentQuestion._id]} onClick={() => setAnswers(current => ({ ...current, [currentQuestion._id]: index }))} className={`rounded-2xl border p-4 text-left text-sm font-semibold transition ${answers[currentQuestion._id] === index ? 'border-emerald-500 bg-emerald-500/10' : 'border-[var(--color-border-subtle)] hover:border-emerald-500/40'}`}>{String.fromCharCode(65 + index)}. {optionText(option)}</button>
                     ))}</div>
                   ) : (
                     <textarea disabled={!!feedback[currentQuestion._id]} value={String(answers[currentQuestion._id] ?? '')} onChange={event => setAnswers(current => ({ ...current, [currentQuestion._id]: event.target.value }))} rows={5} placeholder="Ku qor jawaabtaada..." className="mt-5 w-full rounded-2xl border border-[var(--color-border-default)] bg-transparent p-4 text-sm outline-none focus:border-emerald-500" />

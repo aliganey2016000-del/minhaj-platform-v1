@@ -24,6 +24,7 @@ import GuuldoonGlossary from '../../models/guuldoon-glossary.model';
 import GuuldoonSubject from '../../models/guuldoon-subject.model';
 import GuuldoonUnmatchedAnswer from '../../models/guuldoon-unmatched-answer.model';
 import { compareEntries, computePoints } from '../../services/guuldoon-leaderboard.service';
+import { pickSimilar } from '../../services/guuldoon-similar.service';
 import { describeAnswer, gradeAnswer, isAnswerSpec, isAutoMarkable, normalizeText } from '../../services/guuldoon-marking.service';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/async-handler.middleware';
@@ -665,9 +666,17 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
   }
 
   const revealAnswer = !marked || correct === true || isRetry;
-  const similar = question.similarIds?.length
-    ? await GuuldoonQuestion.find({ _id: { $in: question.similarIds.slice(0, 2) } }).select('-answer').lean()
-    : [];
+  // Only after a mistake, and only questions that really share the topic.
+  let similar: any[] = [];
+  if (correct !== true) {
+    const manual: any[] = question.similarIds?.length
+      ? await GuuldoonQuestion.find({ _id: { $in: question.similarIds.slice(0, 4) } }).select('-answer').lean()
+      : [];
+    const publishedExams = (await GuuldoonExam.find({ course: course._id, published: true }).select('_id').lean()).map((exam: any) => exam._id);
+    const pool: any[] = await GuuldoonQuestion.find({ course: course._id, chapterId: question.chapterId, exam: { $in: publishedExams }, _id: { $ne: question._id } })
+      .select('-answer').limit(300).lean();
+    similar = pickSimilar(question as any, manual, pool);
+  }
 
   return ApiResponse.success(res, {
     marked,
