@@ -15,6 +15,7 @@ import Student from '../models/student.model';
 import School, { resolveInstitutionType } from '../models/school.model';
 import ClassModel from '../models/class.model';
 import Teacher from '../models/teacher.model';
+import ClassSchedule from '../models/class-schedule.model';
 import User from '../models/user.model';
 import Exam from '../models/exam.model';
 import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../utils/api-error';
@@ -395,6 +396,15 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     throw new NotFoundError('Course');
   }
 
+  // The timetable stores a teacher on every lesson. When a course gets a new
+  // teacher, its lessons must follow, otherwise the class schedule keeps
+  // showing (and conflict-checking) the previous teacher.
+  let scheduleSync: { updated: number } | undefined;
+  if (updates.teacher !== undefined && String(updates.teacher || '') !== String(existing.teacher || '')) {
+    const result = await ClassSchedule.updateMany({ course: course._id }, { $set: { teacher: updates.teacher || null } });
+    scheduleSync = { updated: result.modifiedCount };
+  }
+
   const populated = await Course.findById(course._id)
     .populate({
       path: 'teacher',
@@ -405,7 +415,7 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     .populate({ path: 'class', select: 'title section' })
     .lean();
 
-  return ApiResponse.success(res, populated, 'Course updated successfully');
+  return ApiResponse.success(res, scheduleSync ? { ...populated, scheduleSync } : populated, 'Course updated successfully');
 };
 
 // ---------------------------------------------------------------------------

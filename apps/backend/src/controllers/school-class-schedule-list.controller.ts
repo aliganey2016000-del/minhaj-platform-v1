@@ -15,7 +15,7 @@ export const getSchoolSchedules = async (req: Request, res: Response): Promise<R
     throw new BadRequestError('This simplified schedule view is only available for schools');
   }
 
-  const schedules = await ClassSchedule.find({ school: schoolId })
+  const loadSchedules = () => ClassSchedule.find({ school: schoolId })
     .populate('school', 'name institutionType organizationType')
     .populate('class', 'title section')
     .populate('course', 'title courseCode teacher')
@@ -29,6 +29,22 @@ export const getSchoolSchedules = async (req: Request, res: Response): Promise<R
     })
     .sort({ dayOfWeek: 1, startTime: 1 })
     .lean();
+
+  let schedules = await loadSchedules();
+
+  // The course owns its teacher. Lessons saved before a course's teacher was
+  // changed still carry the old one; bring them in line (once) so the timetable
+  // and the conflict checks agree with Course Management.
+  const stale = (schedules as any[]).filter((item) => {
+    const courseTeacher = item.course?.teacher ? String(item.course.teacher) : '';
+    return courseTeacher && String(item.teacher?._id || item.teacher || '') !== courseTeacher;
+  });
+  if (stale.length) {
+    await ClassSchedule.bulkWrite(stale.map((item: any) => ({
+      updateOne: { filter: { _id: item._id }, update: { $set: { teacher: item.course.teacher } } },
+    })));
+    schedules = await loadSchedules();
+  }
 
   return ApiResponse.success(res, schedules);
 };
