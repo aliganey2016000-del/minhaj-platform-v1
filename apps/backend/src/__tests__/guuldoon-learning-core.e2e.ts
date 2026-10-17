@@ -166,6 +166,16 @@ async function main() {
     assert.equal(wrong.body.data.marked, true);
     assert.equal(wrong.body.data.correct, false);
     assert.equal(await Mistake.countDocuments({ user: studentUser._id, question: q1._id }), 1);
+    assert.equal(wrong.body.data.answerDisplay, undefined, 'the key stays hidden after a first wrong answer');
+    assert.equal(wrong.body.data.correctIndex, undefined);
+    const revealed = await request(app)
+      .post(`/api/v1/guuldoon/questions/${q1._id}/answer`)
+      .set(studentHeaders)
+      .set('Cookie', deviceCookie)
+      .send({ answer: 0, timeMs: 1000, reveal: true });
+    assert.equal(revealed.body.data.correctIndex, 1, 'a locked exam question shows the right option');
+    assert.ok(revealed.body.data.answerDisplay);
+    assert.doesNotMatch(revealed.body.data.answerDisplay, /^[A-D]\. [a-d]\. /, 'no doubled option label');
 
     const correct = await request(app)
       .post(`/api/v1/guuldoon/questions/${q1._id}/answer`)

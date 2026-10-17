@@ -1,4 +1,5 @@
 import { optionText } from '../lib-option-label';
+import { AnswerFeedback } from '../components/guuldoon-answer-feedback';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -232,6 +233,7 @@ export function GuuldoonCourseExperience() {
     try {
       const { data: response } = await api.post(`/guuldoon/questions/${question._id}/answer`, {
         answer: answers[question._id],
+        reveal: true,
       });
       setFeedback(current => ({ ...current, [question._id]: response.data }));
       await loadExperience();
@@ -441,8 +443,8 @@ export function GuuldoonCourseExperience() {
                   {(currentQuestion.figureFiles?.length ? currentQuestion.figureFiles : currentQuestion.figureUrl ? [currentQuestion.figureUrl] : []).map((figure, index) => <img key={figure + index} src={figure} alt="" className="mt-4 max-h-72 rounded-xl object-contain" />)}
                   {questionGlossary.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{questionGlossary.map(term => <button key={term.termEn} type="button" onClick={() => setGlossaryTerm(term)} className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600">{term.termSo} · {term.termEn}</button>)}</div>}
                   {currentQuestion.type === 'mcq' && currentQuestion.options ? (
-                    <div className="mt-5 grid gap-3">{currentQuestion.options.map((option, index) => (
-                      <button key={index} disabled={!!feedback[currentQuestion._id]} onClick={() => setAnswers(current => ({ ...current, [currentQuestion._id]: index }))} className={`rounded-2xl border p-4 text-left text-sm font-semibold transition ${answers[currentQuestion._id] === index ? 'border-emerald-500 bg-emerald-500/10' : 'border-[var(--color-border-subtle)] hover:border-emerald-500/40'}`}>{String.fromCharCode(65 + index)}. {optionText(option)}</button>
+                    <div className="mt-5 grid gap-2.5 sm:gap-3">{currentQuestion.options.map((option, index) => (
+                      <button key={index} disabled={!!feedback[currentQuestion._id]} onClick={() => setAnswers(current => ({ ...current, [currentQuestion._id]: index }))} className={`min-h-[52px] rounded-2xl border p-3.5 text-left text-sm font-semibold transition sm:p-4 ${feedback[currentQuestion._id]?.correctIndex === index ? 'border-emerald-500 bg-emerald-500/15' : feedback[currentQuestion._id] && feedback[currentQuestion._id].marked && feedback[currentQuestion._id].correct === false && answers[currentQuestion._id] === index ? 'border-red-500 bg-red-500/10' : answers[currentQuestion._id] === index ? 'border-emerald-500 bg-emerald-500/10' : 'border-[var(--color-border-subtle)] hover:border-emerald-500/40'}`}>{String.fromCharCode(65 + index)}. {optionText(option)}</button>
                     ))}</div>
                   ) : (
                     <textarea disabled={!!feedback[currentQuestion._id]} value={String(answers[currentQuestion._id] ?? '')} onChange={event => setAnswers(current => ({ ...current, [currentQuestion._id]: event.target.value }))} rows={5} placeholder="Ku qor jawaabtaada..." className="mt-5 w-full rounded-2xl border border-[var(--color-border-default)] bg-transparent p-4 text-sm outline-none focus:border-emerald-500" />
@@ -451,20 +453,18 @@ export function GuuldoonCourseExperience() {
                   {!feedback[currentQuestion._id] ? (
                     <button disabled={answering || answers[currentQuestion._id] === undefined || secondsLeft === 0} onClick={() => void submitAnswer(currentQuestion)} className="mt-5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-black text-white disabled:opacity-50">{answering ? 'Waa la hubinayaa...' : 'Gudbi jawaabta'}</button>
                   ) : (
-                    <div className={`mt-5 rounded-2xl border p-4 ${feedback[currentQuestion._id].marked ? feedback[currentQuestion._id].correct ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-red-500/30 bg-red-500/10' : 'border-amber-500/30 bg-amber-500/10'}`}>
-                      <p className="font-black">{feedback[currentQuestion._id].marked ? feedback[currentQuestion._id].correct ? '✓ Sax' : '✕ Khalad' : feedback[currentQuestion._id].message || 'Jawaab la xaqiijin doonaa'}</p>
-                      {feedback[currentQuestion._id].explanation && <p className="mt-2 text-sm leading-6">{feedback[currentQuestion._id].explanation}</p>}
-                      {feedback[currentQuestion._id].explainerAudioUrl && <audio controls preload="none" className="mt-3 w-full" src={feedback[currentQuestion._id].explainerAudioUrl} />}
-                      {feedback[currentQuestion._id].bookRef?.pageFrom && <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Buugga: bogga {feedback[currentQuestion._id].bookRef.pageFrom}{feedback[currentQuestion._id].bookRef.pageTo ? `–${feedback[currentQuestion._id].bookRef.pageTo}` : ''}</p>}
-                      {feedback[currentQuestion._id].similar?.length > 0 && <div className="mt-4"><p className="text-xs font-black uppercase tracking-wide text-[var(--color-text-tertiary)]">2 su'aalood oo la mid ah</p><div className="mt-2 space-y-2">{feedback[currentQuestion._id].similar.slice(0, 2).map((similar: any) => <div key={similar._id} className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-primary)] p-3 text-sm font-semibold">{similar.textSo}</div>)}</div></div>}
-                      {feedback[currentQuestion._id].marked === false && <p className="mt-2 text-xs text-amber-600">{feedback[currentQuestion._id].answerStatus === 'verified' ? 'Su’aashan auto-marking ma leh; qiimeynta macallinka ayaa loo baahan yahay.' : 'Natiijadan laguma darin Pass Meter-ka ilaa answer key-ga la xaqiijiyo.'}</p>}
-                    </div>
+                    <AnswerFeedback
+                      feedback={feedback[currentQuestion._id]}
+                      mineText={currentQuestion.type === 'mcq' && typeof answers[currentQuestion._id] === 'number' ? `${String.fromCharCode(65 + Number(answers[currentQuestion._id]))}. ${optionText(currentQuestion.options?.[Number(answers[currentQuestion._id])] || '')}` : String(answers[currentQuestion._id] ?? '')}
+                      hasNext={questionIndex < exam.questions.length - 1}
+                      onNext={() => setQuestionIndex(index => Math.min(exam.questions.length - 1, index + 1))}
+                    />
                   )}
 
-                  <div className="mt-6 flex items-center justify-between">
-                    <button disabled={questionIndex === 0} onClick={() => setQuestionIndex(index => Math.max(0, index - 1))} className="rounded-xl border px-4 py-2 text-sm disabled:opacity-40">Hore</button>
+                  <div className="mt-6 flex items-center justify-between gap-2">
+                    <button disabled={questionIndex === 0} onClick={() => setQuestionIndex(index => Math.max(0, index - 1))} className="min-h-[44px] rounded-xl border px-4 py-2 text-sm disabled:opacity-40">Hore</button>
                     <span className="text-xs text-[var(--color-text-tertiary)]">{questionIndex + 1} / {exam.questions.length}</span>
-                    <button disabled={questionIndex >= exam.questions.length - 1} onClick={() => setQuestionIndex(index => Math.min(exam.questions.length - 1, index + 1))} className="rounded-xl border px-4 py-2 text-sm disabled:opacity-40">Xiga</button>
+                    <button disabled={questionIndex >= exam.questions.length - 1} onClick={() => setQuestionIndex(index => Math.min(exam.questions.length - 1, index + 1))} className="min-h-[44px] rounded-xl border px-4 py-2 text-sm disabled:opacity-40">Xiga</button>
                   </div>
                 </article>
               ) : <div className="rounded-2xl border p-6">Su'aalo ma jiraan.</div>}

@@ -250,7 +250,8 @@ export function describeAnswer(type: string, key: unknown, options?: string[]): 
   }
   if (type === 'mcq') {
     const index = typeof key === 'number' ? key : ['A', 'B', 'C', 'D'].indexOf(String(key).trim().toUpperCase());
-    const text = index >= 0 && options?.[index] ? options[index] : '';
+    // Imported options often already start with their own "a. " label.
+    const text = index >= 0 && options?.[index] ? options[index].replace(/^\s*[A-Da-d][.)]\s+/, '') : '';
     return index >= 0 && text ? `${String.fromCharCode(65 + index)}. ${text}` : String(key);
   }
   if (type === 'match' && Array.isArray(key) && options) {

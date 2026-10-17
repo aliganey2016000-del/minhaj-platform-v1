@@ -665,7 +665,10 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     }
   }
 
-  const revealAnswer = !marked || correct === true || isRetry;
+  // The exam flow locks a question after it is answered, so it asks to see the key (reveal);
+  // the practice hub keeps it hidden until the student has retried.
+  const revealAnswer = !marked || correct === true || isRetry || req.body?.reveal === true;
+  const keyIndex = typeof question.answer === 'number' ? question.answer : ['A', 'B', 'C', 'D'].indexOf(String(question.answer ?? '').trim().toUpperCase());
   // Only after a mistake, and only questions that really share the topic.
   let similar: any[] = [];
   if (correct !== true) {
@@ -684,6 +687,7 @@ router.post('/questions/:questionId/answer', asyncHandler(async (req, res) => {
     reason: grade && !grade.correct ? grade.reason : undefined,
     answerStatus: question.answerStatus,
     markingMode,
+    correctIndex: revealAnswer && question.type === 'mcq' && keyIndex >= 0 ? keyIndex : undefined,
     answerDisplay: revealAnswer ? describeAnswer(question.type, question.answer, question.options) : undefined,
     explanation: revealAnswer ? question.explainerText || '' : '',
     explanationStatus: question.answerStatus === 'verified' ? 'verified' : 'draft',
