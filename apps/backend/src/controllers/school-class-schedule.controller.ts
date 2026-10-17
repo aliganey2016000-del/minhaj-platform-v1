@@ -1,3 +1,4 @@
+import { isLiveClass } from '../middleware/timetable-room-conflict.middleware';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
@@ -41,7 +42,7 @@ const TEACHER_POPULATE = {
   ],
 };
 
-const CLASS_POPULATE = { path: 'class', select: 'title section room' };
+const CLASS_POPULATE = { path: 'class', select: 'title section room status' };
 
 function normalize(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -237,11 +238,14 @@ async function assertNoConflicts(params: {
   };
   if (params.excludeId) filter._id = { $ne: params.excludeId };
 
-  const overlaps = await ClassSchedule.find(filter)
+  // Lessons of a deleted, inactive or completed class are on no timetable, so
+  // they must not block a new lesson (they only showed up as conflicts nobody
+  // could see).
+  const overlaps = (await ClassSchedule.find(filter)
     .populate(CLASS_POPULATE)
     .populate('course', 'title')
     .populate(TEACHER_POPULATE)
-    .lean();
+    .lean()).filter((item: any) => isLiveClass(item.class));
 
   const duplicate = overlaps.find((item: any) =>
     String(item.class?._id || item.class) === params.classId &&
@@ -268,7 +272,8 @@ async function assertNoConflicts(params: {
   if (params.teacherId) {
     const teacherConflict = overlaps.find((item: any) => String(item.teacher?._id || item.teacher || '') === params.teacherId);
     if (teacherConflict) {
-      throw new BadRequestError(`Teacher conflict: ${teacherLabel(teacherConflict.teacher) || 'this teacher'} is already scheduled from ${teacherConflict.startTime} to ${teacherConflict.endTime}`);
+      const where = `${teacherConflict.course?.title?.en || 'another lesson'}${classLabel(teacherConflict.class) ? ` in ${classLabel(teacherConflict.class)}` : ''}`;
+      throw new BadRequestError(`Teacher conflict: ${teacherLabel(teacherConflict.teacher) || 'this teacher'} is already scheduled for ${where} from ${teacherConflict.startTime} to ${teacherConflict.endTime}`);
     }
   }
 }

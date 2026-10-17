@@ -4,6 +4,16 @@ import ClassModel from '../models/class.model';
 import { BadRequestError } from '../utils/api-error';
 import { resolveOrgIdForCreate } from '../utils/tenant-scope';
 
+/**
+ * A lesson only occupies a teacher, room or slot while its class is on the
+ * current timetable. Lessons left behind by a deleted class, or by a class that
+ * is inactive or completed (a past year), do not appear in any timetable view,
+ * so letting them block a new lesson produced conflicts nobody could see.
+ */
+export function isLiveClass(cls: any): boolean {
+  return !!cls && (!cls.status || cls.status === 'active');
+}
+
 export async function validateScheduleRoomConflict(req: Request, _res: Response, next: NextFunction): Promise<void> {
   if (req.body?.isActive === false) {
     next();
@@ -40,8 +50,8 @@ export async function validateScheduleRoomConflict(req: Request, _res: Response,
   };
   if (req.params.id) query._id = { $ne: req.params.id };
 
-  const candidates = await ClassSchedule.find(query).populate('class', 'room title section').lean();
-  const conflict = candidates.find((schedule: any) => {
+  const candidates = await ClassSchedule.find(query).populate('class', 'room title section status').lean();
+  const conflict = candidates.filter((schedule: any) => isLiveClass(schedule.class)).find((schedule: any) => {
     // Same-class overlaps are diagnosed by the school schedule controller as
     // a Class conflict. Do not mask that more useful message merely because
     // the class naturally has the same room as itself.
@@ -107,7 +117,7 @@ export async function validateLegacyScheduleConflicts(req: Request, _res: Respon
   };
   if (req.params.id) query._id = { $ne: req.params.id };
 
-  const candidates = await ClassSchedule.find(query).populate('class', 'room title section').lean();
+  const candidates = (await ClassSchedule.find(query).populate('class', 'room title section status').lean()).filter((s: any) => isLiveClass(s.class));
 
   const classConflict = candidates.find((s: any) => String(s.class?._id || s.class || '') === classId);
   if (classConflict) {

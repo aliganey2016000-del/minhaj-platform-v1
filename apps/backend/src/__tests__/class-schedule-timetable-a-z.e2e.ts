@@ -256,6 +256,20 @@ async function main() {
       dayOfWeek: 1, startTime: '08:00', endTime: '08:45', isActive: true,
     });
   assert(teacherConflict.status === 400 && /teacher conflict/i.test(messageOf(teacherConflict)), `same teacher / two classes is blocked (${messageOf(teacherConflict)})`);
+  assert(/already scheduled for .+ in .+ from \d{2}:\d{2} to \d{2}:\d{2}/.test(messageOf(teacherConflict)), `the teacher conflict names the other lesson and class (${messageOf(teacherConflict)})`);
+
+  // A lesson left behind by an inactive/completed class is on no timetable, so it must not block the teacher.
+  await ClassModel.updateOne({ _id: classA._id }, { status: 'inactive' });
+  const ghostTry = await request(app)
+    .post('/api/v1/class-schedules/school')
+    .set('Authorization', `Bearer ${orgToken}`)
+    .send({
+      class: classB._id.toString(), course: englishB._id.toString(), teacher: teacher1._id.toString(),
+      dayOfWeek: 1, startTime: '08:00', endTime: '08:45', isActive: true,
+    });
+  assert(ghostTry.status === 201, `a lesson of an inactive class does not block the teacher (status ${ghostTry.status}: ${messageOf(ghostTry)})`);
+  if (ghostTry.body?.data?._id) await ClassSchedule.deleteOne({ _id: ghostTry.body.data._id });
+  await ClassModel.updateOne({ _id: classA._id }, { status: 'active' });
 
   const roomConflict = await request(app)
     .post('/api/v1/class-schedules/school')
