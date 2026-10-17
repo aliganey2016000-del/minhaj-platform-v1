@@ -71,6 +71,7 @@ async function main() {
     const pickable = (await request(app).get(`/api/v1/guuldoon-challenges/questions?courseId=${course._id}&chapterId=${chapterId}&source=past`).set(H(teacher)).expect(200)).body.data;
     assert.equal(pickable.length, 3);
     assert.equal(pickable[0].answer, undefined, 'answers are never listed');
+    assert.equal(pickable[0].year, 2023, 'a past paper shows its year');
     assert.equal((await request(app).get(`/api/v1/guuldoon-challenges/questions?courseId=${course._id}&examId=${options.courses[0].exams[0].id}`).set(H(teacher)).expect(200)).body.data.length, 3);
     assert.equal((await request(app).get(`/api/v1/guuldoon-challenges/questions?courseId=${course._id}&chapterId=${chapterId}&source=understand`).set(H(teacher)).expect(200)).body.data.length, 0);
     await request(app).get(`/api/v1/guuldoon-challenges/questions?courseId=${course._id}&chapterId=${chapterId}`).set(H(ali)).expect(403);
