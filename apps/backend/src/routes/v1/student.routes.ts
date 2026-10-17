@@ -4,6 +4,7 @@
  * All routes require authentication.
  */
 
+import { getNextStudentEmail } from '../../controllers/student-next-email.controller';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import * as studentController from '../../controllers/student.controller';
@@ -57,6 +58,7 @@ router.use(authMiddleware);
 
 router.get('/', adminOrTeacher, asyncHandler(studentController.getAll));
 router.get('/stats', adminOrTeacher, asyncHandler(studentController.getStats));
+router.get('/next-email', adminOnly, asyncHandler(getNextStudentEmail));
 router.get('/report/export', adminOnly, asyncHandler(studentController.exportReport as any));
 
 router.post(
