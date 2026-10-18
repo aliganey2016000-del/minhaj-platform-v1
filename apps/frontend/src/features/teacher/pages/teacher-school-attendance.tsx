@@ -107,7 +107,7 @@ export function TeacherSchoolAttendance() {
       const owner = offlineAttendanceOwner();
       if (owner) await cacheAttendanceSessions(owner, date, {
         sessions: data?.sessions || [], calendarDay: data?.calendarDay || null,
-      });
+      }).catch(() => setOfflineMessage('Cannot cache timetable on this device; online attendance still works.'));
     } catch (e: any) {
       const owner = offlineAttendanceOwner();
       const cached = owner && !e?.response ? await getCachedAttendanceSessions(owner, date) : null;
