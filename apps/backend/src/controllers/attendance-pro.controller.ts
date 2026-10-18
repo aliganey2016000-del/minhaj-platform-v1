@@ -7,7 +7,7 @@ import School, { resolveInstitutionType } from '../models/school.model';
 import ClassSchedule from '../models/class-schedule.model';
 import SchoolCalendarDay from '../models/school-calendar-day.model';
 import ApiResponse from '../utils/api-response';
-import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
+import { BadRequestError, ForbiddenError, NotFoundError, ConflictError, ApiError } from '../utils/api-error';
 
 const ALLOWED_STATUSES = new Set(['present', 'absent', 'late', 'excused']);
 const ALLOWED_REASONS = new Set([
@@ -61,7 +61,16 @@ async function expectedRoster(course: any) {
 }
 
 export const markBulk = async (req: Request, res: Response): Promise<Response> => {
-  const { course: rawCourseId, schedule: rawScheduleId, date: rawDate, records } = req.body;
+  const { course: rawCourseId, schedule: rawScheduleId, date: rawDate, records, clientSubmissionId, expectedRevision } = req.body;
+  // Requests generated offline carry a stable key and the server revision
+  // originally downloaded with the roster. Both are rechecked after auth.
+  if (clientSubmissionId !== undefined && (typeof clientSubmissionId !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(clientSubmissionId))) {
+    throw new BadRequestError('Invalid offline attendance submission ID.');
+  }
+  if (clientSubmissionId && expectedRevision !== null && expectedRevision !== undefined &&
+      (typeof expectedRevision !== 'string' || !Number.isFinite(Date.parse(expectedRevision)))) {
+    throw new BadRequestError('Invalid attendance revision.');
+  }
   if (!rawCourseId || !rawDate || !Array.isArray(records) || records.length === 0) {
     throw new BadRequestError('course, date, and records array are required');
   }
@@ -142,21 +151,81 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
 
   const scheduleFilter = schedule ? schedule._id : null;
 
-  // A completed school session is immutable for every role, including platform
-  // admins. Corrections must first go through /school/unlock so the reason,
-  // actor and timestamp are preserved in the AttendanceSession audit trail.
-  // Retain the legacy admin override only for non-school/course-based records.
-  const lockedSession = isSchool && schedule
-    ? await AttendanceSession.exists({ school: course.school, schedule: schedule._id, date, locked: true })
-    : req.user?.role !== 'admin'
-      ? await Attendance.exists({ course: course._id, date, schedule: scheduleFilter, locked: true })
-      : null;
-  if (lockedSession) {
+  // Complete school sessions are immutable. Idempotent replay of the *same*
+  // submission returns success without writing or re-triggering notifications.
+  const previousSession = isSchool && schedule
+    ? await AttendanceSession.findOne({ school: course.school, schedule: schedule._id, date })
+    : null;
+  if (previousSession?.locked) {
+    if (clientSubmissionId && previousSession.syncState === 'applied' &&
+        previousSession.syncSubmissionId === clientSubmissionId &&
+        String(previousSession.takenBy) === String(req.user!.userId)) {
+      return ApiResponse.success(res, {
+        course: course._id, schedule: schedule._id, date, completion: 'complete',
+        expectedStudents: previousSession.expectedStudents,
+        recordedStudents: previousSession.recordedStudents,
+        locked: true, replayed: true,
+      }, 'Attendance already synced successfully');
+    }
+    if (clientSubmissionId) throw new ConflictError('This attendance session has already been submitted. Review the live roster before replacing any data.');
     throw new ForbiddenError('Attendance for this session is locked. An authorized school administrator must unlock it with a correction reason.');
+  }
+
+  // A roster downloaded before an admin correction or another submission is
+  // stale even if the administrator subsequently unlocked the session.
+  if (clientSubmissionId) {
+    const currentRevision = previousSession?.updatedAt?.toISOString() || null;
+    if ((expectedRevision ?? null) !== currentRevision &&
+        !(previousSession?.syncSubmissionId === clientSubmissionId &&
+          previousSession?.syncState === 'processing')) {
+      throw new ConflictError('Attendance changed on the server since your offline download. Your local copy was kept for review.');
+    }
+  }
+  if ((!isSchool || !schedule) && req.user?.role !== 'admin' &&
+      await Attendance.exists({ course: course._id, date, schedule: schedule ? schedule._id : null, locked: true })) {
+    throw new ForbiddenError('Attendance for this course is locked.');
   }
 
   const completeRoster = normalized.length >= students.length;
   const locked = isSchool && schedule ? completeRoster : true;
+  // Claim the unique (school, schedule, date) session BEFORE writing
+  // attendance rows. Competing devices/tabs cannot silently overwrite one
+  // another. A crashed request can be retried after a short lease expires.
+  const submissionId = clientSubmissionId || new mongoose.Types.ObjectId().toHexString();
+  if (isSchool && schedule) {
+    const now = new Date();
+    const claim = {
+      syncSubmissionId: submissionId,
+      syncState: 'processing' as const,
+      syncClaimedAt: now,
+    };
+    if (!previousSession) {
+      try {
+        await AttendanceSession.create({
+          school: course.school, schedule: schedule._id, class: schedule.class || course.class || null,
+          course: course._id, date, expectedStudents: students.length,
+          recordedStudents: 0, status: 'partial', locked: false,
+          takenBy: new mongoose.Types.ObjectId(req.user!.userId), submittedAt: now, ...claim,
+        });
+      } catch (e: any) {
+        if (e?.code === 11000) throw new ConflictError('Another device is submitting this session. Keep your saved copy and retry.');
+        throw e;
+      }
+    } else {
+      const expired = new Date(Date.now() - 2 * 60_000);
+      const acquired = await AttendanceSession.findOneAndUpdate(
+        { _id: previousSession._id, locked: false,
+          $or: [
+            { syncState: { $ne: 'processing' } },
+            { syncClaimedAt: { $lt: expired } },
+          ] },
+        { $set: claim },
+        { new: true },
+      );
+      if (!acquired) throw new ApiError(503, 'Another attendance submission is in progress. Please retry shortly.');
+    }
+  }
+
   const ops = normalized.map((record) => ({
     updateOne: {
       filter: { course: course._id, student: record.student, date, schedule: scheduleFilter },
@@ -191,6 +260,8 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
           locked: completion === 'complete',
           takenBy: new mongoose.Types.ObjectId(req.user!.userId),
           submittedAt: new Date(),
+          syncSubmissionId: submissionId,
+          syncState: 'applied',
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
@@ -240,6 +311,10 @@ export const unlockSchoolSession = async (req: Request, res: Response): Promise<
   const unlockedBy = new mongoose.Types.ObjectId(req.user!.userId);
   const reasonText = correctionReason.slice(0, 500);
   session.locked = false;
+  // Drop prior idempotency receipt after an audited correction unlock.
+  session.syncSubmissionId = undefined;
+  session.syncState = undefined;
+  session.syncClaimedAt = undefined;
   session.unlockedBy = unlockedBy;
   session.unlockedAt = unlockedAt;
   session.unlockReason = reasonText;
