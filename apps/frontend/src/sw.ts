@@ -149,6 +149,23 @@ registerRoute(
       try {
         return await new NetworkFirst({ cacheName: 'navigations' }).handle(params);
       } catch {
+        // React Router navigates within a single SPA shell. A teacher can
+        // open a *new* class/session URL while offline even though no
+        // document request for that exact path was previously cached.
+        // Reuse a previously network-verified same-origin HTML navigation
+        // rather than showing offline.html (which cannot run the queue UI).
+        const navigationCache = await caches.open('navigations');
+        for (const request of await navigationCache.keys()) {
+          if (new URL(request.url).origin !== self.location.origin) continue;
+          const response = await navigationCache.match(request);
+          if (response?.ok && response.headers.get('content-type')?.includes('text/html')) return response;
+        }
+        // Prepared separately by the teacher's explicit Prepare Offline
+        // action. This avoids globally precaching a stale index.html while
+        // allowing cold PWA launches without a prior document navigation.
+        const shell = await caches.open('sahal-offline-app-shell');
+        const appResponse = await shell.match('/');
+        if (appResponse?.ok && appResponse.headers.get('content-type')?.includes('text/html')) return appResponse;
         const cache = await caches.open('offline-fallback');
         return (await cache.match('/offline.html')) || Response.error();
       }

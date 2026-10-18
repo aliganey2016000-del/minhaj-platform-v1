@@ -20,6 +20,10 @@ export interface IAttendanceSession extends Document {
   locked: boolean;
   takenBy: mongoose.Types.ObjectId;
   submittedAt: Date;
+  /** Durable idempotency key for a scheduled attendance submission. */
+  syncSubmissionId?: string;
+  syncState?: 'processing' | 'applied';
+  syncClaimedAt?: Date;
   unlockedBy?: mongoose.Types.ObjectId | null;
   unlockedAt?: Date | null;
   unlockReason?: string;
@@ -50,6 +54,9 @@ const attendanceSessionSchema = new Schema<IAttendanceSession>(
     locked: { type: Boolean, default: false, index: true },
     takenBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     submittedAt: { type: Date, required: true, default: Date.now },
+    syncSubmissionId: { type: String, default: null, maxlength: 80 },
+    syncState: { type: String, enum: ['processing', 'applied'], default: null },
+    syncClaimedAt: { type: Date, default: null },
     // Last correction is kept for quick display, while corrections[] is an
     // append-only session audit trail that survives subsequent resubmissions.
     unlockedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
