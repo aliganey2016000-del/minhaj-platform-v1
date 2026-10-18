@@ -5,6 +5,7 @@
  */
 
 import api from './axios';
+import { flushTeacherAttendanceQueue } from './teacher-offline-attendance';
 import { getQueuedActions, removeQueuedAction } from './offline-store';
 
 let flushing = false;
@@ -74,6 +75,6 @@ export async function flushPendingActions(): Promise<void> {
 }
 
 export function initOfflineSync(): void {
-  window.addEventListener('online', () => { void flushPendingActions(); });
-  if (navigator.onLine) void flushPendingActions();
+  window.addEventListener('online', () => { void flushPendingActions(); void flushTeacherAttendanceQueue(); });
+  if (navigator.onLine) { void flushPendingActions(); void flushTeacherAttendanceQueue(); }
 }
