@@ -7,9 +7,21 @@ import {
   Save,
   Search,
   Users,
+  CloudOff,
+  CloudUpload,
+  Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import {
+  cacheAttendanceRoster, getCachedAttendanceRoster,
+  storeAttendanceDraft, readAttendanceDraft,
+  offlineAttendanceOwner, pendingForSession,
+  queueTeacherAttendance, flushTeacherAttendanceQueue,
+  retryTeacherAttendanceSubmission, discardTeacherAttendanceSubmission,
+} from '../../../lib/teacher-offline-attendance';
+import type { OfflineAttendanceSubmission } from '../../../lib/offline-store';
 
 type Status = 'present' | 'absent';
 type ReasonCode = '' | 'sick' | 'medical' | 'family_emergency' | 'school_activity' | 'suspension' | 'transport_delay' | 'other';
@@ -41,6 +53,7 @@ interface SessionDetail {
   locked: boolean;
   completionStatus?: 'not_taken' | 'partial' | 'complete';
   roster: RosterStudent[];
+  revision?: string | null;
 }
 
 interface Draft {
@@ -85,33 +98,95 @@ export function TeacherSchoolAttendanceRoster() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [offlineView, setOfflineView] = useState(false);
+  const [queued, setQueued] = useState<OfflineAttendanceSubmission | null>(null);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [ready, setReady] = useState(false);
+
+  const refreshQueued = async () => {
+    const owner = offlineAttendanceOwner();
+    if (owner && scheduleId) setQueued(await pendingForSession(owner, date, scheduleId));
+    else setQueued(null);
+  };
 
   const load = async () => {
     if (!scheduleId) return;
     setLoading(true);
+    setReady(false);
     setError('');
+    const owner = offlineAttendanceOwner();
     try {
-      const response = await api.get(`/attendance/school/session/${scheduleId}`, { params: { date } });
-      const next: SessionDetail = response.data?.data;
+      let next: SessionDetail | null = null;
+      let fromCache = !navigator.onLine;
+      if (navigator.onLine) {
+        try {
+          const response = await api.get(`/attendance/school/session/${scheduleId}`, { params: { date }, timeout: 12000 });
+          next = response.data?.data;
+          if (next && owner) await cacheAttendanceRoster(owner, date, scheduleId, next);
+        } catch (e: any) {
+          if (e?.response) throw e; // A revoked teacher / 403 never gets an offline bypass.
+          fromCache = true;
+        }
+      }
+      if (!next && owner && fromCache) next = await getCachedAttendanceRoster(owner, date, scheduleId);
+      if (!next) throw new Error('No offline roster is available. Connect online and tap Prepare Offline.');
       setDetail(next);
+      setOfflineView(fromCache);
+      const existingQueue = owner ? await pendingForSession(owner, date, scheduleId) : null;
+      setQueued(existingQueue);
+      const localDrafts = owner ? await readAttendanceDraft(owner, date, scheduleId) : null;
       const nextDrafts: Record<string, Draft> = {};
-      for (const student of next?.roster || []) {
-        nextDrafts[student._id] = {
+      for (const student of next.roster || []) {
+        const saved = existingQueue?.records.find(row => row.student === student._id);
+        const draft = saved || localDrafts?.[student._id];
+        nextDrafts[student._id] = draft ? {
+          status: draft.status, reasonCode: (draft.reasonCode || '') as ReasonCode, notes: draft.notes || '',
+        } : {
           status: student.attendance?.status === 'absent' ? 'absent' : 'present',
           reasonCode: student.attendance?.status === 'absent' ? (student.attendance?.reasonCode || '') : '',
           notes: student.attendance?.notes || '',
         };
       }
       setDrafts(nextDrafts);
+      setReady(true);
     } catch (e: any) {
       setDetail(null);
-      setError(e?.response?.data?.message || 'Could not load this attendance session.');
-    } finally {
-      setLoading(false);
-    }
+      setError(e?.response?.data?.message || e?.message || 'Could not load attendance.');
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { void load(); }, [scheduleId, date]);
+
+  // Save draft marks even when the teacher has not pressed Submit yet.
+  useEffect(() => {
+    if (!ready || !detail || detail.locked || queued) return;
+    const owner = offlineAttendanceOwner();
+    if (!owner || !scheduleId) return;
+    const timeout = window.setTimeout(() => {
+      void storeAttendanceDraft(owner, date, scheduleId, drafts).catch(() => {
+        setError('Offline storage is unavailable. Do not close this page before saving.');
+      });
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [ready, detail, queued, drafts, scheduleId, date]);
+
+  useEffect(() => {
+    const whenOnline = () => {
+      setOnline(true);
+      void flushTeacherAttendanceQueue().then(refreshQueued);
+    };
+    const whenOffline = () => setOnline(false);
+    const onQueueChange = () => { void refreshQueued(); };
+    window.addEventListener('online', whenOnline);
+    window.addEventListener('offline', whenOffline);
+    window.addEventListener('sahal-attendance-queue-change', onQueueChange);
+    if (navigator.onLine) void flushTeacherAttendanceQueue().then(refreshQueued);
+    return () => {
+      window.removeEventListener('online', whenOnline);
+      window.removeEventListener('offline', whenOffline);
+      window.removeEventListener('sahal-attendance-queue-change', onQueueChange);
+    };
+  }, [scheduleId, date]);
 
   const visible = useMemo(() => {
     const rows = detail?.roster || [];
@@ -147,27 +222,56 @@ export function TeacherSchoolAttendanceRoster() {
   };
 
   const save = async () => {
-    if (!detail?.schedule?.course?._id || detail.locked || !detail.roster.length) return;
+    if (!detail?.schedule?.course?._id || detail.locked || !detail.roster.length || queued) return;
+    const owner = offlineAttendanceOwner();
+    if (!owner) { setError('Please sign in online once with your teacher account before using offline attendance.'); return; }
     setSaving(true);
     setError('');
     setMessage('');
     try {
-      await api.post('/attendance', {
-        course: detail.schedule.course._id,
-        schedule: detail.schedule._id,
-        date,
-        records: detail.roster.map((student) => ({
-          student: student._id,
-          ...(drafts[student._id] || { status: 'present' }),
-        })),
-      });
-      setMessage('Attendance submitted and locked successfully.');
-      await load();
+      // Always persist before trying the network: a lost response must never
+      // lose the captured attendance or cause a duplicate server submission.
+      const item = await queueTeacherAttendance(owner, detail, drafts);
+      setQueued(item);
+      setMessage('Attendance saved on this device. Waiting for server confirmation.');
+      if (navigator.onLine) {
+        await flushTeacherAttendanceQueue();
+        const after = await pendingForSession(owner, date, detail.schedule._id);
+        setQueued(after);
+        if (!after) {
+          setMessage('Attendance synced and submitted successfully.');
+          await load();
+        } else if (after.status === 'conflict') {
+          setError(after.error || 'Attendance needs review before it can be synced.');
+        }
+      }
     } catch (e: any) {
-      setError(e?.response?.data?.message || 'Could not submit attendance.');
-    } finally {
-      setSaving(false);
-    }
+      setError(e?.message || 'Could not store attendance on this device.');
+    } finally { setSaving(false); }
+  };
+
+  const discardQueued = async () => {
+    if (!queued || !window.confirm('Discard this locally saved attendance submission? This cannot be undone.')) return;
+    try {
+      await discardTeacherAttendanceSubmission(queued);
+      setQueued(null);
+      setMessage('Local submission discarded. Server attendance was not changed.');
+      if (navigator.onLine) await load();
+    } catch (e: any) { setError(e?.message || 'Could not discard local submission.'); }
+  };
+
+  const retryQueued = async () => {
+    if (!queued) return;
+    setSaving(true); setError('');
+    try {
+      await retryTeacherAttendanceSubmission(queued);
+      await refreshQueued();
+      if (!(await pendingForSession(queued.owner, date, queued.scheduleId))) {
+        setMessage('Attendance synced successfully.');
+        await load();
+      }
+    } catch (e: any) { setError(e?.message || 'Retry failed. Your saved copy is still available.'); }
+    finally { setSaving(false); }
   };
 
   if (loading) {
@@ -245,6 +349,20 @@ export function TeacherSchoolAttendanceRoster() {
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
       {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">{message}</div>}
 
+      <section aria-live="polite" className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-emerald-50 p-4 dark:border-sky-900 dark:from-sky-950/25 dark:to-emerald-950/20">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-2 text-sm font-black text-[var(--color-text-primary)]">
+            {online ? <CloudUpload className="h-5 w-5 text-emerald-600"/> : <CloudOff className="h-5 w-5 text-amber-600"/>}
+            {queued ? queued.status === 'conflict' ? 'Needs Review — saved locally' : 'Pending Sync — saved locally' : offlineView || !online ? 'Offline roster' : 'Online attendance'}
+          </span>
+          {queued && <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={!online || saving} onClick={() => void retryQueued()} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5"/>Retry Sync</button>
+            <button type="button" disabled={saving} onClick={() => void discardQueued()} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-red-300 px-3 text-xs font-bold text-red-700"><Trash2 className="h-3.5 w-3.5"/>Discard</button>
+          </div>}
+        </div>
+        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">{queued?.error || (queued ? 'Do not clear site data or log out until your attendance is synced. Conflicts will not overwrite the server.' : 'Changes are saved as a draft on this device. Submit to queue them safely.')}</p>
+      </section>
+
       <section className="rounded-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
         <div className="border-b border-[var(--color-border-subtle)] p-4 sm:p-5">
           <div className="relative">
@@ -258,10 +376,10 @@ export function TeacherSchoolAttendanceRoster() {
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" disabled={detail.locked} onClick={() => markAll('present')} className="min-h-11 rounded-xl bg-emerald-600 px-3 text-sm font-black text-white disabled:opacity-50">
+            <button type="button" disabled={detail.locked || !!queued} onClick={() => markAll('present')} className="min-h-11 rounded-xl bg-emerald-600 px-3 text-sm font-black text-white disabled:opacity-50">
               All Present
             </button>
-            <button type="button" disabled={detail.locked} onClick={() => markAll('absent')} className="min-h-11 rounded-xl bg-red-600 px-3 text-sm font-black text-white disabled:opacity-50">
+            <button type="button" disabled={detail.locked || !!queued} onClick={() => markAll('absent')} className="min-h-11 rounded-xl bg-red-600 px-3 text-sm font-black text-white disabled:opacity-50">
               All Absent
             </button>
           </div>
@@ -288,7 +406,7 @@ export function TeacherSchoolAttendanceRoster() {
                       type="button"
                       aria-label={`Mark ${student.name} present`}
                       title="Present"
-                      disabled={detail.locked}
+                      disabled={detail.locked || !!queued}
                       onClick={() => setDrafts((current) => ({
                         ...current,
                         [student._id]: { ...draft, status: 'present', reasonCode: '' },
@@ -306,7 +424,7 @@ export function TeacherSchoolAttendanceRoster() {
                       type="button"
                       aria-label={`Mark ${student.name} absent`}
                       title="Absent"
-                      disabled={detail.locked}
+                      disabled={detail.locked || !!queued}
                       onClick={() => setDrafts((current) => ({
                         ...current,
                         [student._id]: { ...draft, status: 'absent' },
@@ -363,11 +481,11 @@ export function TeacherSchoolAttendanceRoster() {
           <button
             type="button"
             onClick={() => void save()}
-            disabled={saving || detail.locked || !detail.roster.length}
+            disabled={saving || detail.locked || !!queued || !detail.roster.length}
             className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
-            {saving ? 'Saving...' : detail.locked ? 'Attendance Submitted' : 'Save Attendance'}
+            {saving ? 'Saving...' : queued ? queued.status === 'conflict' ? 'Needs Review' : 'Pending Sync' : detail.locked ? 'Attendance Submitted' : online ? 'Submit Attendance' : 'Save Offline & Sync Later'}
           </button>
         </div>
       </section>
