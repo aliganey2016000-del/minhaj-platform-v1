@@ -196,7 +196,7 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
       .select('student status notes reasonCode arrivalTime departureTime locked markedBy updatedAt')
       .lean(),
     AttendanceSession.findOne({ school: schoolId, schedule: schedule._id, date })
-      .select('expectedStudents recordedStudents status locked takenBy submittedAt unlockReason')
+      .select('expectedStudents recordedStudents status locked takenBy submittedAt unlockReason updatedAt')
       .lean(),
     SubstituteAssignment.findOne({ school: schoolId, schedule: schedule._id, date, active: true })
       .populate({ path: 'teacher', select: 'teacherId profile user', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'user', select: 'email' }] })
@@ -243,6 +243,8 @@ export const getSchoolSession = async (req: Request, res: Response): Promise<Res
     expectedStudents: completion?.expectedStudents ?? students.length,
     recordedStudents: completion?.recordedStudents ?? records.length,
     unlockReason: completion?.unlockReason || '',
+    /** Revision token checked before applying an offline-captured roster. */
+    revision: completion?.updatedAt ? new Date(completion.updatedAt).toISOString() : null,
     roster,
   });
 };
