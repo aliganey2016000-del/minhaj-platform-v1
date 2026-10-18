@@ -14,11 +14,13 @@ import {
 } from './offline-store';
 
 export type AttendanceStatus = 'present' | 'absent';
+export type AttendanceReason = '' | 'sick' | 'medical' | 'family_emergency' |
+  'school_activity' | 'suspension' | 'transport_delay' | 'other';
 export interface OfflineStudent {
   _id: string;
   studentId: string;
   name: string;
-  attendance?: { status?: AttendanceStatus; reasonCode?: string; notes?: string } | null;
+  attendance?: { status?: AttendanceStatus; reasonCode?: AttendanceReason; notes?: string; locked?: boolean } | null;
 }
 export interface OfflineRoster {
   date: string;
