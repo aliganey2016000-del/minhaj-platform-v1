@@ -138,7 +138,7 @@ export function TeacherSchoolAttendanceRoster() {
       const nextDrafts: Record<string, Draft> = {};
       for (const student of next.roster || []) {
         const saved = existingQueue?.records.find(row => row.student === student._id);
-        const draft = saved || localDrafts?.[student._id];
+        const draft = saved || (!next.locked ? localDrafts?.[student._id] : undefined);
         nextDrafts[student._id] = draft ? {
           status: draft.status, reasonCode: (draft.reasonCode || '') as ReasonCode, notes: draft.notes || '',
         } : {
