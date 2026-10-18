@@ -160,6 +160,12 @@ registerRoute(
           const response = await navigationCache.match(request);
           if (response?.ok && response.headers.get('content-type')?.includes('text/html')) return response;
         }
+        // Prepared separately by the teacher's explicit Prepare Offline
+        // action. This avoids globally precaching a stale index.html while
+        // allowing cold PWA launches without a prior document navigation.
+        const shell = await caches.open('sahal-offline-app-shell');
+        const appResponse = await shell.match('/');
+        if (appResponse?.ok && appResponse.headers.get('content-type')?.includes('text/html')) return appResponse;
         const cache = await caches.open('offline-fallback');
         return (await cache.match('/offline.html')) || Response.error();
       }
