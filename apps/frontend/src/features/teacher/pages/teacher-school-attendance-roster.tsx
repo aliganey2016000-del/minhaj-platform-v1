@@ -122,7 +122,9 @@ export function TeacherSchoolAttendanceRoster() {
         try {
           const response = await api.get(`/attendance/school/session/${scheduleId}`, { params: { date }, timeout: 12000 });
           next = response.data?.data;
-          if (next && owner) await cacheAttendanceRoster(owner, date, scheduleId, next);
+          if (next && owner) await cacheAttendanceRoster(owner, date, scheduleId, next).catch(() => {
+            setError('Offline storage is unavailable; online roster is still visible.');
+          });
         } catch (e: any) {
           if (e?.response) throw e; // A revoked teacher / 403 never gets an offline bypass.
           fromCache = true;
