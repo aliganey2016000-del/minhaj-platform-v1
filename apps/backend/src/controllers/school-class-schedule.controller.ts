@@ -408,6 +408,127 @@ export const updateSchoolSchedule = async (req: Request, res: Response): Promise
   return ApiResponse.success(res, await getPopulatedSchedule(req.params.id), 'Schedule updated');
 };
 
+type BulkChange = { key: string; classId: string; dayOfWeek: number; startTime: string; endTime: string; courseId: string | null };
+type BulkLesson = {
+  id: string; classId: string; classLabel: string; courseId: string; courseTitle: string; teacherId: string; teacherLabel: string;
+  room: string; dayOfWeek: number; startTime: string; endTime: string;
+};
+
+/**
+ * Saves a whole timetable edit at once. Every change is checked against the
+ * timetable as it will look AFTER all changes are applied, not against the old
+ * one, so swapping two teachers between classes works. A change that would
+ * really clash is reported and skipped; the others are saved.
+ */
+export const bulkSaveSchoolSchedules = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId } = await resolveSchoolContext(req, req.body?.school);
+  const rawChanges: any[] = Array.isArray(req.body?.changes) ? req.body.changes.slice(0, 500) : [];
+  if (!rawChanges.length) throw new BadRequestError('No changes to save');
+
+  const failed = new Map<string, string>();
+  const changes: BulkChange[] = [];
+  for (const raw of rawChanges) {
+    const key = String(raw?.key || '');
+    const startTime = parseTime(raw?.startTime);
+    const endTime = parseTime(raw?.endTime);
+    const dayOfWeek = Number(raw?.dayOfWeek);
+    if (!key || !raw?.class || !startTime || !endTime || endTime <= startTime || !Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+      if (key) failed.set(key, 'Invalid timetable cell');
+      continue;
+    }
+    changes.push({ key, classId: String(raw.class), dayOfWeek, startTime, endTime, courseId: raw.course ? String(raw.course) : null });
+  }
+
+  const days = [...new Set(changes.map((change) => change.dayOfWeek))];
+  const rows: any[] = await ClassSchedule.find({ school: schoolId, dayOfWeek: { $in: days }, isActive: true })
+    .populate(CLASS_POPULATE).populate('course', 'title').populate(TEACHER_POPULATE).lean();
+  const lessonOf = (row: any): BulkLesson => ({
+    id: String(row._id), classId: String(row.class?._id || row.class), classLabel: classLabel(row.class), courseId: String(row.course?._id || row.course),
+    courseTitle: row.course?.title?.en || 'another lesson', teacherId: String(row.teacher?._id || row.teacher || ''), teacherLabel: teacherLabel(row.teacher),
+    room: normalize(row.room || row.class?.room), dayOfWeek: row.dayOfWeek, startTime: row.startTime, endTime: row.endTime,
+  });
+  // Lessons of deleted / inactive classes are on no timetable, so they never take part.
+  const current = rows.filter((row) => isLiveClass(row.class)).map(lessonOf);
+  const overlaps = (a: { dayOfWeek: number; startTime: string; endTime: string }, b: { dayOfWeek: number; startTime: string; endTime: string }) =>
+    a.dayOfWeek === b.dayOfWeek && a.startTime < b.endTime && a.endTime > b.startTime;
+
+  // What each change does: delete the cell's lessons, or set it to a course (update the first lesson, create when empty).
+  type Plan = { change: BulkChange; deleteIds: string[]; updateId: string | null; lesson: BulkLesson | null; cls?: any; course?: any; teacherId?: string | null };
+  const plans = new Map<string, Plan>();
+  for (const change of changes) {
+    const existing = current.filter((lesson) => lesson.classId === change.classId && overlaps(lesson, change));
+    if (!change.courseId) {
+      plans.set(change.key, { change, deleteIds: existing.map((lesson) => lesson.id), updateId: null, lesson: null });
+      continue;
+    }
+    try {
+      const course: any = await Course.findOne({ _id: change.courseId, school: schoolId }).lean();
+      const cls: any = await ClassModel.findOne({ _id: change.classId, school: schoolId }).lean();
+      if (!cls) throw new BadRequestError('Selected class does not belong to this school');
+      if (!course) throw new BadRequestError('Selected course / subject does not belong to this school');
+      if (course.class && String(course.class) !== change.classId) throw new BadRequestError('Selected course / subject is assigned to a different class');
+      const teacherId = course.teacher ? String(course.teacher) : null;
+      await assertSchedulableReferences({ schoolId, cls, course, teacherId, active: true });
+      const teacher: any = teacherId ? await Teacher.findById(teacherId).populate('profile', 'firstName lastName').populate('user', 'email').lean() : null;
+      const keepId = existing[0]?.id || `new:${change.key}`;
+      plans.set(change.key, {
+        change, deleteIds: existing.slice(1).map((lesson) => lesson.id), updateId: existing[0]?.id || null, cls, course, teacherId,
+        lesson: {
+          id: keepId, classId: change.classId, classLabel: classLabel(cls), courseId: change.courseId, courseTitle: course.title?.en || 'this lesson',
+          teacherId: teacherId || '', teacherLabel: teacherLabel(teacher), room: normalize(cls.room), dayOfWeek: change.dayOfWeek,
+          startTime: change.startTime, endTime: change.endTime,
+        },
+      });
+    } catch (error: any) {
+      failed.set(change.key, error?.message || 'Could not save');
+    }
+  }
+
+  // Find clashes in the final timetable; skip the clashing changes and check again until it is stable.
+  for (let round = 0; round < 25; round += 1) {
+    const live = [...plans.values()].filter((plan) => !failed.has(plan.change.key));
+    const removed = new Set(live.flatMap((plan) => plan.deleteIds));
+    const replaced = new Map(live.filter((plan) => plan.updateId && plan.lesson).map((plan) => [plan.updateId as string, plan.lesson as BulkLesson]));
+    const finalState: BulkLesson[] = [
+      ...current.filter((lesson) => !removed.has(lesson.id) && !replaced.has(lesson.id)),
+      ...live.filter((plan) => plan.lesson).map((plan) => plan.lesson as BulkLesson),
+    ];
+    let clashes = 0;
+    for (const plan of live) {
+      const lesson = plan.lesson;
+      if (!lesson) continue;
+      for (const other of finalState) {
+        if (other.id === lesson.id || !overlaps(lesson, other)) continue;
+        let message = '';
+        if (other.classId === lesson.classId) message = `Class conflict: ${other.classLabel} already has ${other.courseTitle} from ${other.startTime} to ${other.endTime}`;
+        else if (lesson.teacherId && other.teacherId === lesson.teacherId) message = `Teacher conflict: ${lesson.teacherLabel || 'this teacher'} is already scheduled for ${other.courseTitle} in ${other.classLabel} from ${other.startTime} to ${other.endTime}`;
+        else if (lesson.room && other.room === lesson.room) message = `Room conflict: ${plan.cls?.room || 'this room'} is already used by ${other.classLabel} from ${other.startTime} to ${other.endTime}`;
+        if (message) { failed.set(plan.change.key, message); clashes += 1; break; }
+      }
+    }
+    if (!clashes) break;
+  }
+
+  // Apply what is left.
+  const saved: string[] = [];
+  for (const plan of plans.values()) {
+    if (failed.has(plan.change.key)) continue;
+    try {
+      if (plan.deleteIds.length) await ClassSchedule.deleteMany({ _id: { $in: plan.deleteIds }, school: schoolId });
+      if (plan.lesson) {
+        const fields = { class: plan.change.classId, course: plan.change.courseId, teacher: plan.teacherId || null, dayOfWeek: plan.change.dayOfWeek, startTime: plan.change.startTime, endTime: plan.change.endTime, isActive: true };
+        if (plan.updateId) await ClassSchedule.findByIdAndUpdate(plan.updateId, fields, { runValidators: true });
+        else await ClassSchedule.create({ school: schoolId, ...fields, createdBy: new mongoose.Types.ObjectId(req.user!.userId) });
+      }
+      saved.push(plan.change.key);
+    } catch (error: any) {
+      failed.set(plan.change.key, error?.message || 'Could not save');
+    }
+  }
+
+  return ApiResponse.success(res, { saved, failed: [...failed.entries()].map(([key, message]) => ({ key, message })) });
+};
+
 export const downloadSchoolTemplate = async (req: Request, res: Response): Promise<void> => {
   await resolveSchoolContext(req, req.query.school as string | undefined);
   const rows = [[

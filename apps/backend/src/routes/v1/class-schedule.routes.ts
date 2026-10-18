@@ -32,6 +32,7 @@ router.put('/school/period-settings', roleMiddleware(['admin', 'org_admin']), as
 router.post('/school/import', roleMiddleware(['admin', 'org_admin']), upload.single('file'), asyncHandler(schoolCtrl.importSchoolSchedules));
 router.get('/school/export', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.exportSchoolSchedules as any));
 router.get('/school/template', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolTemplateCtrl.downloadSchoolTemplate as any));
+router.post('/school/bulk-save', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolCtrl.bulkSaveSchoolSchedules));
 router.post('/school', roleMiddleware(['admin', 'org_admin']), asyncHandler(validateScheduleRoomConflict), asyncHandler(schoolCtrl.createSchoolSchedule));
 router.put('/school/:id', roleMiddleware(['admin', 'org_admin']), asyncHandler(validateScheduleRoomConflict), asyncHandler(schoolCtrl.updateSchoolSchedule));
 
