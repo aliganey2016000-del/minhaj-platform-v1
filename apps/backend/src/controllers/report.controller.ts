@@ -162,14 +162,22 @@ export const getOverdueInvoices = async (req: Request, res: Response): Promise<R
     .populate({ path: 'student', select: 'studentId', populate: { path: 'profile', select: 'firstName lastName' } })
     .populate('school', 'name')
     .sort({ dueDate: 1 })
-    .lean({ virtuals: true });
-  return ApiResponse.success(res, invoices);
+    .lean();
+  // amountDue is a Mongoose virtual and is absent from plain lean documents.
+  // Compute it explicitly, so the overdue table and summary never show $0
+  // for an unpaid invoice when lean virtuals are not installed.
+  const openInvoices = invoices.map((inv) => ({
+    ...inv,
+    amountDue: Math.max(0, inv.amount - (inv.discount || 0) - (inv.amountPaid || 0)),
+  })).filter((inv) => inv.amountDue > 0);
+  return ApiResponse.success(res, openInvoices);
 };
 
 export const sendOverdueReminders = async (req: Request, res: Response): Promise<Response> => {
   const period = String(req.body?.period || '').trim();
   const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: todaySchoolDateOnly() }, ...(period ? { period } : {}) }, 'school');
-  const invoices = await Invoice.find(filter).populate({ path: 'student', select: 'studentId user parent' }).lean();
+  const invoices = (await Invoice.find(filter).populate({ path: 'student', select: 'studentId user parent' }).lean())
+    .filter((inv) => Math.max(0, inv.amount - (inv.discount || 0) - (inv.amountPaid || 0)) > 0);
   if (invoices.length === 0) return ApiResponse.success(res, { remindersSent: 0 }, 'No overdue invoices found');
 
   const parentIds = invoices.map((inv: any) => inv.student?.parent).filter(Boolean);
