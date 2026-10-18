@@ -22,6 +22,25 @@ const ALLOWED_REASONS = new Set([
 ]);
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+// A unique MongoDB index is the cross-process lock for a school period.
+// Tests use a fresh MongoDB, where the model's background index build can
+// otherwise race the very first two POSTs. Ensure it exists before claims.
+// Memoize by connection; duplicate existing sessions make this fail closed.
+let claimedIndexConnection: mongoose.Connection | null = null;
+let attendanceUniqueIndexReady: Promise<unknown> | null = null;
+function ensureAttendanceUniqueIndex(): Promise<unknown> {
+  if (!attendanceUniqueIndexReady || claimedIndexConnection !== mongoose.connection) {
+    claimedIndexConnection = mongoose.connection;
+    attendanceUniqueIndexReady = AttendanceSession.collection
+      .createIndex({ school: 1, schedule: 1, date: 1 }, { unique: true })
+      .catch((error) => {
+        attendanceUniqueIndexReady = null;
+        throw error;
+      });
+  }
+  return attendanceUniqueIndexReady;
+}
+
 function attendanceDate(raw: unknown): Date {
   const value = String(raw || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestError('A valid attendance date (YYYY-MM-DD) is required.');
@@ -153,6 +172,7 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
 
   // Complete school sessions are immutable. Idempotent replay of the *same*
   // submission returns success without writing or re-triggering notifications.
+  if (isSchool && schedule) await ensureAttendanceUniqueIndex();
   const previousSession = isSchool && schedule
     ? await AttendanceSession.findOne({ school: course.school, schedule: schedule._id, date })
     : null;
@@ -248,8 +268,11 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
 
   const completion: 'partial' | 'complete' = completeRoster ? 'complete' : 'partial';
   if (isSchool && schedule) {
-    await AttendanceSession.findOneAndUpdate(
-      { school: course.school, schedule: schedule._id, date },
+    // Finalize ONLY if this request still owns the processing claim.
+    // Never upsert over a different request's completed record.
+    const committed = await AttendanceSession.findOneAndUpdate(
+      { school: course.school, schedule: schedule._id, date,
+        syncSubmissionId: submissionId, syncState: 'processing', locked: false },
       {
         $set: {
           class: schedule.class || course.class || null,
@@ -264,8 +287,9 @@ export const markBulk = async (req: Request, res: Response): Promise<Response> =
           syncState: 'applied',
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { new: true },
     );
+    if (!committed) throw new ConflictError('Another device changed this attendance session during sync.');
   }
 
   return ApiResponse.success(
