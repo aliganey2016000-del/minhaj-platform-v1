@@ -109,6 +109,21 @@ async function writeCached<T>(key: string, value: T) {
   await saveOfflineData(key, { cachedAt: Date.now(), value });
 }
 
+/**
+ * PWA updates intentionally do not precache index.html (avoids stale live
+ * deployments). Prepare Offline caches the current, verified SPA shell only
+ * on demand so a *new* teacher attendance URL can reopen without internet.
+ */
+export async function prepareTeacherOfflineAppShell(): Promise<void> {
+  if (!navigator.onLine || !('caches' in window)) throw new Error('Offline setup requires an online PWA.');
+  const response = await fetch('/', { credentials: 'same-origin', cache: 'reload' });
+  if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) {
+    throw new Error('Could not prepare the offline app shell.');
+  }
+  const cache = await caches.open('sahal-offline-app-shell');
+  await cache.put('/', response);
+}
+
 export const cacheAttendanceSessions = (owner: string, date: string, value: OfflineSessionList) =>
   writeCached(keyFor(owner, 'sessions', date), value);
 export const getCachedAttendanceSessions = (owner: string, date: string) =>
