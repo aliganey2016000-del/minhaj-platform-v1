@@ -30,7 +30,7 @@ export function TeacherAttendance() {
         }
         await api.get('/attendance/school/sessions', { params: { date: localDate() } });
         const owner = offlineAttendanceOwner();
-        if (owner) await saveOfflineData('attendance-school-mode:' + owner, true);
+        if (owner) await saveOfflineData('attendance-school-mode:' + owner, true).catch(() => {});
         if (!cancelled) { setSchoolMode(true); void flushTeacherAttendanceQueue(); }
       } catch (error: any) {
         const status = error?.response?.status;
