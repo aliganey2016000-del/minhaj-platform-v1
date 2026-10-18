@@ -7,6 +7,7 @@ import { asyncHandler } from '../../middleware/async-handler.middleware';
 const router = Router();
 router.use(authMiddleware, adminOnly);
 
+router.get('/periods', asyncHandler(reportController.getBillingPeriods));
 router.get('/collection', asyncHandler(reportController.getCollectionReport));
 router.get('/reconciliation', asyncHandler(reportController.getCashierReconciliation));
 router.get('/overdue', asyncHandler(reportController.getOverdueInvoices));
