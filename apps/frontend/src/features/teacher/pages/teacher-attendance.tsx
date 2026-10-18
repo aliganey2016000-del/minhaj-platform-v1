@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { getOfflineData, saveOfflineData } from '../../../lib/offline-store';
+import { offlineAttendanceOwner, flushTeacherAttendanceQueue } from '../../../lib/teacher-offline-attendance';
 import TeacherAttendanceLegacy from './teacher-attendance-legacy';
 import TeacherSchoolAttendance from './teacher-school-attendance';
 
@@ -21,12 +23,20 @@ export function TeacherAttendance() {
     (async () => {
       try {
         await api.get('/attendance/school/sessions', { params: { date: localDate() } });
-        if (!cancelled) setSchoolMode(true);
+        const owner = offlineAttendanceOwner();
+        if (owner) await saveOfflineData('attendance-school-mode:' + owner, true);
+        if (!cancelled) { setSchoolMode(true); void flushTeacherAttendanceQueue(); }
       } catch (error: any) {
         const status = error?.response?.status;
         const message = String(error?.response?.data?.message || '').toLowerCase();
         if (!cancelled) {
-          setSchoolMode(status === 400 && message.includes('only available for schools') ? false : false);
+          if (status === 400 && message.includes('only available for schools')) {
+            setSchoolMode(false);
+          } else if (!error?.response && offlineAttendanceOwner()) {
+            // A verified teacher may reopen downloaded school rosters offline.
+            const cached = await getOfflineData<boolean>('attendance-school-mode:' + offlineAttendanceOwner());
+            if (!cancelled) setSchoolMode(cached === true);
+          } else setSchoolMode(false);
         }
       }
     })();
