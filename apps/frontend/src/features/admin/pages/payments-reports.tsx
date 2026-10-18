@@ -230,7 +230,7 @@ export function PaymentsReports() {
             </label>
             <label className="block min-w-0">
               <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Billing period</span>
-              <select className={selectClass} value={period} onChange={e => setPeriod(e.target.value)}>
+              <select className={selectClass} value={period} onChange={e => { setPeriod(e.target.value); setReminderMessage(''); }}>
                 <option value="">All billing periods</option>
                 {periods.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
@@ -247,7 +247,7 @@ export function PaymentsReports() {
         {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
         {reminderMessage && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{reminderMessage}</div>}
 
-        {loading && !collection ? <div role="status" className="flex items-center justify-center gap-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-sm text-[var(--color-text-secondary)]"><RefreshCw className="h-5 w-5 animate-spin text-emerald-600" /> Loading financial reports...</div> : collection && <>
+        {loading ? <div role="status" className="flex items-center justify-center gap-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-10 text-sm text-[var(--color-text-secondary)]"><RefreshCw className="h-5 w-5 animate-spin text-emerald-600" /> Loading financial reports...</div> : collection && <>
           <section aria-label="Financial overview" className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
             {metrics.map(m => <div key={m.label} className={'min-w-0 rounded-2xl border p-3.5 shadow-sm sm:p-4 ' + m.style}>
               <div className="flex items-start justify-between gap-1">
