@@ -54,9 +54,10 @@ function schoolDay(date: Date): string {
 const todayISO = () => schoolDay(new Date());
 const monthStartISO = () => todayISO().slice(0, 7) + '-01';
 const money = (n?: number) => '$' + (Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 });
-const formatMethod = (value: string) => ({
+const METHOD_LABELS: Record<string, string> = {
   cash: 'Cash', mobile_money: 'Mobile Money', bank_transfer: 'Bank Transfer', online: 'Online Payment',
-}[value] || value.replace(/_/g, ' '));
+};
+const formatMethod = (value: string) => METHOD_LABELS[value] || value.replace(/_/g, ' ');
 const displayDate = (value: string) => {
   const match = value.slice(0, 10).match(/^\d{4}-\d{2}-\d{2}$/);
   if (!match) return value;
@@ -270,7 +271,7 @@ export function PaymentsReports() {
                     <CartesianGrid vertical={false} strokeDasharray="3 4" opacity={0.2} />
                     <XAxis dataKey="date" tickFormatter={displayDate} tick={{ fontSize: 10 }} minTickGap={20} axisLine={false} tickLine={false} />
                     <YAxis tickFormatter={(v: number) => '$' + v} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip labelFormatter={label => displayDate(String(label))} formatter={(value: number) => [money(Number(value)), 'Net activity']} contentStyle={{ borderRadius: 12, border: '1px solid #cbd5e1' }} />
+                    <Tooltip labelFormatter={label => displayDate(String(label))} formatter={(value: any) => [money(Number(value)), 'Net activity']} contentStyle={{ borderRadius: 12, border: '1px solid #cbd5e1' }} />
                     <Bar dataKey="amount" name="Net activity" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={48} />
                   </BarChart>
                 </ResponsiveContainer>
