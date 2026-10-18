@@ -226,14 +226,20 @@ export function TeacherSchoolAttendanceRoster() {
   const save = async () => {
     if (!detail?.schedule?.course?._id || detail.locked || !detail.roster.length || queued) return;
     const owner = offlineAttendanceOwner();
-    if (!owner) { setError('Please sign in online once with your teacher account before using offline attendance.'); return; }
+    if (!owner && !navigator.onLine) {
+      setError('Please sign in online once with your teacher account before using offline attendance.');
+      return;
+    }
     setSaving(true);
     setError('');
     setMessage('');
+    let safelyQueued = false;
     try {
-      // Always persist before trying the network: a lost response must never
-      // lose the captured attendance or cause a duplicate server submission.
+      // Persist BEFORE sending when storage is available. Online-only
+      // fallback remains available on browsers without IndexedDB.
+      if (!owner) throw new Error('Secure offline storage has not been prepared.');
       const item = await queueTeacherAttendance(owner, detail, drafts);
+      safelyQueued = true;
       setQueued(item);
       setMessage('Attendance saved on this device. Waiting for server confirmation.');
       if (navigator.onLine) {
@@ -248,7 +254,25 @@ export function TeacherSchoolAttendanceRoster() {
         }
       }
     } catch (e: any) {
-      setError(e?.message || 'Could not store attendance on this device.');
+      if (!safelyQueued && navigator.onLine) {
+        // Do not regress the existing teacher online attendance workflow on
+        // devices that block IndexedDB. This path has no auto-retry.
+        try {
+          const records = detail.roster.map(student => ({
+            student: student._id,
+            ...(drafts[student._id] || { status: 'present' as Status, reasonCode: '', notes: '' }),
+          }));
+          await api.post('/attendance', {
+            course: detail.schedule.course._id, schedule: detail.schedule._id, date, records,
+          }, { timeout: 25000 });
+          setMessage('Attendance submitted online. Offline storage is unavailable on this device.');
+          await load();
+        } catch (serverError: any) {
+          setError(serverError?.response?.data?.message || 'Could not submit attendance online. Please try again.');
+        }
+      } else {
+        setError(e?.message || 'Could not store attendance on this device.');
+      }
     } finally { setSaving(false); }
   };
 
