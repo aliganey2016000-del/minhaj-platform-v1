@@ -21,7 +21,7 @@ import api from '../../../lib/axios';
 import {
   cacheAttendanceSessions, cacheAttendanceRoster,
   getCachedAttendanceSessions, listMyAttendanceQueue,
-  offlineAttendanceOwner, flushTeacherAttendanceQueue,
+  offlineAttendanceOwner, flushTeacherAttendanceQueue, prepareTeacherOfflineAppShell,
 } from '../../../lib/teacher-offline-attendance';
 
 interface Session {
@@ -156,8 +156,9 @@ export function TeacherSchoolAttendance() {
     if (!owner || !navigator.onLine || preparing) return;
     setPreparing(true); setOfflineMessage('Downloading today\'s classroom rosters...');
     try {
-      // Ensure the lazy teacher roster chunk is cached by the PWA's
-      // app-code-runtime cache, so navigating into a session works offline.
+      // Cache the current HTML shell and lazy teacher roster bundle. The
+      // PWA can now cold-launch the previously prepared attendance screen.
+      await prepareTeacherOfflineAppShell();
       await import('./teacher-school-attendance-roster');
       // Download one at a time to avoid spiking a low-bandwidth school.
       let ready = 0;
