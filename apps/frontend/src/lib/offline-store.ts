@@ -181,13 +181,34 @@ export async function removeQueuedAction(id: number): Promise<void> {
  * login takes effect) so no other account's queued mutations or cached
  * progress can survive the switch.
  */
-export async function clearAllOfflineData(): Promise<void> {
+export async function clearAllOfflineData(preserveAttendanceQueue = false): Promise<void> {
   const db = await getDb();
   await Promise.all(
-    [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_OFFLINE_DATA, STORE_QUIZ_PROGRESS, STORE_ATTENDANCE_QUEUE].map((store) =>
-      db.clear(store),
-    ),
+    [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_OFFLINE_DATA, STORE_QUIZ_PROGRESS,
+      ...(preserveAttendanceQueue ? [] : [STORE_ATTENDANCE_QUEUE])].map((store) => db.clear(store)),
   );
+}
+
+/**
+ * A teacher may reconnect after refresh credentials have expired. Preserve
+ * their pending roster ONLY after a fresh server-verified login to the exact
+ * same teacher in the exact same tenant, atomically rebinding it to the new
+ * login session. A different user gets a full wipe as before.
+ */
+export async function resetOfflineDataOnLogin(fromAttendanceOwner: string | null, toAttendanceOwner: string | null): Promise<void> {
+  const db = await getDb();
+  const allStores = [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_OFFLINE_DATA, STORE_QUIZ_PROGRESS, STORE_ATTENDANCE_QUEUE];
+  const tx = db.transaction(allStores, 'readwrite');
+  const attendance = await tx.objectStore(STORE_ATTENDANCE_QUEUE).getAll() as OfflineAttendanceSubmission[];
+  for (const store of allStores) await tx.objectStore(store).clear();
+  if (fromAttendanceOwner && toAttendanceOwner) {
+    for (const row of attendance) {
+      if (row.owner !== fromAttendanceOwner) continue;
+      const key = 'school-attendance:v1:' + toAttendanceOwner + ':submission:' + row.date + ':' + row.scheduleId;
+      await tx.objectStore(STORE_ATTENDANCE_QUEUE).put({ ...row, owner: toAttendanceOwner, key });
+    }
+  }
+  await tx.done;
 }
 
 export async function queueVideoProgress(lessonId: string, url: string, currentTime: number): Promise<void> {
