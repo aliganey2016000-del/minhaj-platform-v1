@@ -90,6 +90,15 @@ export function TeacherSchoolAttendance() {
     setLoading(true);
     setError('');
     try {
+      if (!navigator.onLine) {
+        const owner = offlineAttendanceOwner();
+        const cached = owner ? await getCachedAttendanceSessions(owner, date) : null;
+        if (!cached) throw new Error('No downloaded timetable for this date. Connect online and tap Prepare Offline.');
+        setSessions(cached.sessions as Session[]);
+        setCalendarDay(cached.calendarDay || null);
+        setOfflineData(true);
+        return;
+      }
       const response = await api.get('/attendance/school/sessions', { params: { date } });
       const data = response.data?.data;
       setSessions(data?.sessions || []);
@@ -145,8 +154,11 @@ export function TeacherSchoolAttendance() {
   const prepareOffline = async () => {
     const owner = offlineAttendanceOwner();
     if (!owner || !navigator.onLine || preparing) return;
-    setPreparing(true); setOfflineMessage('Downloading today's classroom rosters...');
+    setPreparing(true); setOfflineMessage('Downloading today\'s classroom rosters...');
     try {
+      // Ensure the lazy teacher roster chunk is cached by the PWA's
+      // app-code-runtime cache, so navigating into a session works offline.
+      await import('./teacher-school-attendance-roster');
       // Download one at a time to avoid spiking a low-bandwidth school.
       let ready = 0;
       for (const session of sessions) {
