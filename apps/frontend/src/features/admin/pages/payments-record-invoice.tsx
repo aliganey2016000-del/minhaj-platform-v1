@@ -9,7 +9,14 @@ interface Student {
   studentId: string;
   profile?: { firstName?: string; lastName?: string };
   school?: { _id?: string; name?: string };
-  class?: { _id?: string; title?: string; name?: string };
+  class?: { _id?: string; title?: string; name?: string; section?: string };
+  user?: { email?: string; phone?: string };
+}
+
+interface ClassOption {
+  _id: string;
+  title: string;
+  section?: string;
 }
 
 interface Invoice {
@@ -27,12 +34,15 @@ interface Invoice {
 const money = (n: number) => `$${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const studentName = (s: Student) => `${s.profile?.firstName || ''} ${s.profile?.lastName || ''}`.trim() || s.studentId;
 
-function StudentPicker({ value, onChange }: { value: Student | null; onChange: (s: Student | null) => void }) {
+function StudentPicker({ value, onChange, classId }: { value: Student | null; onChange: (s: Student | null) => void; classId: string }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Student[]>([]);
   const [loading, setLoading] = useState(false);
+  const [lookupError, setLookupError] = useState('');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const term = query.trim();
+  const canSearch = term.length >= 2 || (Boolean(classId) && term.length === 0);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -41,25 +51,57 @@ function StudentPicker({ value, onChange }: { value: Student | null; onChange: (
   }, []);
 
   useEffect(() => {
-    if (query.trim().length < 2) { setResults([]); return; }
+    let current = true;
+    if (!canSearch) {
+      setResults([]);
+      setLoading(false);
+      setLookupError('');
+      return () => { current = false; };
+    }
+    setLoading(true);
+    setLookupError('');
+    setResults([]);
     const timer = window.setTimeout(async () => {
-      setLoading(true);
       try {
-        const { data } = await api.get('/students', { params: { search: query.trim(), limit: '20', approvalStatus: 'approved' } });
-        setResults(data.data || []);
-      } catch { setResults([]); }
-      finally { setLoading(false); }
+        const { data } = await api.get('/students', {
+          params: {
+            ...(term ? { search: term } : {}),
+            ...(classId ? { classId } : {}),
+            limit: '20',
+            approvalStatus: 'approved',
+            sortBy: 'studentId',
+            sortDir: 'asc',
+          },
+        });
+        if (current) setResults(data.data || []);
+      } catch {
+        if (current) { setResults([]); setLookupError('Could not load students. Try again.'); }
+      } finally {
+        if (current) setLoading(false);
+      }
     }, 250);
-    return () => window.clearTimeout(timer);
-  }, [query]);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [query, classId, canSearch, term]);
 
-  if (value) return <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">{studentName(value)}</p><p className="font-mono text-xs text-[var(--color-text-tertiary)]">{value.studentId}</p></div><button type="button" onClick={() => onChange(null)} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)]"><X className="h-4 w-4" /></button></div>;
+  if (value) return <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">{studentName(value)}</p><p className="truncate font-mono text-xs text-[var(--color-text-tertiary)]">{value.studentId}{value.user?.email ? ` · ${value.user.email}` : ''}</p></div><button type="button" aria-label="Clear selected student" onClick={() => onChange(null)} className="rounded-lg p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-tertiary)]"><X className="h-4 w-4" /></button></div>;
 
-  return <div ref={ref} className="relative"><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input value={query} onChange={e => { setQuery(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder="Search by student ID, phone, or name..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-3 pl-9 pr-4 text-sm outline-none focus:border-primary-500" /></div>{open && query.trim().length >= 2 && <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">{loading ? <p className="px-4 py-4 text-center text-xs text-[var(--color-text-tertiary)]">Searching...</p> : results.length === 0 ? <p className="px-4 py-4 text-center text-xs text-[var(--color-text-tertiary)]">No students found.</p> : results.map(s => <button key={s._id} type="button" onClick={() => { onChange(s); setQuery(''); setOpen(false); }} className="flex w-full items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] px-4 py-3 text-left last:border-0 hover:bg-[var(--color-surface-secondary)]"><span><span className="block text-sm font-semibold text-[var(--color-text-primary)]">{studentName(s)}</span><span className="block font-mono text-xs text-[var(--color-text-tertiary)]">{s.studentId}</span></span><span className="text-xs text-[var(--color-text-tertiary)]">Select</span></button>)}</div>}</div>;
+  return <div ref={ref} className="relative">
+    <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" /><input aria-label="Find student by name, ID, email, or phone" value={query} onChange={e => { setQuery(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder="Name, ID, email, or phone..." className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-3 pl-9 pr-4 text-sm outline-none focus:border-primary-500" /></div>
+    {open && <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl">
+      {!canSearch ? <p className="px-4 py-4 text-center text-xs text-[var(--color-text-tertiary)]">Enter at least 2 characters or select a class to browse students.</p> : loading ? <p className="px-4 py-4 text-center text-xs text-[var(--color-text-tertiary)]">Searching...</p> : lookupError ? <p role="alert" className="px-4 py-4 text-center text-xs text-red-600">{lookupError}</p> : results.length === 0 ? <p className="px-4 py-4 text-center text-xs text-[var(--color-text-tertiary)]">No students found.</p> : <>
+        {results.map(s => <button key={s._id} type="button" onClick={() => { onChange(s); setQuery(''); setOpen(false); }} className="flex w-full items-center justify-between gap-3 border-b border-[var(--color-border-subtle)] px-4 py-3 text-left last:border-0 hover:bg-[var(--color-surface-secondary)]"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-[var(--color-text-primary)]">{studentName(s)}</span><span className="block truncate font-mono text-xs text-[var(--color-text-tertiary)]">{s.studentId}{s.user?.email ? ` · ${s.user.email}` : ''}</span>{!classId && s.class?.title && <span className="block truncate text-xs text-[var(--color-text-tertiary)]">{s.class.title}{s.class.section ? ` · ${s.class.section}` : ''}</span>}</span><span className="shrink-0 text-xs text-[var(--color-text-tertiary)]">Select</span></button>)}
+        {results.length === 20 && <p className="px-3 py-2 text-center text-xs text-[var(--color-text-tertiary)]">Showing first 20. Type a name, ID, email or phone to narrow results.</p>}
+      </>}
+    </div>}
+  </div>;
 }
 
 export function PaymentsRecordInvoice() {
   const [student, setStudent] = useState<Student | null>(null);
+  const [classId, setClassId] = useState('');
+  const [classes, setClasses] = useState<ClassOption[]>([]);
+  const [classesLoading, setClassesLoading] = useState(true);
+  const [classesError, setClassesError] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [amount, setAmount] = useState('');
@@ -75,14 +117,47 @@ export function PaymentsRecordInvoice() {
   const [receipt, setReceipt] = useState<PaymentReceiptData | null>(null);
 
   useEffect(() => {
-    if (!student?._id) { setInvoices([]); setSelectedId(''); setAmount(''); return; }
+    let current = true;
+    const loadClasses = async () => {
+      setClassesLoading(true);
+      setClassesError(false);
+      try {
+        const all: ClassOption[] = [];
+        let page = 1;
+        while (current) {
+          const { data } = await api.get('/classes', { params: { status: 'active', limit: '200', page } });
+          all.push(...(data.data || []));
+          if (!data.meta?.hasNextPage) break;
+          page += 1;
+        }
+        if (current) setClasses(all.sort((a, b) => `${a.title} ${a.section || ''}`.localeCompare(`${b.title} ${b.section || ''}`, undefined, { numeric: true })));
+      } catch {
+        if (current) { setClasses([]); setClassesError(true); }
+      } finally {
+        if (current) setClassesLoading(false);
+      }
+    };
+    void loadClasses();
+    return () => { current = false; };
+  }, []);
+
+  useEffect(() => {
+    let current = true;
+    if (!student?._id) { setInvoices([]); setSelectedId(''); setAmount(''); setLoadingInvoices(false); return; }
+    setInvoices([]); setSelectedId(''); setAmount('');
     setLoadingInvoices(true); setError('');
     api.get(`/invoices/student/${student._id}`).then(({ data }) => {
+      if (!current) return;
       const open = ((data.data || []) as Invoice[]).filter(inv => inv.status !== 'void' && Number(inv.amountDue) > 0);
       setInvoices(open);
       const first = open[0];
       setSelectedId(first?._id || ''); setAmount(first ? String(first.amountDue) : '');
-    }).catch(err => { setInvoices([]); setSelectedId(''); setAmount(''); setError(err.response?.data?.message || 'Failed to load student invoices'); }).finally(() => setLoadingInvoices(false));
+    }).catch(err => {
+      if (!current) return;
+      setInvoices([]); setSelectedId(''); setAmount('');
+      setError(err.response?.data?.message || 'Failed to load student invoices');
+    }).finally(() => { if (current) setLoadingInvoices(false); });
+    return () => { current = false; };
   }, [student?._id]);
 
   const invoice = useMemo(() => invoices.find(i => i._id === selectedId) || null, [invoices, selectedId]);
@@ -127,7 +202,10 @@ export function PaymentsRecordInvoice() {
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
     <div className="grid gap-6 lg:grid-cols-[1.35fr_.65fr]">
       <form onSubmit={reviewPayment} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card sm:p-7">
-        <div><label className="mb-2 block text-sm font-semibold">Student *</label><StudentPicker value={student} onChange={setStudent} /></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><label htmlFor="payment-class-filter" className="mb-2 block text-sm font-semibold">Class filter</label><select id="payment-class-filter" value={classId} onChange={e => { setClassId(e.target.value); setStudent(null); setError(''); }} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 text-sm outline-none focus:border-primary-500"><option value="">All active classes</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title}{c.section ? ` · ${c.section}` : ''}</option>)}</select>{classesLoading && <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Loading classes...</p>}{classesError && <p className="mt-1 text-xs text-amber-600">Could not load classes. You can still search all students.</p>}</div>
+          <div><label className="mb-2 block text-sm font-semibold">Student filter *</label><StudentPicker value={student} onChange={setStudent} classId={classId} /></div>
+        </div>
         {student && <div className="mt-5 space-y-3"><div className="flex items-center justify-between"><label className="text-sm font-semibold">Outstanding Invoice *</label><span className="text-xs text-[var(--color-text-tertiary)]">Total outstanding: {money(outstanding)}</span></div>{loadingInvoices ? <div className="rounded-xl border border-[var(--color-border-default)] p-4 text-center text-sm text-[var(--color-text-tertiary)]">Loading invoices...</div> : invoices.length === 0 ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"><FileText className="mb-2 h-5 w-5" /><p className="font-semibold">No outstanding invoice found</p><p className="mt-1 text-xs">This student cannot receive a payment from this screen until an invoice is created.</p></div> : <div className="space-y-2">{invoices.map(inv => <button key={inv._id} type="button" onClick={() => chooseInvoice(inv._id)} className={`w-full rounded-xl border p-4 text-left transition ${selectedId === inv._id ? 'border-primary-500 bg-primary-50/60 ring-2 ring-primary-500/10' : 'border-[var(--color-border-default)] hover:bg-[var(--color-surface-secondary)]'}`}><div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">{inv.title}</p><p className="text-xs text-[var(--color-text-tertiary)]">{inv.period} · Due {new Date(inv.dueDate).toLocaleDateString()}</p></div><span className="shrink-0 text-sm font-bold text-red-600">{money(inv.amountDue)} due</span></div><div className="mt-2 flex gap-4 text-[11px] text-[var(--color-text-tertiary)]"><span>Total {money(inv.amount)}</span><span>Paid {money(inv.amountPaid)}</span><span className="capitalize">{inv.status}</span></div></button>)}</div>}</div>}
         {invoice && <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><p className="text-[var(--color-text-tertiary)]">Invoice Total</p><p className="font-bold">{money(invoice.amount)}</p></div><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><p className="text-[var(--color-text-tertiary)]">Paid</p><p className="font-bold text-emerald-600">{money(invoice.amountPaid)}</p></div><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><p className="text-[var(--color-text-tertiary)]">Remaining</p><p className="font-bold text-red-600">{money(invoice.amountDue)}</p></div></div>}
         {invoice && <div className="mt-5 space-y-4"><div><label className="mb-2 block text-sm font-semibold">Payment Amount *</label><input type="number" min="0.01" max={invoice.amountDue} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-lg font-semibold outline-none focus:border-primary-500" /></div><div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-2 block text-sm font-semibold">Payment Method</label><select value={method} onChange={e => setMethod(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"><option value="cash">Cash</option><option value="mobile_money">Mobile Money</option><option value="bank_transfer">Bank Transfer</option><option value="online">Online Payment</option></select></div><div><label className="mb-2 block text-sm font-semibold">Payment Date</label><input type="date" value={paymentDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setPaymentDate(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm" /></div></div>{method !== 'cash' && <div><label className="mb-2 block text-sm font-semibold">Reference / Transaction No.</label><input value={reference} onChange={e => setReference(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm" placeholder="EVC, bank slip, transaction number..." /></div>}<div><label className="mb-2 block text-sm font-semibold">Notes</label><textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm" /></div><button type="submit" disabled={loading || !invoice} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"><ShieldCheck className="h-4 w-4" /> Review Payment</button></div>}
