@@ -9,7 +9,7 @@ import { applyOrgFilter } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { notifyUsers } from '../utils/notify';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
-import { dateOnlyLabelInTimezone } from '../utils/school-date';
+import { dateOnlyLabelInTimezone, todaySchoolDateOnly } from '../utils/school-date';
 
 // Date filters use the school day (Africa/Mogadishu, UTC+3), not server UTC.
 function parseRange(req: Request): { from: Date; to: Date } {
@@ -87,8 +87,8 @@ export const getCollectionReport = async (req: Request, res: Response): Promise<
     { $group: {
       _id: null,
       totalOutstanding: { $sum: '$due' },
-      overdueOutstanding: { $sum: { $cond: [{ $lt: ['$dueDate', new Date()] }, '$due', 0] } },
-      overdueCount: { $sum: { $cond: [{ $and: [{ $lt: ['$dueDate', new Date()] }, { $gt: ['$due', 0] }] }, 1, 0] } },
+      overdueOutstanding: { $sum: { $cond: [{ $lt: ['$dueDate', todaySchoolDateOnly()] }, '$due', 0] } },
+      overdueCount: { $sum: { $cond: [{ $and: [{ $lt: ['$dueDate', todaySchoolDateOnly()] }, { $gt: ['$due', 0] }] }, 1, 0] } },
     } },
   ]);
 
@@ -157,7 +157,7 @@ export const getCashierReconciliation = async (req: Request, res: Response): Pro
 };
 
 export const getOverdueInvoices = async (req: Request, res: Response): Promise<Response> => {
-  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
+  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: todaySchoolDateOnly() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
   const invoices = await Invoice.find(filter)
     .populate({ path: 'student', select: 'studentId', populate: { path: 'profile', select: 'firstName lastName' } })
     .populate('school', 'name')
@@ -168,7 +168,7 @@ export const getOverdueInvoices = async (req: Request, res: Response): Promise<R
 
 export const sendOverdueReminders = async (req: Request, res: Response): Promise<Response> => {
   const period = String(req.body?.period || '').trim();
-  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() }, ...(period ? { period } : {}) }, 'school');
+  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: todaySchoolDateOnly() }, ...(period ? { period } : {}) }, 'school');
   const invoices = await Invoice.find(filter).populate({ path: 'student', select: 'studentId user parent' }).lean();
   if (invoices.length === 0) return ApiResponse.success(res, { remindersSent: 0 }, 'No overdue invoices found');
 
@@ -223,7 +223,7 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
   }
 
   if (type === 'overdue') {
-    const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
+    const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: todaySchoolDateOnly() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
     const invoices = await Invoice.find(filter)
       .populate({ path: 'student', select: 'studentId', populate: { path: 'profile', select: 'firstName lastName' } })
       .sort({ dueDate: 1 }).lean({ virtuals: true });
