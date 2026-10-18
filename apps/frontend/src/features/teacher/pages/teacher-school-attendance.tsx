@@ -12,9 +12,17 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Users,
+  DownloadCloud,
+  CloudOff,
+  CloudUpload,
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
+import {
+  cacheAttendanceSessions, cacheAttendanceRoster,
+  getCachedAttendanceSessions, listMyAttendanceQueue,
+  offlineAttendanceOwner, flushTeacherAttendanceQueue,
+} from '../../../lib/teacher-offline-attendance';
 
 interface Session {
   _id: string;
@@ -72,23 +80,85 @@ export function TeacherSchoolAttendance() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [online, setOnline] = useState(navigator.onLine);
+  const [offlineData, setOfflineData] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [offlineMessage, setOfflineMessage] = useState('');
+  const [queuedCount, setQueuedCount] = useState(0);
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const response = await api.get('/attendance/school/sessions', { params: { date } });
-      setSessions(response.data?.data?.sessions || []);
-      setCalendarDay(response.data?.data?.calendarDay || null);
+      const data = response.data?.data;
+      setSessions(data?.sessions || []);
+      setCalendarDay(data?.calendarDay || null);
+      setOfflineData(false);
+      const owner = offlineAttendanceOwner();
+      if (owner) await cacheAttendanceSessions(owner, date, {
+        sessions: data?.sessions || [], calendarDay: data?.calendarDay || null,
+      });
     } catch (e: any) {
-      setSessions([]);
-      setError(e?.response?.data?.message || 'Could not load your school attendance sessions.');
+      const owner = offlineAttendanceOwner();
+      const cached = owner && !e?.response ? await getCachedAttendanceSessions(owner, date) : null;
+      if (cached) {
+        setSessions(cached.sessions as Session[]);
+        setCalendarDay(cached.calendarDay || null);
+        setOfflineData(true);
+        setOfflineMessage('Offline: showing your downloaded timetable. Attendance will sync when connectivity returns.');
+      } else {
+        setSessions([]);
+        setError(e?.response?.data?.message || 'No downloaded timetable for this date. Connect online and tap Prepare Offline first.');
+      }
     } finally {
       setLoading(false);
     }
   }, [date]);
 
   useEffect(() => { void loadSessions(); }, [loadSessions]);
+
+  useEffect(() => {
+    let active = true;
+    const refreshQueue = async () => {
+      const items = await listMyAttendanceQueue();
+      if (active) setQueuedCount(items.length);
+    };
+    const whenOnline = () => {
+      setOnline(true);
+      void flushTeacherAttendanceQueue().finally(() => { void refreshQueue(); void loadSessions(); });
+    };
+    const whenOffline = () => setOnline(false);
+    window.addEventListener('online', whenOnline);
+    window.addEventListener('offline', whenOffline);
+    window.addEventListener('sahal-attendance-queue-change', refreshQueue);
+    void refreshQueue();
+    if (navigator.onLine) void flushTeacherAttendanceQueue().then(refreshQueue);
+    return () => {
+      active = false;
+      window.removeEventListener('online', whenOnline);
+      window.removeEventListener('offline', whenOffline);
+      window.removeEventListener('sahal-attendance-queue-change', refreshQueue);
+    };
+  }, [loadSessions]);
+
+  const prepareOffline = async () => {
+    const owner = offlineAttendanceOwner();
+    if (!owner || !navigator.onLine || preparing) return;
+    setPreparing(true); setOfflineMessage('Downloading today's classroom rosters...');
+    try {
+      // Download one at a time to avoid spiking a low-bandwidth school.
+      let ready = 0;
+      for (const session of sessions) {
+        const { data } = await api.get('/attendance/school/session/' + session._id, { params: { date }, timeout: 15000 });
+        await cacheAttendanceRoster(owner, date, session._id, data.data);
+        ready++;
+      }
+      setOfflineMessage(ready + ' rosters ready for offline attendance. Keep this device private.');
+    } catch (e: any) {
+      setOfflineMessage(e?.response?.data?.message || 'Some rosters could not be downloaded. Please retry while online.');
+    } finally { setPreparing(false); }
+  };
 
   const classOptions = useMemo(() => Array.from(new Set(sessions.map((s) => s.className))).sort(), [sessions]);
   const subjectOptions = useMemo(() => Array.from(new Set(sessions.map(subject))).sort(), [sessions]);
@@ -123,6 +193,25 @@ export function TeacherSchoolAttendance() {
         <h1 className="mt-1 text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Student Attendance</h1>
         <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Take attendance for your scheduled classes and track student participation.</p>
       </header>
+
+      <section className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-cyan-50 p-4 dark:border-emerald-900 dark:from-emerald-950/20 dark:to-cyan-950/20">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {online ? <CloudUpload className="h-5 w-5 text-emerald-700" /> : <CloudOff className="h-5 w-5 text-amber-600" />}
+            <div><p className="text-sm font-black text-[var(--color-text-primary)]">Offline Attendance & Auto Sync</p>
+              <p className="text-xs text-[var(--color-text-secondary)]">{online ? 'Connected' : 'Offline mode'} · {queuedCount} saved submission(s) awaiting review/sync{offlineData ? ' · cached timetable' : ''}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={!online || preparing || loading || !sessions.length} onClick={() => void prepareOffline()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+              <DownloadCloud className="h-4 w-4" />{preparing ? 'Preparing...' : 'Prepare Offline'}
+            </button>
+            <button type="button" disabled={!online} onClick={() => { void flushTeacherAttendanceQueue(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-300 px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-50 dark:text-emerald-300">Sync Now</button>
+          </div>
+        </div>
+        {offlineMessage && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">{offlineMessage}</p>}
+        <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">Download rosters before leaving the internet. Auto sync runs when the app is open again with a connection; server confirmation is required.</p>
+      </section>
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
       {calendarDay?.isInstructional === false && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><strong>{calendarDay.name || 'Non-instructional day'}:</strong> attendance is closed.</div>}
