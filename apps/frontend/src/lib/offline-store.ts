@@ -11,13 +11,14 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'sahal-offline';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const STORE_COURSES = 'downloadedCourses';
 const STORE_QUEUE = 'pendingActions';
 const STORE_GATE = 'gateProgress';
 const STORE_OFFLINE_DATA = 'offlineData';
 const STORE_QUIZ_PROGRESS = 'quizProgress';
+const STORE_ATTENDANCE_QUEUE = 'teacherAttendanceQueue';
 
 export interface DownloadedCourse {
   courseId: string;
@@ -91,6 +92,9 @@ function getDb(): Promise<IDBPDatabase> {
         }
         if (oldVersion < 4 && !db.objectStoreNames.contains(STORE_QUIZ_PROGRESS)) {
           db.createObjectStore(STORE_QUIZ_PROGRESS, { keyPath: 'quizId' });
+        }
+        if (oldVersion < 5 && !db.objectStoreNames.contains(STORE_ATTENDANCE_QUEUE)) {
+          db.createObjectStore(STORE_ATTENDANCE_QUEUE, { keyPath: 'key' });
         }
       },
     });
@@ -180,7 +184,7 @@ export async function removeQueuedAction(id: number): Promise<void> {
 export async function clearAllOfflineData(): Promise<void> {
   const db = await getDb();
   await Promise.all(
-    [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_OFFLINE_DATA, STORE_QUIZ_PROGRESS].map((store) =>
+    [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_OFFLINE_DATA, STORE_QUIZ_PROGRESS, STORE_ATTENDANCE_QUEUE].map((store) =>
       db.clear(store),
     ),
   );
@@ -253,4 +257,32 @@ export async function patchGateProgress(
   };
   await saveGateProgress(merged);
   return merged;
+}
+/** Separate durable attendance queue: never feed financial/roster writes to the
+ * generic queue, which discards 4xx failures (including conflicts). */
+export interface OfflineAttendanceSubmission {
+  key: string;
+  owner: string;
+  submissionId: string;
+  scheduleId: string;
+  courseId: string;
+  date: string;
+  revision: string | null;
+  records: Array<{ student: string; status: 'present' | 'absent'; reasonCode: string; notes: string }>;
+  createdAt: number;
+  status: 'pending' | 'conflict';
+  error?: string;
+}
+
+export async function putAttendanceSubmission(submission: OfflineAttendanceSubmission): Promise<void> {
+  const db = await getDb();
+  await db.put(STORE_ATTENDANCE_QUEUE, submission);
+}
+export async function listAttendanceSubmissions(owner: string): Promise<OfflineAttendanceSubmission[]> {
+  const db = await getDb();
+  return (await db.getAll(STORE_ATTENDANCE_QUEUE)).filter((item: OfflineAttendanceSubmission) => item.owner === owner);
+}
+export async function removeAttendanceSubmission(key: string): Promise<void> {
+  const db = await getDb();
+  await db.delete(STORE_ATTENDANCE_QUEUE, key);
 }
