@@ -540,53 +540,27 @@ export function SchedulesTimetable({
     setError('');
     setSuccess('');
 
-    // Each cell is saved independently so one conflicting cell can't abort
-    // the rest of the batch, silently drop changes the user already made,
-    // or — since a failed cell used to leave the whole draft (including
-    // already-saved cells) untouched — cause a retry to re-POST a cell that
-    // had, in fact, already saved and create a duplicate schedule row.
+    // The server checks every change against the timetable as it will look
+    // after ALL changes (so swapping two teachers works), saves the changes
+    // that fit and reports the ones that really clash. Cells that saved leave
+    // the draft; clashing cells stay editable so nothing already typed is lost.
     const savedKeys: string[] = [];
     const failures: string[] = [];
-
-    for (const [key, courseId] of entries) {
+    const changes = entries.map(([key, courseId]) => {
       const [dayRaw, classId, startTime, endTime] = key.split('|');
-      const day = Number(dayRaw);
-      const cls = classes.find(item => item._id === classId);
-      const cellLabel = `${classLabel(cls)} ${DAY_SHORT[day] ?? ''} ${startTime}-${endTime}`.trim();
-      try {
-        const existing = schedules.filter(item => item.isActive && normalizeDay(item.dayOfWeek) === day && classIdOf(item.class) === classId && (
-          (String(item.startTime).slice(0, 5) === startTime && String(item.endTime).slice(0, 5) === endTime)
-          || (timeToMinutes(item.startTime) < timeToMinutes(endTime) && timeToMinutes(item.endTime) > timeToMinutes(startTime))
-        ));
-
-        if (!courseId) {
-          await Promise.all(existing.map(item => api.delete(`/class-schedules/${item._id}`)));
-          savedKeys.push(key);
-          continue;
-        }
-
-        const course = (coursesByClass[classId] || []).find(item => item._id === courseId);
-        const teacher = typeof course?.teacher === 'string' ? course.teacher : course?.teacher?._id || null;
-        const payload = {
-          school: effectiveSchoolId,
-          class: classId,
-          course: courseId,
-          teacher,
-          room: cls?.room || '',
-          dayOfWeek: day,
-          startTime,
-          endTime,
-          isActive: true,
-        };
-
-        if (existing[0]) await api.put(`/class-schedules/school/${existing[0]._id}`, payload);
-        else await api.post('/class-schedules/school', payload);
-        if (existing.length > 1) await Promise.all(existing.slice(1).map(item => api.delete(`/class-schedules/${item._id}`)));
-        savedKeys.push(key);
-      } catch (err: any) {
-        const message = err?.response?.data?.message || 'could not save';
-        failures.push(`${cellLabel}: ${message}`);
+      return { key, class: classId, dayOfWeek: Number(dayRaw), startTime, endTime, course: courseId || null };
+    });
+    try {
+      const response = await api.post('/class-schedules/school/bulk-save', { school: effectiveSchoolId, changes });
+      const result = (response.data?.data ?? response.data) as { saved: string[]; failed: { key: string; message: string }[] };
+      savedKeys.push(...(result.saved || []));
+      for (const failure of result.failed || []) {
+        const [dayRaw, classId, startTime, endTime] = failure.key.split('|');
+        const cls = classes.find(item => item._id === classId);
+        failures.push(`${`${classLabel(cls)} ${DAY_SHORT[Number(dayRaw)] ?? ''} ${startTime}-${endTime}`.trim()}: ${failure.message}`);
       }
+    } catch (err: any) {
+      failures.push(err?.response?.data?.message || 'Timetable could not be saved');
     }
 
     // Only the cells that actually saved leave the draft — a failed cell
