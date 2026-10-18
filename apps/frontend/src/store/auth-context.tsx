@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
-import { clearAllOfflineData } from '../lib/offline-store';
+import { clearAllOfflineData, resetOfflineDataOnLogin } from '../lib/offline-store';
 import {
   OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity,
 } from '../lib/teacher-offline-attendance';
@@ -92,9 +92,14 @@ function normalizeUser(raw: any, profile?: any): User {
   };
 }
 
-function clearAuthStorage() {
+async function clearAuthStorage(options: {
+  preservePendingAttendance?: boolean;
+  transferFrom?: string | null;
+  transferTo?: string | null;
+} = {}): Promise<void> {
   if (typeof window === 'undefined') return;
-  const keysToClear = ['accessToken', 'tenant', 'tenantSlug', 'selectedTenant', 'activeTenant', 'loginSessionId', OFFLINE_TEACHER_IDENTITY_KEY];
+  const keysToClear = ['accessToken', 'tenant', 'tenantSlug', 'selectedTenant', 'activeTenant', 'loginSessionId',
+    ...(options.preservePendingAttendance ? [] : [OFFLINE_TEACHER_IDENTITY_KEY])];
   keysToClear.forEach((key) => {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
@@ -120,7 +125,32 @@ function clearAuthStorage() {
   // unlike the Cache Storage entries above they survive a plain page reload
   // too. Without this, a queued offline mutation from the account logging
   // out would replay against the next account that logs in on this device.
-  void clearAllOfflineData().catch(() => {});
+  try {
+    if (options.transferFrom && options.transferTo) {
+      await resetOfflineDataOnLogin(options.transferFrom, options.transferTo);
+    } else {
+      await clearAllOfflineData(!!options.preservePendingAttendance);
+    }
+  } catch {
+    // Browser storage may be unavailable; account/tenant session keys above
+    // were still revoked and all cached attendance remains identity-scoped.
+  }
+}
+
+function attendanceLoginTransfer(next: User, newLoginSessionId: string): { transferFrom: string | null; transferTo: string | null } {
+  try {
+    const raw = localStorage.getItem(OFFLINE_TEACHER_IDENTITY_KEY);
+    if (!raw || next.role !== 'teacher' || !next.organizationId) return { transferFrom: null, transferTo: null };
+    const last = JSON.parse(raw);
+    if (last.role !== 'teacher' || last.id !== next.id ||
+      last.organizationId !== next.organizationId || last.hostname !== window.location.hostname ||
+      typeof last.loginSessionId !== 'string') return { transferFrom: null, transferTo: null };
+    const prefix = [last.hostname, last.organizationId, last.id];
+    return {
+      transferFrom: [...prefix, last.loginSessionId].join(':'),
+      transferTo: [...prefix, newLoginSessionId].join(':'),
+    };
+  } catch { return { transferFrom: null, transferTo: null }; }
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -205,7 +235,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (err: any) {
         if (controller.signal.aborted) return;
         if (err?.response?.status === 401) {
-          clearAuthStorage();
+          // A revoked/expired token cannot sync, but do not destroy an
+          // unsent teacher attendance register: only the same account may
+          // recover it after a new server-verified login.
+          await clearAuthStorage({ preservePendingAttendance: true });
           setUser(null);
         } else if (!err?.response && verifiedOfflineTeacherIdentity()) {
           // Connection stalled, but this local PWA has a recent, same-account
@@ -265,12 +298,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (data.success) {
-        clearAuthStorage();
         const accessToken = data.data?.accessToken;
         const userData = data.data?.user;
+        const normalized = normalizeUser(userData);
+        const transfer = attendanceLoginTransfer(normalized, loginSessionId);
+        await clearAuthStorage(transfer);
         localStorage.setItem('accessToken', accessToken);
         localStorage.setItem('loginSessionId', loginSessionId);
-        const normalized = normalizeUser(userData);
         setUser(normalized);
         saveVerifiedTeacherIdentity(normalized);
         enrichUserInBackground();
@@ -298,7 +332,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (data.success) {
-        clearAuthStorage();
+        await clearAuthStorage();
         const accessToken = data.data?.accessToken;
         localStorage.setItem('accessToken', accessToken);
         localStorage.setItem('loginSessionId', loginSessionId);
@@ -322,7 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Logout must still clear local state when the network is unavailable.
     }
-    clearAuthStorage();
+    await clearAuthStorage();
     setUser(null);
     window.location.href = '/auth/login';
   }, []);
