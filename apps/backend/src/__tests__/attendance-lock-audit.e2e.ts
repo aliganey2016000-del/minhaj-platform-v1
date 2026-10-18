@@ -142,6 +142,8 @@ async function main() {
       schedule: schedule._id.toString(),
       date: '2026-09-14',
       records: [{ student: student._id.toString(), status: 'present' }],
+      clientSubmissionId: 'offline-attendance-lock-test-001',
+      expectedRevision: null,
     };
 
     const firstSubmit = await request(app)
@@ -154,10 +156,20 @@ async function main() {
     const lockedSession: any = await AttendanceSession.findOne({ schedule: schedule._id, date: new Date('2026-09-14T00:00:00') }).lean();
     assert(lockedSession?.locked === true, 'AttendanceSession persists locked=true');
 
+    const replay = await request(app).post('/api/v1/attendance')
+      .set('Authorization', `Bearer ${adminToken}`).send(payload);
+    assert(replay.status === 200 && replay.body?.data?.replayed === true,
+      'retry after a lost network response is acknowledged without a second write');
+    const rejectedDifferentId = await request(app).post('/api/v1/attendance')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ ...payload, clientSubmissionId: 'offline-attendance-lock-test-002' });
+    assert(rejectedDifferentId.status === 409, 'second offline submission cannot overwrite a locked period');
+
+    const { clientSubmissionId: _clientId, expectedRevision: _revision, ...onlinePayload } = payload;
     const bypassAttempt = await request(app)
       .post('/api/v1/attendance')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ ...payload, records: [{ student: student._id.toString(), status: 'absent' }] });
+       .send({ ...onlinePayload, records: [{ student: student._id.toString(), status: 'absent' }] });
     assert(bypassAttempt.status === 403, `platform admin cannot overwrite locked school attendance (${bypassAttempt.status}: ${messageOf(bypassAttempt)})`);
     assert(/unlock/i.test(messageOf(bypassAttempt)), 'locked overwrite response directs user through audited unlock flow');
 
@@ -181,10 +193,14 @@ async function main() {
     assert(afterUnlock?.corrections?.[0]?.reason === 'Correcting verified register entry', 'correction reason is persisted');
     assert(String(afterUnlock?.corrections?.[0]?.unlockedBy || '') === admin._id.toString(), 'correction actor is persisted');
 
+    const staleReplay = await request(app).post('/api/v1/attendance')
+      .set('Authorization', `Bearer ${adminToken}`).send(payload);
+    assert(staleReplay.status === 409, 'offline copy cannot override an administrator-unlocked correction');
+
     const correctedSubmit = await request(app)
       .post('/api/v1/attendance')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ ...payload, records: [{ student: student._id.toString(), status: 'absent', reasonCode: 'sick' }] });
+      .send({ ...onlinePayload, records: [{ student: student._id.toString(), status: 'absent', reasonCode: 'sick' }] });
     assert(correctedSubmit.status === 200, `attendance can be corrected after audited unlock (${correctedSubmit.status}: ${messageOf(correctedSubmit)})`);
 
     const corrected: any = await Attendance.findOne({ schedule: schedule._id, student: student._id }).lean();
@@ -192,6 +208,27 @@ async function main() {
 
     const relocked: any = await AttendanceSession.findOne({ schedule: schedule._id }).lean();
     assert(relocked?.locked === true && relocked?.status === 'complete', 'corrected complete roster is re-locked');
+
+    // Two devices captured the same Monday timetable while offline.
+    // Atomic session claim must allow just one, without partial overwrites.
+    const samePeriod = { ...onlinePayload, date: '2026-09-21', expectedRevision: null };
+    const [deviceA, deviceB] = await Promise.all([
+      request(app).post('/api/v1/attendance').set('Authorization', `Bearer ${adminToken}`)
+        .send({ ...samePeriod, clientSubmissionId: 'offline-device-a-test-0001',
+          records: [{ student: student._id.toString(), status: 'present' }] }),
+      request(app).post('/api/v1/attendance').set('Authorization', `Bearer ${adminToken}`)
+        .send({ ...samePeriod, clientSubmissionId: 'offline-device-b-test-0002',
+          records: [{ student: student._id.toString(), status: 'absent', reasonCode: 'sick' }] }),
+    ]);
+    assert([deviceA.status, deviceB.status].filter(code => code === 200).length === 1,
+      `exactly one concurrent offline submission succeeds (got ${deviceA.status}/${deviceB.status})`);
+    assert([deviceA.status, deviceB.status].every(code => [200, 409, 503].includes(code)),
+      'losing offline submission is a retryable/conflict response, never a server error');
+    const secondMonday: any = await AttendanceSession.findOne({
+      schedule: schedule._id, date: new Date('2026-09-21T00:00:00'),
+    }).lean();
+    const count = await Attendance.countDocuments({ schedule: schedule._id, date: new Date('2026-09-21T00:00:00') });
+    assert(secondMonday?.locked === true && count === 1, 'concurrent attempts create one complete school register');
   } finally {
     await mongoose.disconnect();
     await mongod.stop();
