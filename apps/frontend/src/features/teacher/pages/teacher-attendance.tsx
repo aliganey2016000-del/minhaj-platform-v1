@@ -22,6 +22,12 @@ export function TeacherAttendance() {
     let cancelled = false;
     (async () => {
       try {
+        if (!navigator.onLine) {
+          const owner = offlineAttendanceOwner();
+          const cached = owner ? await getOfflineData<boolean>('attendance-school-mode:' + owner) : null;
+          if (!cancelled) setSchoolMode(cached === true);
+          return;
+        }
         await api.get('/attendance/school/sessions', { params: { date: localDate() } });
         const owner = offlineAttendanceOwner();
         if (owner) await saveOfflineData('attendance-school-mode:' + owner, true);
