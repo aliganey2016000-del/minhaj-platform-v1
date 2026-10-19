@@ -5,7 +5,7 @@
  * Connects to backend /api/v1/auth/login via AuthContext.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
@@ -13,6 +13,8 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '../../../store/auth-context';
 import { useTenant } from '../../../store/tenant-context';
+import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
+import { Fingerprint, WifiOff, LockKeyhole, Wifi } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Zod schema
@@ -33,12 +35,39 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export function LoginPage() {
   const { t } = useTranslation('auth');
   const { t: tc } = useTranslation('common');
-  const { login, error: authError, clearError } = useAuth();
+  const { login, unlockOffline, error: authError, clearError } = useAuth();
   const { tenant } = useTenant();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [offlineMode, setOfflineMode] = useState(!navigator.onLine);
+  const [offlinePin, setOfflinePin] = useState('');
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const [pinReady, setPinReady] = useState(isOfflinePinReady);
+
+  useEffect(() => {
+    const onOnline = () => { setOnline(true); setPinReady(isOfflinePinReady()); };
+    const onOffline = () => { setOnline(false); setOfflineMode(true); setPinReady(isOfflinePinReady()); };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, []);
+
+  const onOfflineUnlock = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (pinBusy) return;
+    setPinBusy(true);
+    setPinError('');
+    try {
+      await unlockOffline(offlinePin);
+      navigate('/teacher/attendance', { replace: true });
+    } catch (err: any) {
+      setPinError(err?.message || 'Could not unlock offline attendance.');
+    } finally { setPinBusy(false); }
+  };
   const tenantLogo = !tenant?.isMainSite ? tenant?.branding?.logo?.trim() : '';
   const tenantName = !tenant?.isMainSite ? tenant?.name?.trim() : '';
 
@@ -122,15 +151,50 @@ export function LoginPage() {
             <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{tc('site_tagline')}</p>
           </div>
 
+          {/* Offline PIN unlock is explicitly required after a cold PWA launch. */}
+          {(offlineMode || !online) && (
+            <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5 dark:border-emerald-900 dark:bg-emerald-950/20">
+              <div className="mb-3 flex items-center justify-center gap-2 text-emerald-700 dark:text-emerald-300">
+                <WifiOff className="h-5 w-5" />
+                <span className="text-sm font-black">Offline Attendance</span>
+              </div>
+              {pinReady ? (
+                <form onSubmit={onOfflineUnlock} className="space-y-3">
+                  <p className="text-center text-xs text-[var(--color-text-secondary)]">Enter the 6-digit PIN prepared on this device while online.</p>
+                  <label htmlFor="offline-pin" className="block text-xs font-bold text-[var(--color-text-primary)]">Offline PIN</label>
+                  <input id="offline-pin" type="password" inputMode="numeric" pattern="[0-9]{6}" autoComplete="off" maxLength={6}
+                    value={offlinePin} onChange={(event) => setOfflinePin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-full rounded-xl border border-emerald-200 bg-[var(--color-surface-primary)] px-4 py-3 text-center text-xl tracking-[0.45em] outline-none focus:border-emerald-600"
+                    placeholder="••••••" required />
+                  {(pinError || authError) && <p role="alert" className="text-xs text-red-700 dark:text-red-300">{pinError || authError}</p>}
+                  <button type="submit" disabled={pinBusy || offlinePin.length !== 6}
+                    className="flex w-full min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
+                    <LockKeyhole className="h-4 w-4" />{pinBusy ? 'Unlocking...' : 'Unlock Offline Attendance'}
+                  </button>
+                  <p className="flex items-center justify-center gap-2 text-[11px] text-[var(--color-text-tertiary)]"><Fingerprint className="h-4 w-4" />Available only for a previously verified teacher</p>
+                </form>
+              ) : (
+                <p role="status" className="text-center text-sm text-amber-800 dark:text-amber-300">Offline access is not ready or has expired. Connect to the internet, sign in, then set up Offline Access under Teacher Settings and tap Prepare Offline on Attendance.</p>
+              )}
+            </div>
+          )}
+          {online && (
+            <button type="button" onClick={() => { setOfflineMode(v => !v); setPinReady(isOfflinePinReady()); setPinError(''); }}
+              className="mb-4 flex w-full items-center justify-center gap-2 text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
+              {offlineMode ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+              {offlineMode ? 'Use email and password instead' : 'Use prepared Offline PIN'}
+            </button>
+          )}
+
           {/* Error banner */}
-          {authError && (
+          {authError && !offlineMode && online && (
             <div className="mb-6 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-4">
               <p className="text-sm text-red-700 dark:text-red-300">{authError}</p>
             </div>
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          {!offlineMode && online && <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             {/* Email */}
             <div>
               <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-[var(--color-text-primary)]">
@@ -212,7 +276,7 @@ export function LoginPage() {
                 t('login.submit_button')
               )}
             </button>
-          </form>
+          </form>}
 
           {/* Footer link */}
           <p className="mt-6 text-center text-sm text-[var(--color-text-secondary)]">
