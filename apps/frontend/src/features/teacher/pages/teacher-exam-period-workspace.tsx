@@ -16,7 +16,7 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
-import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
+import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, getCachedTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { prepareTeacherOfflineAppShell, saveVerifiedTeacherIdentity, offlineAttendanceOwner, cacheOfflineTeacherSidebar } from '../../../lib/teacher-offline-attendance';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
@@ -195,9 +195,20 @@ export function TeacherExamPeriodWorkspace() {
       setExams(nextExams);
       setAssignments(nextAssignments);
       setUsingOfflineData(false);
+      const cachedExamSnapshot = await getCachedTeacherExamPeriods<{ exams?: Exam[] }>().catch(() => undefined);
+      const mergedExams = [
+        ...(cachedExamSnapshot?.exams || []).filter((cachedExam) => !nextExams.some((exam: Exam) => exam._id === cachedExam._id)),
+        ...nextExams,
+      ];
       await Promise.all([
         cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() }),
-        cacheTeacherExamPeriods({ periods: nextPeriods.filter((item: ExamPeriod) => item.status === 'published'), exams: nextExams, cachedAt: Date.now() }),
+        // Preserve assignments from other exam periods when this period is
+        // opened; otherwise offline period cards would show misleading zero counts.
+        cacheTeacherExamPeriods({
+          periods: nextPeriods.filter((item: ExamPeriod) => item.status === 'published'),
+          exams: mergedExams,
+          cachedAt: Date.now(),
+        }),
       ]).catch(() => undefined);
     } catch (err: any) {
       const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
