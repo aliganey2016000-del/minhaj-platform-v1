@@ -63,18 +63,22 @@ export function isOfflinePinReady(): boolean {
 
 /**
  * On verified online login the teacher receives the current school policy.
- * Keep an existing unexpired PIN in step with an admin shortening/expanding
- * access, without ever extending a PIN based on a locally chosen duration.
+ * Renew the same device's existing PIN when a fresh online policy
+ * verification authorizes the new Saturday week. An expired PIN alone
+ * cannot authorize anything while the device is disconnected.
  */
 export function refreshOfflinePinValidity(): void {
   const identity = verifiedOfflineTeacherIdentity();
-  if (!identity) return;
+  // Prevent client-side/offline calls from extending expired PIN access.
+  if (!identity || !navigator.onLine || !identity.verifiedAt ||
+      Math.abs(Date.now() - identity.verifiedAt) > 120_000) return;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const record = JSON.parse(raw) as PinRecord;
     if (record.version !== 1 || record.subject !== subjectOf(identity) ||
-        record.expiresAt <= Date.now() || record.lockedUntil > Date.now()) return;
+        record.lockedUntil > Date.now() || !/^[a-f0-9]{32}$/.test(record.salt) ||
+        !/^[a-f0-9]{64}$/.test(record.hash)) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...record, expiresAt: identity.expiresAt }));
   } catch { /* no storage / invalid old PIN */ }
 }
