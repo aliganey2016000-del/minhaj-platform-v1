@@ -14,7 +14,7 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
-import { verifiedOfflineTeacherIdentity } from '../lib/teacher-offline-attendance';
+
 import { isPlatformRootHostname, primaryPlatformDomain } from '../lib/platform-domains';
 
 export interface TenantBranding {
@@ -58,7 +58,7 @@ const TenantContext = createContext<TenantContextValue | undefined>(undefined);
 // use it while the backend is unreachable.
 const cacheKey = (host: string) => 'sahal-offline-tenant:' + host;
 function getOfflineTenant(host: string): TenantData | null {
-  if (!verifiedOfflineTeacherIdentity()) return null;
+  // Public branding is not an authorization boundary: PIN selection needs it before login.
   try {
     const stored = JSON.parse(localStorage.getItem(cacheKey(host)) || 'null');
     if (stored?.hostname !== host || stored?.expiresAt < Date.now() || !stored?.tenant ||
