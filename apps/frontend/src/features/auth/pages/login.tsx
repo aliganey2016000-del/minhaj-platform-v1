@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '../../../store/auth-context';
 import { useTenant } from '../../../store/tenant-context';
-import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
+import { listPreparedTeachers } from '../../../lib/offline-teacher-pin';
 import { WifiOff, LockKeyhole, Wifi } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -46,11 +46,18 @@ export function LoginPage() {
   const [offlinePin, setOfflinePin] = useState('');
   const [pinBusy, setPinBusy] = useState(false);
   const [pinError, setPinError] = useState('');
-  const [pinReady, setPinReady] = useState(isOfflinePinReady);
+  const [preparedAccounts, setPreparedAccounts] = useState(listPreparedTeachers);
+  const [selectedAccount, setSelectedAccount] = useState(() => listPreparedTeachers().find(a => !a.expired)?.key || '');
+  const refreshAccounts = () => {
+    const accounts = listPreparedTeachers();
+    setPreparedAccounts(accounts);
+    setSelectedAccount(previous =>
+      accounts.some(a => a.key === previous && !a.expired) ? previous : accounts.find(a => !a.expired)?.key || '');
+  };
 
   useEffect(() => {
-    const onOnline = () => { setOnline(true); setPinReady(isOfflinePinReady()); };
-    const onOffline = () => { setOnline(false); setOfflineMode(true); setPinReady(isOfflinePinReady()); };
+    const onOnline = () => { setOnline(true); refreshAccounts(); };
+    const onOffline = () => { setOnline(false); setOfflineMode(true); refreshAccounts(); };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
@@ -62,7 +69,7 @@ export function LoginPage() {
     setPinBusy(true);
     setPinError('');
     try {
-      await unlockOffline(offlinePin);
+      await unlockOffline(offlinePin, selectedAccount);
       navigate('/teacher/attendance', { replace: true });
     } catch (err: any) {
       setPinError(err?.message || 'Could not unlock offline attendance.');
@@ -158,28 +165,38 @@ export function LoginPage() {
                 <WifiOff className="h-5 w-5" />
                 <span className="text-sm font-black">Offline Attendance</span>
               </div>
-              {pinReady ? (
+              {preparedAccounts.some(a => !a.expired) ? (
                 <form onSubmit={onOfflineUnlock} className="space-y-3">
                   <p className="text-center text-xs text-[var(--color-text-secondary)]">Enter the 6-digit PIN prepared on this device while online.</p>
-                  <label htmlFor="offline-pin" className="block text-xs font-bold text-[var(--color-text-primary)]">Offline PIN</label>
+                  <label htmlFor="teacher-offline-account" className="block text-xs font-bold text-[var(--color-text-primary)]">Teacher account</label>
+                  <select id="teacher-offline-account" value={selectedAccount}
+                    onChange={(event) => { setSelectedAccount(event.target.value); setOfflinePin(''); setPinError(''); }}
+                    className="w-full rounded-xl border border-emerald-200 bg-[var(--color-surface-primary)] px-3 py-3 text-sm font-semibold">
+                    {preparedAccounts.filter(a => !a.expired).map(account =>
+                      <option key={account.key} value={account.key}>{account.email}</option>)}
+                  </select>
+                  <p className="text-[11px] text-[var(--color-text-secondary)]">
+                    Each teacher has a separate PIN, cached rosters and pending attendance on this device.
+                  </p>
+                  <label htmlFor="offline-pin" className="block text-xs font-bold text-[var(--color-text-primary)]">PIN for selected account</label>
                   <input id="offline-pin" type="password" inputMode="numeric" pattern="[0-9]{6}" autoComplete="off" maxLength={6}
                     value={offlinePin} onChange={(event) => setOfflinePin(event.target.value.replace(/\D/g, '').slice(0, 6))}
                     className="w-full rounded-xl border border-emerald-200 bg-[var(--color-surface-primary)] px-4 py-3 text-center text-xl tracking-[0.45em] outline-none focus:border-emerald-600"
                     placeholder="••••••" required />
                   {(pinError || authError) && <p role="alert" className="text-xs text-red-700 dark:text-red-300">{pinError || authError}</p>}
-                  <button type="submit" disabled={pinBusy || offlinePin.length !== 6}
+                  <button type="submit" disabled={pinBusy || offlinePin.length !== 6 || !selectedAccount}
                     className="flex w-full min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
                     <LockKeyhole className="h-4 w-4" />{pinBusy ? 'Unlocking...' : 'Unlock Offline Attendance'}
                   </button>
                   <p className="text-center text-[11px] text-[var(--color-text-tertiary)]">Available only on a previously verified teacher device.</p>
                 </form>
               ) : (
-                <p role="status" className="text-center text-sm text-amber-800 dark:text-amber-300">Offline access is not ready or has expired. Connect to the internet, sign in, then set up Offline Access under Teacher Settings and tap Prepare Offline on Attendance.</p>
+                <p role="status" className="text-center text-sm text-amber-800 dark:text-amber-300">No prepared teacher account is currently eligible for offline access on this school. Connect online and prepare a PIN and rosters for each teacher separately.</p>
               )}
             </div>
           )}
           {online && (
-            <button type="button" onClick={() => { setOfflineMode(v => !v); setPinReady(isOfflinePinReady()); setPinError(''); }}
+            <button type="button" onClick={() => { setOfflineMode(v => !v); refreshAccounts(); setPinError(''); }}
               className="mb-4 flex w-full items-center justify-center gap-2 text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-300">
               {offlineMode ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
               {offlineMode ? 'Use email and password instead' : 'Use prepared Offline PIN'}

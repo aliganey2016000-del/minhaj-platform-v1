@@ -7,10 +7,11 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TeacherSidebar } from './teacher-sidebar';
 import { DashboardHeader } from '../../shared/components/dashboard-header';
 import api from '../../../lib/axios';
+import { getOfflineTeacherSidebar, getOfflineTeachingSchedule, offlineAttendanceOwner } from '../../../lib/teacher-offline-attendance';
 import { useAuth } from '../../../store/auth-context';
 import {
   firstAllowedTeacherRoute,
@@ -20,12 +21,36 @@ import {
 
 export function TeacherLayout() {
   const { pathname } = useLocation();
-  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const { user, logout, lockOfflineSession } = useAuth();
+  const offlineOnly = user?.offlineOnly === true;
   const isDashboardRoot = pathname === '/teacher' || pathname === '/teacher/';
   const [visibility, setVisibility] = useState<TeacherSidebarVisibility | null>(null);
   const [accessError, setAccessError] = useState('');
+  const [offlineVisibility, setOfflineVisibility] = useState<TeacherSidebarVisibility>({
+    'teacher/attendance': true, 'teacher/schedule': false,
+  });
+
+  useEffect(() => {
+    if (!offlineOnly) return;
+    let current = true;
+    const owner = offlineAttendanceOwner(user);
+    if (!owner) return;
+    void Promise.all([getOfflineTeacherSidebar(owner), getOfflineTeachingSchedule(owner)])
+      .then(([rights, timetable]) => {
+        if (!current) return;
+        setOfflineVisibility({
+          'teacher/attendance': rights?.['teacher/attendance'] !== false,
+          'teacher/schedule': !timetable || rights?.['teacher/schedule'] === false ? false : true,
+        });
+      }).catch(() => {
+        if (current) setOfflineVisibility({ 'teacher/attendance': true, 'teacher/schedule': false });
+      });
+    return () => { current = false; };
+  }, [offlineOnly, user?.id, user?.organizationId]);
 
   const loadAccess = useCallback(async () => {
+    if (offlineOnly) { setVisibility(null); setAccessError(''); return; }
     setAccessError('');
     try {
       const { data } = await api.get('/sidebar-settings/mine', { params: { portal: 'teacher' } });
@@ -40,11 +65,43 @@ export function TeacherLayout() {
       setVisibility(null);
       setAccessError(err.response?.data?.message || 'Could not verify teacher portal access.');
     }
-  }, []);
+  }, [offlineOnly]);
 
   useEffect(() => {
-    void loadAccess();
-  }, [loadAccess]);
+    if (!offlineOnly) void loadAccess();
+  }, [loadAccess, offlineOnly]);
+
+  // PIN grants read/write access only to locally downloaded attendance.
+  // No online sidebar API, dashboard, exams, finance or generic teacher
+  // routes may be reached with an offline-only identity.
+  if (offlineOnly) {
+    if (offlineVisibility['teacher/attendance'] === false) {
+      return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[var(--color-surface-primary)] p-6 text-center">
+        <p className="font-bold">Offline attendance is not permitted for this teacher.</p>
+        <p className="text-sm text-[var(--color-text-secondary)]">Reconnect to verify your school's Teacher Sidebar permissions.</p>
+        <button type="button" onClick={() => { lockOfflineSession(); navigate('/auth/login', { replace:true }); }}
+          className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Switch teacher</button>
+      </div>;
+    }
+    if (!isTeacherRouteAllowed(pathname, offlineVisibility)) {
+      return <Navigate to="/teacher/attendance" replace />;
+    }
+    return (
+      <div className="min-h-screen bg-[var(--color-surface-secondary)]">
+        <TeacherSidebar visibility={offlineVisibility} offlineOnly />
+        <div className="min-h-screen lg:ml-64">
+          <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200 bg-emerald-50 px-3 py-3 pl-16 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 lg:pl-4">
+            <span>Offline Teacher Portal · {user?.email || 'Teacher'} · Local data only</span>
+            <button type="button" onClick={() => { lockOfflineSession(); navigate('/auth/login', { replace:true }); }}
+              className="min-h-9 rounded-lg border border-emerald-300 px-3 py-1.5 font-bold">
+              Switch teacher
+            </button>
+          </div>
+          <Outlet />
+        </div>
+      </div>
+    );
+  }
 
   if (!visibility && !accessError) {
     return (
