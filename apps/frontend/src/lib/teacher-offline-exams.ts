@@ -111,6 +111,7 @@ export async function queueTeacherInvigilationAttendance(assignmentId: string, r
     key, owner: prefix, kind: 'attendance', url: '/exams/invigilators/' + encodeURIComponent(assignmentId) + '/attendance',
     body: { records }, createdAt: Date.now(), status: 'pending',
   } satisfies PendingTeacherExamWrite);
+  notifyQueueChanged();
 }
 
 export async function queueTeacherExamResult(courseId: string, studentId: string, slot: string, score: number): Promise<void> {
@@ -122,6 +123,7 @@ export async function queueTeacherExamResult(courseId: string, studentId: string
     key, owner: prefix, kind: 'result', url: '/gradebook/' + encodeURIComponent(courseId) + '/manual-entry-roster/bulk',
     body: { entries: [{ studentId, slot, score }] }, createdAt: Date.now(), status: 'pending',
   } satisfies PendingTeacherExamWrite);
+  notifyQueueChanged();
 }
 
 export async function getTeacherExamQueue(): Promise<PendingTeacherExamWrite[]> {
