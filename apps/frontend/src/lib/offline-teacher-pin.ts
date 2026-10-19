@@ -4,7 +4,7 @@
  * never authorizes a server write. The backend rechecks every queued action.
  */
 import api from './axios';
-import { verifiedOfflineTeacherIdentity, type OfflineTeacherIdentity } from './teacher-offline-attendance';
+import { saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity, type OfflineTeacherIdentity } from './teacher-offline-attendance';
 
 const STORAGE_KEY = 'sahal-teacher-offline-pin-v1';
 const MAX_ATTEMPTS = 5;
@@ -100,11 +100,23 @@ export async function setupOfflinePin(pin: string): Promise<void> {
   if (user?.role !== 'teacher' || String(user?.id || user?._id) !== identity.id || org !== identity.organizationId) {
     throw new Error('Offline setup is only available to the verified teacher on this school domain.');
   }
+  // The administrator may have changed the school's duration since login.
+  // Refresh the server-owned policy before issuing/replacing a local PIN.
+  await saveVerifiedTeacherIdentity({
+    id: identity.id, role: 'teacher', organizationId: identity.organizationId,
+    email: identity.email, preferredLanguage: identity.preferredLanguage,
+  });
+  const updated = verifiedOfflineTeacherIdentity();
+  if (!updated || updated.id !== identity.id ||
+      updated.organizationId !== identity.organizationId ||
+      updated.loginSessionId !== identity.loginSessionId) {
+    throw new Error('Offline school policy could not be verified. Reconnect and try again.');
+  }
   const salt = asHex(crypto.getRandomValues(new Uint8Array(16)));
   const hash = await derivePin(pin, salt);
   const record: PinRecord = {
-    version: 1, subject: subjectOf(identity), salt, hash,
-    expiresAt: identity.expiresAt, attempts: 0, lockedUntil: 0,
+    version: 1, subject: subjectOf(updated), salt, hash,
+    expiresAt: updated.expiresAt, attempts: 0, lockedUntil: 0,
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(record));
 }
