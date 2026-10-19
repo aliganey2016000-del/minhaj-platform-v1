@@ -9,6 +9,7 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import * as XLSX from 'xlsx';
 import Course from '../models/course.model';
+import { isGuulgaarCoverUrl } from './guulgaar-course-cover.controller';
 import CourseCategory from '../models/course-category.model';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import Student from '../models/student.model';
@@ -235,6 +236,10 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
   const { title, courseCode, description, category, level, duration, fee, teacher, school, class: classId, maxStudents, syllabus, prerequisites } = req.body;
 
   const scope = req.body.scope ?? 'school';
+  if (scope === 'global' && req.body.thumbnail !== undefined
+      && !isGuulgaarCoverUrl(req.body.thumbnail)) {
+    throw new BadRequestError('Upload a valid Guulgaar book cover first.');
+  }
   if (!['school', 'global'].includes(scope)) throw new BadRequestError('Invalid course scope');
   if (scope === 'global' && req.user?.role !== 'admin') throw new ForbiddenError('Only Super Admin can create global courses');
   if (scope === 'global' && ![8, 12].includes(req.body.globalGrade)) throw new BadRequestError('Choose Grade 8 or Grade 12');
@@ -265,6 +270,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
     title,
     scope,
     globalGrade: scope === 'global' ? req.body.globalGrade : undefined,
+    ...(scope === 'global' && req.body.thumbnail ? { thumbnail: req.body.thumbnail } : {}),
     courseCode,
     slug,
     description,
@@ -346,6 +352,12 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
 
   if (req.body.scope !== undefined && req.body.scope !== (existing.scope || 'school')) throw new BadRequestError('Course scope cannot be changed after creation');
   if (existing.scope === 'global' && (req.body.school || req.body.teacher || req.body.class)) throw new BadRequestError('Global courses cannot be assigned to a school, teacher or class');
+  if (existing.scope === 'global' && req.body.thumbnail !== undefined
+      && req.body.thumbnail !== null && req.body.thumbnail !== ''
+      && req.body.thumbnail !== existing.thumbnail
+      && !isGuulgaarCoverUrl(req.body.thumbnail)) {
+    throw new BadRequestError('Upload a valid Guulgaar book cover first.');
+  }
 
   const allowedUpdates = [
     'title', 'courseCode', 'description', 'category', 'level', 'duration',
