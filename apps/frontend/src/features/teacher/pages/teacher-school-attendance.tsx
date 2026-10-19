@@ -116,7 +116,7 @@ export function TeacherSchoolAttendance({ view = 'list' }: { view?: 'list' | 'of
       if (!navigator.onLine || user?.offlineOnly) {
         const owner = offlineAttendanceOwner();
         const cached = owner ? await getCachedAttendanceSessions(owner, date) : null;
-        if (!cached) throw new Error('No downloaded timetable for this date. Connect online and tap Prepare Offline.');
+        if (!cached) throw new Error('No downloaded timetable for this date. Connect online and sign in to let SAHAL download it automatically.');
         setSessions(cached.sessions as Session[]);
         setCalendarDay(cached.calendarDay || null);
         setOfflineData(true);
@@ -141,7 +141,7 @@ export function TeacherSchoolAttendance({ view = 'list' }: { view?: 'list' | 'of
         setOfflineMessage('Offline: showing your downloaded timetable. Attendance will sync when connectivity returns.');
       } else {
         setSessions([]);
-        setError(e?.response?.data?.message || 'No downloaded timetable for this date. Connect online and tap Prepare Offline first.');
+        setError(e?.response?.data?.message || 'No downloaded timetable for this date. Connect online and sign in to refresh automatic offline data.');
       }
     } finally {
       setLoading(false);
