@@ -14,7 +14,7 @@ import {
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
-import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
+import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { prepareTeacherOfflineAppShell } from '../../../lib/teacher-offline-attendance';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
@@ -192,7 +192,10 @@ export function TeacherExamPeriodWorkspace() {
       setExams(nextExams);
       setAssignments(nextAssignments);
       setUsingOfflineData(false);
-      await cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() }).catch(() => undefined);
+      await Promise.all([
+        cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() }),
+        cacheTeacherExamPeriods({ periods: nextPeriods.filter((item: ExamPeriod) => item.status === 'published'), exams: nextExams, cachedAt: Date.now() }),
+      ]).catch(() => undefined);
     } catch (err: any) {
       const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
       if (cached) {
