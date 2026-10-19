@@ -18,11 +18,14 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
-import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
+import { useAuth } from '../../../store/auth-context';
+import { isOfflinePinReady, refreshOfflinePinValidity } from '../../../lib/offline-teacher-pin';
+import { formatOfflineAccessDate, offlineAccessTimeLeft } from '../../../lib/teacher-offline-window-display';
 import {
   cacheAttendanceSessions, cacheAttendanceRoster,
   getCachedAttendanceSessions, listMyAttendanceQueue,
   offlineAttendanceOwner, flushTeacherAttendanceQueue, prepareTeacherOfflineAppShell,
+  getOfflineAttendanceAccessWindow, saveVerifiedTeacherIdentity,
 } from '../../../lib/teacher-offline-attendance';
 
 interface Session {
@@ -72,6 +75,7 @@ function prettyDate(value: string) {
 
 export function TeacherSchoolAttendance() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [date, setDate] = useState(localDate());
   const [sessions, setSessions] = useState<Session[]>([]);
   const [calendarDay, setCalendarDay] = useState<{ name?: string; type?: string; isInstructional?: boolean } | null>(null);
@@ -86,6 +90,13 @@ export function TeacherSchoolAttendance() {
   const [preparing, setPreparing] = useState(false);
   const [offlineMessage, setOfflineMessage] = useState('');
   const [queuedCount, setQueuedCount] = useState(0);
+  const [accessWindow, setAccessWindow] = useState(getOfflineAttendanceAccessWindow);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -136,9 +147,11 @@ export function TeacherSchoolAttendance() {
     };
     const whenOnline = () => {
       setOnline(true);
+      setAccessWindow(getOfflineAttendanceAccessWindow());
+      setClockNow(Date.now());
       void flushTeacherAttendanceQueue().finally(() => { void refreshQueue(); void loadSessions(); });
     };
-    const whenOffline = () => setOnline(false);
+    const whenOffline = () => { setOnline(false); setAccessWindow(getOfflineAttendanceAccessWindow()); setClockNow(Date.now()); };
     window.addEventListener('online', whenOnline);
     window.addEventListener('offline', whenOffline);
     window.addEventListener('sahal-attendance-queue-change', refreshQueue);
@@ -153,11 +166,26 @@ export function TeacherSchoolAttendance() {
   }, [loadSessions]);
 
   const prepareOffline = async () => {
-    const owner = offlineAttendanceOwner();
-    if (!owner || !navigator.onLine || preparing) return;
-    if (!isOfflinePinReady()) { setOfflineMessage('Set up a six-digit PIN under Teacher Settings first, then prepare your rosters.'); return; }
-    setPreparing(true); setOfflineMessage('Downloading today\'s classroom rosters...');
+    if (!navigator.onLine || preparing || user?.role !== 'teacher' || !user.organizationId) return;
+    if (!isOfflinePinReady()) {
+      setOfflineMessage('Set up a six-digit PIN under Teacher Settings first, then prepare your rosters.');
+      return;
+    }
+    setPreparing(true);
+    setOfflineMessage('Verifying your school offline policy and downloading class rosters...');
     try {
+      // Every explicit Prepare Offline renews the local access window from
+      // the *current* administrator-approved number of days. The backend
+      // checks the verified teacher's tenant; a local value never sets expiry.
+      await saveVerifiedTeacherIdentity(user);
+      refreshOfflinePinValidity();
+      const owner = offlineAttendanceOwner(user);
+      if (!owner || !isOfflinePinReady()) {
+        throw new Error('Offline PIN or verified session expired. Renew it in Teacher Settings.');
+      }
+      setAccessWindow(getOfflineAttendanceAccessWindow());
+      setClockNow(Date.now());
+
       // Cache the current HTML shell and lazy teacher roster bundle. The
       // PWA can now cold-launch the previously prepared attendance screen.
       await prepareTeacherOfflineAppShell();
@@ -169,9 +197,9 @@ export function TeacherSchoolAttendance() {
         await cacheAttendanceRoster(owner, date, session._id, data.data);
         ready++;
       }
-      setOfflineMessage(ready + ' rosters ready for offline attendance. Keep this device private.');
+      setOfflineMessage(ready + ' rosters for ' + date + ' ready for offline attendance. Keep this device private.');
     } catch (e: any) {
-      setOfflineMessage(e?.response?.data?.message || 'Some rosters could not be downloaded. Please retry while online.');
+      setOfflineMessage(e?.response?.data?.message || e?.message || 'Some rosters could not be downloaded. Please retry while online.');
     } finally { setPreparing(false); }
   };
 
@@ -225,6 +253,49 @@ export function TeacherSchoolAttendance() {
           </div>
         </div>
         {offlineMessage && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">{offlineMessage}</p>}
+        {accessWindow ? (
+          <div data-testid="offline-access-window"
+            className={`mt-3 rounded-xl border p-3 sm:p-4 ${accessWindow.to <= clockNow
+              ? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
+              : 'border-emerald-200 bg-white/80 dark:border-emerald-900 dark:bg-emerald-950/20'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-black text-[var(--color-text-primary)]">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-700" />
+                Offline Access Period
+              </div>
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+                Admin limit: {accessWindow.maxOfflineDays} day{accessWindow.maxOfflineDays === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+              <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
+                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">From (online verification)</p>
+                <p className="mt-1 text-sm font-bold text-[var(--color-text-primary)]">{formatOfflineAccessDate(accessWindow.from)}</p>
+              </div>
+              <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
+                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">Until (offline access expires)</p>
+                <p className="mt-1 text-sm font-bold text-[var(--color-text-primary)]">{formatOfflineAccessDate(accessWindow.to)}</p>
+              </div>
+            </div>
+            <div className={`mt-3 flex items-center gap-2 text-xs font-bold ${accessWindow.to <= clockNow
+              ? 'text-amber-800 dark:text-amber-300'
+              : accessWindow.to - clockNow <= 24 * 60 * 60 * 1000
+                ? 'text-amber-800 dark:text-amber-300'
+                : 'text-emerald-800 dark:text-emerald-300'}`}>
+              <Clock3 className="h-4 w-4 shrink-0" />
+              {offlineAccessTimeLeft(accessWindow.to, clockNow)}
+            </div>
+            <p className="mt-2 text-[11px] text-[var(--color-text-secondary)]">
+              This is your offline PIN login period, not a download of all attendance dates.
+              Download each needed class/date roster while connected.
+              {accessWindow.to <= clockNow ? ' Saved unsynced attendance is kept for your next verified login.' : ''}
+            </p>
+          </div>
+        ) : (
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            Offline access dates are not ready. Enable your PIN in Teacher Settings while connected and tap Prepare Offline.
+          </p>
+        )}
         <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">
           First enable your device PIN in <Link to="/teacher/settings#offline-access" className="font-bold text-emerald-700 underline dark:text-emerald-300">Teacher Settings</Link>,
           then download rosters before leaving the internet. Reopen SAHAL and enter your PIN to take attendance offline.
