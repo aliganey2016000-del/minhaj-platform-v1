@@ -81,7 +81,7 @@ export function TeacherInvigilationAttendanceRoster(){
       setStatuses(nextStatuses);
       setNotes(nextNotes);
       setUsingOfflineData(false);
-      await cacheTeacherInvigilationRoster(assignmentId, { assignment: payload.assignment||null, roster: nextRows, cachedAt: Date.now() });
+      await cacheTeacherInvigilationRoster(assignmentId, { assignment: payload.assignment||null, roster: nextRows, cachedAt: Date.now() }).catch(() => undefined);
     }catch(err:any){
       const cached=assignmentId?await getCachedTeacherInvigilationRoster<{assignment?:Assignment|null;roster?:RosterRow[]}>(assignmentId).catch(()=>undefined):undefined;
       if(cached){
