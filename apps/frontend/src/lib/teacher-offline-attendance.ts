@@ -157,8 +157,9 @@ export function getOfflineAttendanceAccessWindow(): OfflineAttendanceAccessWindo
     const from = info.calendarAligned && info.maxOfflineDays === 7
       ? info.periodStart
       : info.verifiedAt ?? info.expiresAt - info.maxOfflineDays * DAY_MS;
+    if (from === undefined || !Number.isFinite(from)) return null;
     const verifiedAt = info.verifiedAt ?? from;
-    if (from === undefined || !Number.isFinite(from) || !Number.isFinite(verifiedAt) ||
+    if (!Number.isFinite(verifiedAt) ||
         from > verifiedAt || verifiedAt > info.expiresAt || from > info.expiresAt ||
         Math.abs((info.expiresAt - from) - info.maxOfflineDays * DAY_MS) > 1000) return null;
     return { from, to: info.expiresAt, maxOfflineDays: info.maxOfflineDays,
