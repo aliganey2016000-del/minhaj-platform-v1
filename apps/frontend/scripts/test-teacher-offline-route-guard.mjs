@@ -49,6 +49,8 @@ const context={exports:{},window:{location:{}},
           return rights['group:teacher-exams']!==false&&rights['teacher/exam-attendance']!==false;
         if(/^\\/teacher\\/exams\\/[^/]+\\/attendance\\/?$/.test(path))
           return rights['group:teacher-exams']!==false&&rights['teacher/exam-attendance']!==false;
+        if(path==='/teacher/results/enter')
+          return rights['group:gradebook']!==false&&rights['teacher/results/enter']!==false;
         return false;
       },
     };
@@ -58,6 +60,7 @@ const context={exports:{},window:{location:{}},
         'teacher/attendance':true,'teacher/schedule':true,
         'group:teacher-exams':true,'teacher/exams':true,'teacher/exam-attendance':true,
         'teacher/exam-papers':true,'teacher/exam-incidents':true,
+        'group:gradebook':true,'teacher/results/enter':true,
       }),
       getOfflineTeachingSchedule:async()=>({schedules:[],periods:[]}),
     };
@@ -92,9 +95,12 @@ assert.ok(flatten(tree).some(n=>n.type==='TeacherSidebar'),'Offline portal must 
 route='/teacher/exams';
 tree=await renderSettled();
 assert.ok(flatten(tree).some(n=>n.type==='Outlet'),'Prepared exam workspace must open with offline PIN and cached permissions');
+route='/teacher/results/enter';
+tree=await renderSettled();
+assert.ok(flatten(tree).some(n=>n.type==='Outlet'),'Cached result entry must open offline when gradebook permission is enabled');
 route='/teacher/exams/exam-a/paper';
 tree=await renderSettled();
 assert.ok(flatten(tree).some(n=>n.type==='Navigate'&&n.props.to==='/teacher/attendance'),
   'Confidential exam papers must remain blocked in offline PIN mode');
 assert.equal(calls.length,0,'Offline account must never request teacher-wide API');
-console.log('PASS: offline PIN permits prepared exam workspace with cached rights, blocks confidential papers and makes no API calls');
+console.log('PASS: offline PIN permits prepared exam workspace and cached result entry, blocks confidential papers and makes no API calls');
