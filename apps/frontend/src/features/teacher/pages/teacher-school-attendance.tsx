@@ -175,10 +175,9 @@ export function TeacherSchoolAttendance() {
 
   const prepareOffline = async () => {
     if (!navigator.onLine || preparing || user?.role !== 'teacher' || !user.organizationId) return;
-    if (!isOfflinePinReady()) {
-      setOfflineMessage('Set up a six-digit PIN under Teacher Settings first, then prepare your rosters.');
-      return;
-    }
+    // Check the PIN AFTER a fresh online policy verification: Saturday
+    // begins a new school week and the old PIN expiry may be in the past,
+    // even though the same enrolled device can renew it securely online.
     setPreparing(true);
     setOfflineMessage('Verifying your school offline policy and downloading class rosters...');
     try {
@@ -189,7 +188,7 @@ export function TeacherSchoolAttendance() {
       refreshOfflinePinValidity();
       const owner = offlineAttendanceOwner(user);
       if (!owner || !isOfflinePinReady()) {
-        throw new Error('Offline PIN or verified session expired. Renew it in Teacher Settings.');
+        throw new Error('Set up a six-digit offline PIN under Teacher Settings, then Prepare Offline again.');
       }
       setAccessWindow(getOfflineAttendanceAccessWindow());
       setClockNow(Date.now());
