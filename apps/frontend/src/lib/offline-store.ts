@@ -193,8 +193,10 @@ export async function removeQueuedAction(id: number): Promise<void> {
  * login takes effect) so no other account's queued mutations or cached
  * progress can survive the switch.
  */
-function isTeacherAttendanceKey(key: string): boolean {
-  return key.startsWith('school-attendance:v1:') || key.startsWith('attendance-school-mode:');
+function isTeacherScopedOfflineKey(key: string): boolean {
+  return key.startsWith('school-attendance:v1:') ||
+    key.startsWith('attendance-school-mode:') ||
+    key.startsWith('teacher-exams:v1:');
 }
 
 /** A shared phone can contain several teacher rosters. Clear unscopeable
@@ -208,7 +210,7 @@ export async function clearAllOfflineData(preserveAttendanceQueue = false): Prom
   for (const store of otherStores) await tx.objectStore(store).clear();
   const offlineStore = tx.objectStore(STORE_OFFLINE_DATA);
   for (const item of await offlineStore.getAll()) {
-    if (!isTeacherAttendanceKey(String(item.key || ''))) await offlineStore.delete(item.key);
+    if (!isTeacherScopedOfflineKey(String(item.key || ''))) await offlineStore.delete(item.key);
   }
   if (!preserveAttendanceQueue) await tx.objectStore(STORE_ATTENDANCE_QUEUE).clear();
   await tx.done;
@@ -225,8 +227,19 @@ export async function resetOfflineDataOnLogin(fromAttendanceOwner: string | null
   const attendanceCache = tx.objectStore(STORE_OFFLINE_DATA);
   for (const item of await attendanceCache.getAll()) {
     const key = String(item.key || '');
-    if (!isTeacherAttendanceKey(key)) { await attendanceCache.delete(item.key); continue; }
+    if (!isTeacherScopedOfflineKey(key)) { await attendanceCache.delete(item.key); continue; }
     if (!fromAttendanceOwner || !toAttendanceOwner || fromAttendanceOwner === toAttendanceOwner) continue;
+    const ownerParts = fromAttendanceOwner.split(':');
+    const targetParts = toAttendanceOwner.split(':');
+    if (key.startsWith('teacher-exams:v1:') && ownerParts.length === 4 && targetParts.length === 4) {
+      const oldExamPrefix = 'teacher-exams:v1:' + ownerParts.map((part) => encodeURIComponent(part)).join(':') + ':';
+      const newExamPrefix = 'teacher-exams:v1:' + targetParts.map((part) => encodeURIComponent(part)).join(':') + ':';
+      if (key.startsWith(oldExamPrefix)) {
+        await attendanceCache.put({ ...item, key: newExamPrefix + key.slice(oldExamPrefix.length) });
+        await attendanceCache.delete(item.key);
+      }
+      continue;
+    }
     const prefix = 'school-attendance:v1:' + fromAttendanceOwner + ':';
     const mode = 'attendance-school-mode:' + fromAttendanceOwner;
     const target = key.startsWith(prefix)
