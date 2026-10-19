@@ -11,7 +11,6 @@ import {
   prepareTeacherOfflineAppShell,
 } from './teacher-offline-attendance';
 
-const DAY=86400000;
 const prefix='sahal-offline-auto-prep:';
 let inFlight:Promise<void>|null=null;
 function localISO(date:Date):string {
@@ -58,7 +57,7 @@ export async function prepareTeacherOfflineAutomatically(user:{id:string;role:st
       await cacheOfflineTeacherSidebar(owner,rights);
       const {data:lessonsData}=await api.get('/class-schedules/my-teaching',{timeout:15000});
       if(!valid())return;
-      let periods=[];
+      let periods: Array<{ label?: string; startTime: string; endTime: string; isBreak?: boolean }> = [];
       try{
         const settings=await api.get('/class-schedules/school/period-settings',{timeout:15000});
         periods=settings.data.data?.periods||[];
