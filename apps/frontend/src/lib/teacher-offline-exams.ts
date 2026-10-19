@@ -134,10 +134,13 @@ export async function getTeacherExamQueue(): Promise<PendingTeacherExamWrite[]> 
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
+let flushingTeacherExamQueue = false;
+
 export async function flushTeacherExamQueue(): Promise<void> {
-  if (typeof navigator === 'undefined' || !navigator.onLine) return;
+  if (typeof navigator === 'undefined' || !navigator.onLine || flushingTeacherExamQueue) return;
   const prefix = ownerPrefix();
   if (!prefix) return;
+  flushingTeacherExamQueue = true;
   const locks = (navigator as any).locks;
   const run = async () => {
     const queue = await getTeacherExamQueue();
@@ -163,11 +166,15 @@ export async function flushTeacherExamQueue(): Promise<void> {
       }
     }
   };
-  if (locks?.request) {
-    await locks.request('sahal-teacher-exam-sync', { ifAvailable: true }, async (lock: unknown) => {
-      if (lock) await run();
-    });
-  } else {
-    await run();
+  try {
+    if (locks?.request) {
+      await locks.request('sahal-teacher-exam-sync', { ifAvailable: true }, async (lock: unknown) => {
+        if (lock) await run();
+      });
+    } else {
+      await run();
+    }
+  } finally {
+    flushingTeacherExamQueue = false;
   }
 }
