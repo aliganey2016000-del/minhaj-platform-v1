@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace } from '../../../lib/teacher-offline-exams';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
 
@@ -167,6 +168,7 @@ export function TeacherExamPeriodWorkspace() {
   const [invigilationStatus, setInvigilationStatus] = useState<DutyStatus>('upcoming');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [usingOfflineData, setUsingOfflineData] = useState(false);
 
   const load = async () => {
     if (!periodId) return;
@@ -178,11 +180,25 @@ export function TeacherExamPeriodWorkspace() {
         api.get('/exams', { params: { period: periodId, limit: 200 } }),
         api.get('/exams/invigilators/my'),
       ]);
-      setPeriods(periodResponse.data?.data || []);
-      setExams(examResponse.data?.data || []);
-      setAssignments((assignmentResponse.data?.data || []).filter((assignment: Assignment) => assignmentPeriodId(assignment) === periodId));
+      const nextPeriods = periodResponse.data?.data || [];
+      const nextExams = examResponse.data?.data || [];
+      const nextAssignments = (assignmentResponse.data?.data || []).filter((assignment: Assignment) => assignmentPeriodId(assignment) === periodId);
+      setPeriods(nextPeriods);
+      setExams(nextExams);
+      setAssignments(nextAssignments);
+      setUsingOfflineData(false);
+      await cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() });
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Could not load this exam workspace.');
+      const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
+      if (cached) {
+        setPeriods(cached.periods || []);
+        setExams(cached.exams || []);
+        setAssignments(cached.assignments || []);
+        setUsingOfflineData(true);
+        setError('');
+      } else {
+        setError(err?.response?.data?.message || 'Could not load this exam workspace. Connect to the internet once to download it for offline use.');
+      }
     } finally {
       setLoading(false);
     }
