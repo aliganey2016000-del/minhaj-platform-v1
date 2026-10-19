@@ -26,6 +26,7 @@ function CourseModal({ course, org, onClose, onSaved }: { course?: Course; org: 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
   const [coverPreview, setCoverPreview] = useState<string>('');
   useEffect(() => {
     if (!coverFile) { setCoverPreview(''); return; }
@@ -107,7 +108,7 @@ function CourseModal({ course, org, onClose, onSaved }: { course?: Course; org: 
               <label htmlFor="guulgaar-cover-upload" className="block text-xs font-bold text-[var(--color-text-primary)]">
                 {coverPreview || form.thumbnail ? 'Replace book cover' : 'Upload book cover'}
               </label>
-              <input id="guulgaar-cover-upload" type="file" accept="image/jpeg,image/png,image/webp"
+              <input id="guulgaar-cover-upload" ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp"
                 disabled={saving}
                 onChange={e => {
                   const file = e.currentTarget.files?.[0];
@@ -123,7 +124,7 @@ function CourseModal({ course, org, onClose, onSaved }: { course?: Course; org: 
                 className="block w-full max-w-xs text-xs text-[var(--color-text-secondary)] file:mr-3 file:rounded-xl file:border-0 file:bg-emerald-600 file:px-3 file:py-2.5 file:font-semibold file:text-white" />
               {(coverPreview || form.thumbnail) && (
                 <button type="button" disabled={saving}
-                  onClick={() => { setCoverFile(null); setForm(previous => ({ ...previous, thumbnail: '' })); }}
+                  onClick={() => { setCoverFile(null); setForm(previous => ({ ...previous, thumbnail: '' })); if (coverInputRef.current) coverInputRef.current.value = ''; }}
                   className="rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-500/10">
                   Remove cover
                 </button>
@@ -467,7 +468,7 @@ export default function CoursesManage() {
   const handleDuplicate = async (course: Course) => {
     if (!window.confirm('Duplicate this course?')) return;
     try {
-      const payload: any = { scope: course.scope || 'school', globalGrade: course.globalGrade, title: { en: `${course.title.en} (Copy)`, so: course.title.so || '', ar: course.title.ar || '' }, description: course.description || { en: '', so: '', ar: '' }, category: course.category, level: course.level, duration: course.duration, fee: course.fee, teacher: course.teacher?._id || undefined, school: organizationId, class: course.class?._id || undefined, maxStudents: course.maxStudents };
+      const payload: any = { scope: course.scope || 'school', globalGrade: course.globalGrade, title: { en: `${course.title.en} (Copy)`, so: course.title.so || '', ar: course.title.ar || '' }, description: course.description || { en: '', so: '', ar: '' }, category: course.category, level: course.level, duration: course.duration, fee: course.fee, teacher: course.teacher?._id || undefined, school: organizationId, class: course.class?._id || undefined, maxStudents: course.maxStudents, ...(course.scope === 'global' && course.thumbnail ? { thumbnail: course.thumbnail } : {}) };
       await api.post('/courses', payload);
       await load();
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to duplicate course'); }
