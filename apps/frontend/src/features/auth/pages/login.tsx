@@ -56,7 +56,7 @@ export function LoginPage() {
   };
 
   useEffect(() => {
-    const onOnline = () => { setOnline(true); refreshAccounts(); };
+    const onOnline = () => { setOnline(true); setOfflineMode(false); refreshAccounts(); };
     const onOffline = () => { setOnline(false); setOfflineMode(true); refreshAccounts(); };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
