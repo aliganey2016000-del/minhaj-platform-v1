@@ -10,7 +10,8 @@ assert.match(attendance, /to="\/teacher\/attendance\/offline"/, 'Title action mu
 assert.match(attendance, /if \(view === 'offline'\)/, 'Offline panel must be rendered on its own page');
 assert.match(attendance, /to="\/teacher\/attendance"/, 'New page must have a back link to Student Attendance');
 assert.match(attendance, /\{offlinePanel\}/, 'Separate page must render the original offline card');
-assert.match(attendance, /Prepare Offline/, 'Preparation action must remain available');
+assert.doesNotMatch(attendance, /onClick=\{\(\) => void prepareOffline\(\)\}/, 'Teacher must not need to click Prepare Offline');
+assert.match(attendance, /readAutoOfflineStatus/, 'Automatic roster preparation status should be visible');
 assert.match(attendance, /Sync Now/, 'Manual sync action must remain available');
 assert.match(attendance, /offlineAccessTimeLeft/, 'Admin expiry countdown must be retained');
 
