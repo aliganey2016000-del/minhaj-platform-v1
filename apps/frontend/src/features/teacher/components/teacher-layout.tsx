@@ -12,6 +12,7 @@ import { TeacherSidebar } from './teacher-sidebar';
 import { DashboardHeader } from '../../shared/components/dashboard-header';
 import api from '../../../lib/axios';
 import { getOfflineTeacherSidebar, getOfflineTeachingSchedule, offlineAttendanceOwner } from '../../../lib/teacher-offline-attendance';
+import { getCachedTeacherExamPeriods } from '../../../lib/teacher-offline-exams';
 import { useAuth } from '../../../store/auth-context';
 import {
   firstAllowedTeacherRoute,
@@ -30,22 +31,57 @@ export function TeacherLayout() {
   const [offlineVisibility, setOfflineVisibility] = useState<TeacherSidebarVisibility>({
     'teacher/attendance': true, 'teacher/schedule': false,
   });
+  const [offlineAccessLoaded, setOfflineAccessLoaded] = useState(false);
+  const [offlineExamReady, setOfflineExamReady] = useState(false);
 
   useEffect(() => {
-    if (!offlineOnly) return;
+    if (!offlineOnly) {
+      setOfflineAccessLoaded(false);
+      setOfflineExamReady(false);
+      return;
+    }
     let current = true;
+    setOfflineAccessLoaded(false);
     const owner = offlineAttendanceOwner(user);
-    if (!owner) return;
-    void Promise.all([getOfflineTeacherSidebar(owner), getOfflineTeachingSchedule(owner)])
-      .then(([rights, timetable]) => {
-        if (!current) return;
-        setOfflineVisibility({
-          'teacher/attendance': rights?.['teacher/attendance'] !== false,
-          'teacher/schedule': !timetable || rights?.['teacher/schedule'] === false ? false : true,
-        });
-      }).catch(() => {
-        if (current) setOfflineVisibility({ 'teacher/attendance': true, 'teacher/schedule': false });
-      });
+    if (!owner) {
+      setOfflineVisibility({ 'teacher/attendance': true, 'teacher/schedule': false });
+      setOfflineExamReady(false);
+      setOfflineAccessLoaded(true);
+      return;
+    }
+    void Promise.all([
+      getOfflineTeacherSidebar(owner),
+      getOfflineTeachingSchedule(owner),
+      getCachedTeacherExamPeriods<{ periods?: unknown[] }>(),
+    ]).then(([rights, timetable, cachedExams]) => {
+      if (!current) return;
+      const source = rights || {};
+      const examsReady = Array.isArray(cachedExams?.periods) && cachedExams.periods.length > 0;
+      // Offline PIN access is intentionally restricted to downloaded attendance
+      // and the explicitly prepared exam workspace. Do not expose other cached
+      // sidebar capabilities through an offline-only identity.
+      const restricted: TeacherSidebarVisibility = Object.fromEntries(
+        Object.keys(source).map((key) => [key, false]),
+      );
+      restricted['teacher/attendance'] = source['teacher/attendance'] !== false;
+      restricted['teacher/schedule'] = Boolean(timetable) && source['teacher/schedule'] !== false;
+      restricted['group:teacher-exams'] = examsReady && source['group:teacher-exams'] !== false;
+      restricted['teacher/exams'] = examsReady && source['teacher/exams'] !== false;
+      restricted['teacher/exam-attendance'] = examsReady && source['teacher/exam-attendance'] !== false;
+      // Confidential exam papers and incident-management pages are not part of
+      // the offline workspace and must never open from an offline PIN session.
+      restricted['teacher/exam-papers'] = false;
+      restricted['teacher/exam-incidents'] = false;
+      setOfflineVisibility(restricted);
+      setOfflineExamReady(examsReady && source['group:teacher-exams'] !== false && source['teacher/exams'] !== false);
+    }).catch(() => {
+      if (current) {
+        setOfflineVisibility({ 'teacher/attendance': true, 'teacher/schedule': false });
+        setOfflineExamReady(false);
+      }
+    }).finally(() => {
+      if (current) setOfflineAccessLoaded(true);
+    });
     return () => { current = false; };
   }, [offlineOnly, user?.id, user?.organizationId]);
 
@@ -75,6 +111,14 @@ export function TeacherLayout() {
   // No online sidebar API, dashboard, exams, finance or generic teacher
   // routes may be reached with an offline-only identity.
   if (offlineOnly) {
+    if (!offlineAccessLoaded) {
+      return <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-primary)]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-9 w-9 animate-spin rounded-full border-3 border-emerald-200 border-t-emerald-600" />
+          <p className="text-sm text-[var(--color-text-tertiary)]">Checking saved offline access…</p>
+        </div>
+      </div>;
+    }
     if (offlineVisibility['teacher/attendance'] === false) {
       return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[var(--color-surface-primary)] p-6 text-center">
         <p className="font-bold">Offline attendance is not permitted for this teacher.</p>
@@ -83,7 +127,14 @@ export function TeacherLayout() {
           className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Switch teacher</button>
       </div>;
     }
-    if (!isTeacherRouteAllowed(pathname, offlineVisibility)) {
+    const offlineExamRoute =
+      pathname === '/teacher/exams' ||
+      /^\/teacher\/exams\/periods\/[^/]+\/?$/.test(pathname) ||
+      /^\/teacher\/exams\/[^/]+\/attendance\/?$/.test(pathname) ||
+      pathname === '/teacher/exam-attendance' ||
+      /^\/teacher\/exam-attendance\/[^/]+\/?$/.test(pathname);
+    if ((!offlineExamRoute && !isTeacherRouteAllowed(pathname, offlineVisibility)) ||
+        (offlineExamRoute && (!offlineExamReady || !isTeacherRouteAllowed(pathname, offlineVisibility)))) {
       return <Navigate to="/teacher/attendance" replace />;
     }
     return (
