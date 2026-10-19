@@ -43,7 +43,7 @@ export function TeacherExamAttendanceRoster() {
       });
       setStatuses(next); setNotes(nextNotes);
       setUsingOfflineData(false);
-      await cacheTeacherExamAttendance(examId || '', { exam: payload.exam || null, roster, cachedAt: Date.now() });
+      await cacheTeacherExamAttendance(examId || '', { exam: payload.exam || null, roster, cachedAt: Date.now() }).catch(() => undefined);
     } catch (err: any) {
       const cached = examId ? await getCachedTeacherExamAttendance<{ exam?: Exam | null; roster?: RosterRow[] }>(examId).catch(() => undefined) : undefined;
       if (cached) {
