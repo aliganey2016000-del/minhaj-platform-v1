@@ -181,7 +181,11 @@ export async function getTeacherExamQueue(): Promise<PendingTeacherExamWrite[]> 
 let flushingTeacherExamQueue = false;
 
 export async function flushTeacherExamQueue(): Promise<void> {
-  if (typeof navigator === 'undefined' || !navigator.onLine || flushingTeacherExamQueue) return;
+  // Offline PIN sessions intentionally have no bearer token. Keep their queue
+  // pending until the teacher has re-authenticated online; otherwise a 401
+  // would be incorrectly stored as a permanent data conflict.
+  if (typeof navigator === 'undefined' || !navigator.onLine || flushingTeacherExamQueue ||
+      typeof localStorage === 'undefined' || !localStorage.getItem('accessToken')) return;
   const prefix = ownerPrefix();
   if (!prefix) return;
   flushingTeacherExamQueue = true;
