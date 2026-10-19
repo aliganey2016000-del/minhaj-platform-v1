@@ -19,7 +19,7 @@ export interface IOfflineAttendancePolicy extends Document {
 
 const schema = new Schema<IOfflineAttendancePolicy>({
   organizationId: { type: Schema.Types.ObjectId, ref: 'School', required: true, unique: true },
-  maxOfflineDays: { type: Number, required: true, enum: ALLOWED_OFFLINE_ATTENDANCE_DAYS, default: DEFAULT_OFFLINE_ATTENDANCE_DAYS },
+  maxOfflineDays: { type: Number, required: true, enum: [...ALLOWED_OFFLINE_ATTENDANCE_DAYS], default: DEFAULT_OFFLINE_ATTENDANCE_DAYS },
   updatedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true });
 
