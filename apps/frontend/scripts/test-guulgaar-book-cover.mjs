@@ -8,8 +8,8 @@ import ts from 'typescript';
 const read=(relative)=>fs.readFileSync(new URL(relative,import.meta.url),'utf8');
 const admin=read('../src/features/admin/pages/courses-manage.tsx');
 const student=read('../src/features/shared/pages/global-courses-page.tsx');
-const backend=read('../../../backend/src/controllers/course.controller.ts');
-const routes=read('../../../backend/src/routes/v1/course.routes.ts');
+const backend=read('../../backend/src/controllers/course.controller.ts');
+const routes=read('../../backend/src/routes/v1/course.routes.ts');
 assert.match(admin,/Guulgaar book cover|Book Cover · Jaldiga Buugga/);
 assert.match(admin,/accept="image\/jpeg,image\/png,image\/webp"/);
 assert.match(admin,/api\.post\('\/courses\/cover', body\)/);
@@ -21,7 +21,7 @@ assert.match(backend,/scope === 'global' && req\.body\.thumbnail \? \{ thumbnail
 assert.match(routes,/router\.get\('\/cover\/:file'/);
 assert.match(routes,/roleMiddleware\(\['admin'\]\)/,'Only Super Admin may upload global book covers');
 
-const source=read('../../../backend/src/controllers/guulgaar-course-cover.controller.ts');
+const source=read('../../backend/src/controllers/guulgaar-course-cover.controller.ts');
 const js=ts.transpileModule(source,{compilerOptions:{
   module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,
 }}).outputText;
