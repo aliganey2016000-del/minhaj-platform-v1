@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 import {
   cacheAttendanceRoster, getCachedAttendanceRoster,
   storeAttendanceDraft, readAttendanceDraft,
@@ -89,6 +90,7 @@ export function TeacherSchoolAttendanceRoster() {
   const { scheduleId } = useParams<{ scheduleId: string }>();
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const date = params.get('date') || localDate();
 
   const [detail, setDetail] = useState<SessionDetail | null>(null);
@@ -100,7 +102,7 @@ export function TeacherSchoolAttendanceRoster() {
   const [message, setMessage] = useState('');
   const [offlineView, setOfflineView] = useState(false);
   const [queued, setQueued] = useState<OfflineAttendanceSubmission | null>(null);
-  const [online, setOnline] = useState(navigator.onLine);
+  const [online, setOnline] = useState(navigator.onLine && !user?.offlineOnly);
   const [ready, setReady] = useState(false);
 
   const refreshQueued = async () => {
@@ -117,8 +119,8 @@ export function TeacherSchoolAttendanceRoster() {
     const owner = offlineAttendanceOwner();
     try {
       let next: SessionDetail | null = null;
-      let fromCache = !navigator.onLine;
-      if (navigator.onLine) {
+      let fromCache = !navigator.onLine || !!user?.offlineOnly;
+      if (navigator.onLine && !user?.offlineOnly) {
         try {
           const response = await api.get(`/attendance/school/session/${scheduleId}`, { params: { date }, timeout: 12000 });
           next = response.data?.data;
@@ -174,21 +176,21 @@ export function TeacherSchoolAttendanceRoster() {
 
   useEffect(() => {
     const whenOnline = () => {
-      setOnline(true);
-      void flushTeacherAttendanceQueue().then(refreshQueued);
+      setOnline(!user?.offlineOnly);
+      if (!user?.offlineOnly) void flushTeacherAttendanceQueue().then(refreshQueued);
     };
     const whenOffline = () => setOnline(false);
     const onQueueChange = () => { void refreshQueued(); };
     window.addEventListener('online', whenOnline);
     window.addEventListener('offline', whenOffline);
     window.addEventListener('sahal-attendance-queue-change', onQueueChange);
-    if (navigator.onLine) void flushTeacherAttendanceQueue().then(refreshQueued);
+    if (navigator.onLine && !user?.offlineOnly) void flushTeacherAttendanceQueue().then(refreshQueued);
     return () => {
       window.removeEventListener('online', whenOnline);
       window.removeEventListener('offline', whenOffline);
       window.removeEventListener('sahal-attendance-queue-change', onQueueChange);
     };
-  }, [scheduleId, date]);
+  }, [scheduleId, date, user?.offlineOnly]);
 
   const visible = useMemo(() => {
     const rows = detail?.roster || [];
@@ -226,7 +228,7 @@ export function TeacherSchoolAttendanceRoster() {
   const save = async () => {
     if (!detail?.schedule?.course?._id || detail.locked || !detail.roster.length || queued) return;
     const owner = offlineAttendanceOwner();
-    if (!owner && !navigator.onLine) {
+    if (!owner && (!navigator.onLine || user?.offlineOnly)) {
       setError('Please sign in online once with your teacher account before using offline attendance.');
       return;
     }
@@ -242,7 +244,7 @@ export function TeacherSchoolAttendanceRoster() {
       safelyQueued = true;
       setQueued(item);
       setMessage('Attendance saved on this device. Waiting for server confirmation.');
-      if (navigator.onLine) {
+      if (navigator.onLine && !user?.offlineOnly) {
         await flushTeacherAttendanceQueue();
         const after = await pendingForSession(owner, date, detail.schedule._id);
         setQueued(after);
@@ -254,7 +256,7 @@ export function TeacherSchoolAttendanceRoster() {
         }
       }
     } catch (e: any) {
-      if (!safelyQueued && navigator.onLine) {
+      if (!safelyQueued && navigator.onLine && !user?.offlineOnly) {
         // Do not regress the existing teacher online attendance workflow on
         // devices that block IndexedDB. This path has no auto-retry.
         try {
