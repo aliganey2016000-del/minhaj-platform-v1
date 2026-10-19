@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
-import { clearOfflinePin, unlockTeacherWithPin } from '../lib/offline-teacher-pin';
+import { clearOfflinePin, unlockTeacherWithPin, refreshOfflinePinValidity } from '../lib/offline-teacher-pin';
 import { clearAllOfflineData, resetOfflineDataOnLogin } from '../lib/offline-store';
 import {
   OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity,
@@ -232,7 +232,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!localStorage.getItem('loginSessionId')) localStorage.setItem('loginSessionId', newLoginSessionId());
         const verified = normalizeUser(data.data?.user, data.data?.profile);
         setUser(verified);
-        saveVerifiedTeacherIdentity(verified);
+        await saveVerifiedTeacherIdentity(verified).then(refreshOfflinePinValidity).catch(() => {
+          // Online login remains usable if policy lookup is unavailable;
+          // offline unlock stays disabled until it can be verified.
+        });
       } catch (err: any) {
         if (controller.signal.aborted) return;
         if (err?.response?.status === 401) {
@@ -280,7 +283,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser((current) => {
         if (!current) return current;
         const next = normalizeUser(data.data?.user, data.data?.profile);
-        saveVerifiedTeacherIdentity(next);
+        void saveVerifiedTeacherIdentity(next).then(refreshOfflinePinValidity).catch(() => {});
         return next;
       });
     }).catch(() => {
@@ -307,7 +310,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('accessToken', accessToken);
         localStorage.setItem('loginSessionId', loginSessionId);
         setUser(normalized);
-        saveVerifiedTeacherIdentity(normalized);
+        await saveVerifiedTeacherIdentity(normalized).then(refreshOfflinePinValidity).catch(() => {
+          // Do not block a valid online login because offline setup failed.
+        });
         enrichUserInBackground();
         return normalized;
       }
