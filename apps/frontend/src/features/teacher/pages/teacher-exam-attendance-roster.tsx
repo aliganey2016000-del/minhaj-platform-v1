@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Check, Save, Search, Users, X } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { cacheTeacherExamAttendance, getCachedTeacherExamAttendance, queueTeacherExamAttendance } from '../../../lib/teacher-offline-exams';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
 type Status = 'present' | 'absent';
@@ -23,6 +24,7 @@ export function TeacherExamAttendanceRoster() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [usingOfflineData, setUsingOfflineData] = useState(false);
 
   const load = async () => {
     setLoading(true); setError('');
@@ -39,8 +41,26 @@ export function TeacherExamAttendanceRoster() {
         nextNotes[r.student._id] = r.attendance?.notes || '';
       });
       setStatuses(next); setNotes(nextNotes);
+      setUsingOfflineData(false);
+      await cacheTeacherExamAttendance(examId || '', { exam: payload.exam || null, roster, cachedAt: Date.now() });
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load attendance roster');
+      const cached = examId ? await getCachedTeacherExamAttendance<{ exam?: Exam | null; roster?: RosterRow[] }>(examId).catch(() => undefined) : undefined;
+      if (cached) {
+        const roster = cached.roster || [];
+        setExam(cached.exam || null);
+        setRows(roster);
+        const next: Record<string, Status | undefined> = {};
+        const nextNotes: Record<string, string> = {};
+        roster.forEach((r) => {
+          next[r.student._id] = r.attendance?.status === 'present' ? 'present' : r.attendance?.status ? 'absent' : undefined;
+          nextNotes[r.student._id] = r.attendance?.notes || '';
+        });
+        setStatuses(next); setNotes(nextNotes);
+        setUsingOfflineData(true);
+        setError('');
+      } else {
+        setError(err.response?.data?.message || 'No saved exam roster is available. Connect once while online to prepare this exam for offline use.');
+      }
     } finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, [examId]);
@@ -64,12 +84,36 @@ export function TeacherExamAttendanceRoster() {
     const records = rows.filter((r) => statuses[r.student._id]).map((r) => ({ student: r.student._id, status: statuses[r.student._id], notes: notes[r.student._id] || '' }));
     if (!records.length) { setError('Mark at least one student before saving.'); return; }
     setSaving(true); setError(''); setMessage('');
+    const saveLocally = async () => {
+      if (!examId) throw new Error('Missing exam identifier.');
+      await queueTeacherExamAttendance(examId, records);
+      const updatedRows = rows.map((row) => {
+        const record = records.find((item) => item.student === row.student._id);
+        return record ? { ...row, attendance: { ...(row.attendance || {}), status: record.status, notes: record.notes || '' } } : row;
+      });
+      setRows(updatedRows);
+      await cacheTeacherExamAttendance(examId, { exam, roster: updatedRows, cachedAt: Date.now() });
+      setUsingOfflineData(true);
+      setMessage(`Saved on this device for ${records.length} student(s). It will sync automatically when internet returns.`);
+    };
     try {
+      if (!navigator.onLine) {
+        await saveLocally();
+        return;
+      }
       await api.post(`/exams/${examId}/attendance`, { records });
       setMessage(`Attendance saved for ${records.length} student${records.length === 1 ? '' : 's'}.`);
       await load();
-    } catch (err: any) { setError(err.response?.data?.message || 'Failed to save attendance'); }
-    finally { setSaving(false); }
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const temporary = !err?.response || status === 408 || status === 429 || status >= 500;
+      if (temporary) {
+        try { await saveLocally(); }
+        catch (queueError: any) { setError(queueError?.message || 'Could not save attendance offline.'); }
+      } else {
+        setError(err.response?.data?.message || 'Failed to save attendance');
+      }
+    } finally { setSaving(false); }
   };
 
   if (loading) return <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-secondary)]"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-emerald-600" /></div>;
@@ -95,6 +139,7 @@ export function TeacherExamAttendanceRoster() {
         </div>
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-600 dark:border-red-900/50 dark:bg-red-950/30">{error}</div>}
+        {usingOfflineData && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Offline mode: attendance is stored on this device. It will sync when connectivity returns; keep this device signed in to the same account.</div>}
         {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30">{message}</div>}
 
         <div className="sticky top-2 z-10 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]/95 p-3 shadow-lg backdrop-blur-md">
