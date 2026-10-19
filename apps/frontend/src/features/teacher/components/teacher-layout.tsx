@@ -20,12 +20,14 @@ import {
 
 export function TeacherLayout() {
   const { pathname } = useLocation();
-  const { logout } = useAuth();
+  const { user, logout, lockOfflineSession } = useAuth();
+  const offlineOnly = user?.offlineOnly === true;
   const isDashboardRoot = pathname === '/teacher' || pathname === '/teacher/';
   const [visibility, setVisibility] = useState<TeacherSidebarVisibility | null>(null);
   const [accessError, setAccessError] = useState('');
 
   const loadAccess = useCallback(async () => {
+    if (offlineOnly) { setVisibility(null); setAccessError(''); return; }
     setAccessError('');
     try {
       const { data } = await api.get('/sidebar-settings/mine', { params: { portal: 'teacher' } });
@@ -40,11 +42,27 @@ export function TeacherLayout() {
       setVisibility(null);
       setAccessError(err.response?.data?.message || 'Could not verify teacher portal access.');
     }
-  }, []);
+  }, [offlineOnly]);
 
   useEffect(() => {
-    void loadAccess();
-  }, [loadAccess]);
+    if (!offlineOnly) void loadAccess();
+  }, [loadAccess, offlineOnly]);
+
+  // PIN grants read/write access only to locally downloaded attendance.
+  // No online sidebar API, dashboard, exams, finance or generic teacher
+  // routes may be reached with an offline-only identity.
+  if (offlineOnly) {
+    if (!/^\/teacher\/attendance(?:\/|$)/.test(pathname)) {
+      return <Navigate to="/teacher/attendance" replace />;
+    }
+    return <div className="min-h-screen bg-[var(--color-surface-secondary)]">
+      <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+        <span>Offline Attendance · {user?.email || 'Teacher'} · Saved locally until online sign-in</span>
+        <button type="button" onClick={() => { lockOfflineSession(); window.location.assign('/auth/login'); }} className="min-h-9 rounded-lg border border-emerald-300 px-3 py-1.5 font-bold">Switch teacher</button>
+      </div>
+      <Outlet />
+    </div>;
+  }
 
   if (!visibility && !accessError) {
     return (
