@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../store/auth-context';
 import type { TeacherSidebarVisibility } from './teacher-sidebar-access';
 
@@ -52,8 +52,9 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   ] },
 ];
 
-export function TeacherSidebar({ visibility }: { visibility: TeacherSidebarVisibility }) {
-  const { user, logout } = useAuth();
+export function TeacherSidebar({ visibility, offlineOnly = false }: { visibility: TeacherSidebarVisibility; offlineOnly?: boolean }) {
+  const { user, logout, lockOfflineSession } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openSection, setOpenSection] = useState('');
@@ -83,7 +84,7 @@ export function TeacherSidebar({ visibility }: { visibility: TeacherSidebarVisib
     )
     .sort((a, b) => b.length - a.length)[0];
   const isActive = (path: string) => activePath === path;
-  const filtered = navSections.filter(section => section.title !== 'Guulgaar' || visible('group:guuldoon')).map((section) => ({ ...section, items: section.items.map((item) => {
+  const allFiltered = navSections.filter(section => section.title !== 'Guulgaar' || visible('group:guuldoon')).map((section) => ({ ...section, items: section.items.map((item) => {
     if (isGroup(item)) {
       if (!visible(item.key)) return null;
       const children = item.children.filter((child) => visible(pathKey(child.path)));
@@ -91,6 +92,15 @@ export function TeacherSidebar({ visibility }: { visibility: TeacherSidebarVisib
     }
     return visible(pathKey(item.path)) ? item : null;
   }).filter(Boolean) as NavEntry[] })).filter((s) => s.items.length);
+  // Keep the same teacher sidebar design, but PIN-only sessions expose
+  // exactly the two locally prepared teaching routes. Never expose other
+  // teacher pages or imply their APIs are usable without online RBAC.
+  const filtered = offlineOnly ? allFiltered.map(section => ({
+    ...section,
+    items: section.items.filter(item =>
+      !isGroup(item) && (item.path === '/teacher/attendance' || item.path === '/teacher/schedule'),
+    ),
+  })).filter(section => section.items.length) : allFiltered;
 
   useEffect(() => {
     const active = filtered.find((s) => s.items.some((item) => isGroup(item) ? item.children.some((c) => isActive(c.path)) : isActive(item.path)));
@@ -104,7 +114,7 @@ export function TeacherSidebar({ visibility }: { visibility: TeacherSidebarVisib
     <nav className="flex-1 overflow-y-auto px-3 py-3">
       {filtered.map((section) => <div key={section.title} className="mb-1"><button onClick={() => setOpenSection((p) => p === section.title ? '' : section.title)} className={`flex w-full items-center rounded-xl px-3 py-2 text-[11px] font-bold uppercase tracking-widest ${openSection === section.title ? 'text-emerald-600' : 'text-[var(--color-text-tertiary)]'}`}><span className="flex-1 text-left">{section.title}</span><span>{openSection === section.title ? '⌄' : '›'}</span></button><AnimatePresence initial={false}>{openSection === section.title && <motion.ul initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden space-y-0.5 pb-2">{section.items.map((item) => isGroup(item) ? <li key={item.label}><button onClick={() => setOpenGroups((p) => ({ ...p, [item.label]: !p[item.label] }))} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium ${item.children.some((c) => isActive(c.path)) ? 'text-emerald-600' : 'text-[var(--color-text-secondary)]'}`}><span>{item.icon}</span><span className="flex-1 text-left">{item.label}</span><span>{openGroups[item.label] ? '⌄' : '›'}</span></button><AnimatePresence initial={false}>{openGroups[item.label] && <motion.ul initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="ml-5 space-y-0.5 overflow-hidden border-l border-[var(--color-border-subtle)] pl-2">{item.children.map((child) => <li key={child.path}><Link to={child.path} onClick={() => setMobileOpen(false)} className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${isActive(child.path) ? 'bg-emerald-50 font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><span>{child.icon}</span><span className="truncate">{child.label}</span></Link></li>)}</motion.ul>}</AnimatePresence></li> : <li key={item.path}><Link to={item.path} onClick={() => setMobileOpen(false)} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium ${isActive(item.path) ? 'bg-emerald-50 font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}><span>{item.icon}</span><span className="truncate">{item.label}</span></Link></li>)}</motion.ul>}</AnimatePresence></div>)}
     </nav>
-    <div className="border-t border-[var(--color-border-subtle)] p-3"><button onClick={logout} className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30">🚪 Logout</button></div>
+    <div className="border-t border-[var(--color-border-subtle)] p-3"><button onClick={offlineOnly ? () => { lockOfflineSession(); navigate('/auth/login', { replace: true }); } : logout} className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30">{offlineOnly ? '🔄 Switch teacher' : '🚪 Logout'}</button></div>
   </aside>;
 
   return <><button onClick={() => setMobileOpen(true)} className="fixed left-3 top-3 z-50 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2.5 shadow-lg lg:hidden" aria-label="Open menu">☰</button><div className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block">{content}</div><AnimatePresence>{mobileOpen && <><motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black/40 lg:hidden" onClick={() => setMobileOpen(false)} /><motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] lg:hidden">{content}</motion.div></>}</AnimatePresence></>;
