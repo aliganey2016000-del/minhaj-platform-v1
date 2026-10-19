@@ -11,6 +11,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TeacherSidebar } from './teacher-sidebar';
 import { DashboardHeader } from '../../shared/components/dashboard-header';
 import api from '../../../lib/axios';
+import { getOfflineTeacherSidebar, getOfflineTeachingSchedule, offlineAttendanceOwner } from '../../../lib/teacher-offline-attendance';
 import { useAuth } from '../../../store/auth-context';
 import {
   firstAllowedTeacherRoute,
@@ -26,6 +27,27 @@ export function TeacherLayout() {
   const isDashboardRoot = pathname === '/teacher' || pathname === '/teacher/';
   const [visibility, setVisibility] = useState<TeacherSidebarVisibility | null>(null);
   const [accessError, setAccessError] = useState('');
+  const [offlineVisibility, setOfflineVisibility] = useState<TeacherSidebarVisibility>({
+    'teacher/attendance': true, 'teacher/schedule': false,
+  });
+
+  useEffect(() => {
+    if (!offlineOnly) return;
+    let current = true;
+    const owner = offlineAttendanceOwner(user);
+    if (!owner) return;
+    void Promise.all([getOfflineTeacherSidebar(owner), getOfflineTeachingSchedule(owner)])
+      .then(([rights, timetable]) => {
+        if (!current) return;
+        setOfflineVisibility({
+          'teacher/attendance': rights?.['teacher/attendance'] !== false,
+          'teacher/schedule': !timetable || rights?.['teacher/schedule'] === false ? false : true,
+        });
+      }).catch(() => {
+        if (current) setOfflineVisibility({ 'teacher/attendance': true, 'teacher/schedule': false });
+      });
+    return () => { current = false; };
+  }, [offlineOnly, user?.id, user?.organizationId]);
 
   const loadAccess = useCallback(async () => {
     if (offlineOnly) { setVisibility(null); setAccessError(''); return; }
@@ -53,16 +75,24 @@ export function TeacherLayout() {
   // No online sidebar API, dashboard, exams, finance or generic teacher
   // routes may be reached with an offline-only identity.
   if (offlineOnly) {
-    if (!/^\/teacher\/attendance(?:\/|$)/.test(pathname)) {
+    if (!isTeacherRouteAllowed(pathname, offlineVisibility)) {
       return <Navigate to="/teacher/attendance" replace />;
     }
-    return <div className="min-h-screen bg-[var(--color-surface-secondary)]">
-      <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-        <span>Offline Attendance · {user?.email || 'Teacher'} · Saved locally until online sign-in</span>
-        <button type="button" onClick={() => { lockOfflineSession(); navigate('/auth/login', { replace: true }); }} className="min-h-9 rounded-lg border border-emerald-300 px-3 py-1.5 font-bold">Switch teacher</button>
+    return (
+      <div className="min-h-screen bg-[var(--color-surface-secondary)]">
+        <TeacherSidebar visibility={offlineVisibility} offlineOnly />
+        <div className="min-h-screen lg:ml-64">
+          <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200 bg-emerald-50 px-3 py-3 pl-16 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 lg:pl-4">
+            <span>Offline Teacher Portal · {user?.email || 'Teacher'} · Local data only</span>
+            <button type="button" onClick={() => { lockOfflineSession(); navigate('/auth/login', { replace:true }); }}
+              className="min-h-9 rounded-lg border border-emerald-300 px-3 py-1.5 font-bold">
+              Switch teacher
+            </button>
+          </div>
+          <Outlet />
+        </div>
       </div>
-      <Outlet />
-    </div>;
+    );
   }
 
   if (!visibility && !accessError) {
