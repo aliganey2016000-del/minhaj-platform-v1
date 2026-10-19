@@ -87,7 +87,7 @@ export function TeacherExamAttendanceRoster() {
     setSaving(true); setError(''); setMessage('');
     const saveLocally = async () => {
       if (!examId) throw new Error('Missing exam identifier.');
-      await queueTeacherExamAttendance(examId, records);
+      await queueTeacherExamAttendance(examId || '', records);
       const updatedRows = rows.map((row) => {
         const record = records.find((item) => item.student === row.student._id);
         return record ? { ...row, attendance: { ...(row.attendance || {}), status: record.status, notes: record.notes || '' } } : row;
