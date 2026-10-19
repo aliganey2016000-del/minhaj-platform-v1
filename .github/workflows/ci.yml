@@ -204,6 +204,9 @@ jobs:
       - name: Student next login email
         run: npx ts-node --files src/__tests__/student-next-email.e2e.ts
 
+      - name: Saturday offline attendance period boundary regression
+        run: npx ts-node src/__tests__/offline-attendance-period.test.ts
+
       - name: Attendance lock audit regression
         run: npx ts-node src/__tests__/attendance-lock-audit.e2e.ts
 
