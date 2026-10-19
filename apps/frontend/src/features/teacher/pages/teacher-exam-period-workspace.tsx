@@ -13,9 +13,11 @@ import {
 } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
+import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
 import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
-import { prepareTeacherOfflineAppShell } from '../../../lib/teacher-offline-attendance';
+import { prepareTeacherOfflineAppShell, saveVerifiedTeacherIdentity, offlineAttendanceOwner, cacheOfflineTeacherSidebar } from '../../../lib/teacher-offline-attendance';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
 
@@ -161,6 +163,7 @@ const tabs: { key: WorkspaceTab; label: string; shortLabel: string; icon: typeof
 
 export function TeacherExamPeriodWorkspace() {
   const { periodId = '' } = useParams();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab') as WorkspaceTab | null;
   const activeTab: WorkspaceTab = tabs.some((item) => item.key === requestedTab) ? requestedTab! : 'schedule';
@@ -224,6 +227,37 @@ export function TeacherExamPeriodWorkspace() {
     let prepared = 0;
     let failed = 0;
     const resultCourseIds = new Set<string>(exams.map((exam) => exam.course?._id).filter((id): id is string => Boolean(id)));
+
+    // Reuse the established teacher offline identity and PIN policy. Cache the
+    // same server-authoritative sidebar permissions so the offline route guard
+    // can distinguish allowed exam pages from disabled pages without a network call.
+    try {
+      if (!user || user.role !== 'teacher' || !user.organizationId) {
+        throw new Error('A verified teacher account is required to prepare offline access.');
+      }
+      await saveVerifiedTeacherIdentity(user);
+      const owner = offlineAttendanceOwner(user);
+      if (!owner || !isOfflinePinReady()) {
+        throw new Error('Set up your six-digit Offline PIN in Teacher Settings and prepare offline access again.');
+      }
+      const { data: sidebarData } = await api.get('/sidebar-settings/mine', {
+        params: { portal: 'teacher' }, timeout: 15000,
+      });
+      const sidebar: Record<string, boolean> = {};
+      (sidebarData.data?.items || []).forEach((item: { key: string; visible: boolean }) => {
+        sidebar[item.key] = item.visible;
+      });
+      if (sidebar['group:teacher-exams'] === false || sidebar['teacher/exams'] === false) {
+        throw new Error('Your school has disabled the Teacher Exam Workspace.');
+      }
+      await cacheOfflineTeacherSidebar(owner, sidebar);
+      prepared++;
+    } catch (accessError: any) {
+      setOfflinePrepMessage(`Offline access setup failed: ${accessError?.message || 'Could not verify your teacher access.'}`);
+      setPreparingOffline(false);
+      return;
+    }
+
     try {
       // Cache the verified app shell so this exam URL can reopen after a cold
       // launch while offline, not only while the current SPA remains open.
