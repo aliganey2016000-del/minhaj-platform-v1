@@ -19,7 +19,7 @@ const mockReact={
   useEffect:fn=>{effects.push(fn);},
 };
 const loginNavigation=[];
-const context={exports:{},window:{location:{}},
+const context={exports:{},window:{location:{},setInterval:()=>1,clearInterval:()=>{}},
   require(path){
     if(path==='react')return mockReact;
     if(path==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'fragment'};
