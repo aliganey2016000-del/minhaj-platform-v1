@@ -43,11 +43,11 @@ const context={exports:{},window:{location:{}},
       isTeacherRouteAllowed:(path,rights)=>{
         if(path==='/teacher/attendance')return rights['teacher/attendance']!==false;
         if(path==='/teacher/schedule')return rights['teacher/schedule']!==false;
-        if(path==='/teacher/exams'||/^\\/teacher\\/exams\\/periods\\/[^/]+\\/?$/.test(path))
+        if(path==='/teacher/exams'||path.startsWith('/teacher/exams/periods/'))
           return rights['group:teacher-exams']!==false&&rights['teacher/exams']!==false;
-        if(path==='/teacher/exam-attendance'||/^\\/teacher\\/exam-attendance\\/[^/]+\\/?$/.test(path))
+        if(path==='/teacher/exam-attendance'||path.startsWith('/teacher/exam-attendance/'))
           return rights['group:teacher-exams']!==false&&rights['teacher/exam-attendance']!==false;
-        if(/^\\/teacher\\/exams\\/[^/]+\\/attendance\\/?$/.test(path))
+        if(path.startsWith('/teacher/exams/')&&path.endsWith('/attendance'))
           return rights['group:teacher-exams']!==false&&rights['teacher/exam-attendance']!==false;
         if(path==='/teacher/results/enter')
           return rights['group:gradebook']!==false&&rights['teacher/results/enter']!==false;
