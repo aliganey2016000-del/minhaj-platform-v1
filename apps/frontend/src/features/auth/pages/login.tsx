@@ -14,7 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '../../../store/auth-context';
 import { useTenant } from '../../../store/tenant-context';
 import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
-import { Fingerprint, WifiOff, LockKeyhole, Wifi } from 'lucide-react';
+import { WifiOff, LockKeyhole, Wifi } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Zod schema
@@ -171,7 +171,7 @@ export function LoginPage() {
                     className="flex w-full min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
                     <LockKeyhole className="h-4 w-4" />{pinBusy ? 'Unlocking...' : 'Unlock Offline Attendance'}
                   </button>
-                  <p className="flex items-center justify-center gap-2 text-[11px] text-[var(--color-text-tertiary)]"><Fingerprint className="h-4 w-4" />Available only for a previously verified teacher</p>
+                  <p className="text-center text-[11px] text-[var(--color-text-tertiary)]">Available only on a previously verified teacher device.</p>
                 </form>
               ) : (
                 <p role="status" className="text-center text-sm text-amber-800 dark:text-amber-300">Offline access is not ready or has expired. Connect to the internet, sign in, then set up Offline Access under Teacher Settings and tap Prepare Offline on Attendance.</p>
