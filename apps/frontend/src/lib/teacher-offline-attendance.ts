@@ -98,6 +98,11 @@ export async function saveVerifiedTeacherIdentity(user: { id: string; role: stri
     email: user.email, preferredLanguage: user.preferredLanguage,
   };
   localStorage.setItem(OFFLINE_TEACHER_IDENTITY_KEY, JSON.stringify(identity));
+  // A background /auth/me verification may finish after Attendance renders.
+  // Notify the current page so its From/Until labels reflect the new grant.
+  if (typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new Event('sahal-offline-access-updated'));
+  }
 }
 
 export function verifiedOfflineTeacherIdentity(): OfflineTeacherIdentity | null {
