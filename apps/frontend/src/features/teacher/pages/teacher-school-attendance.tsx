@@ -218,11 +218,13 @@ export function TeacherSchoolAttendance() {
       // Use exactly the same endpoints as My Teaching Schedule online.
       const { data: scheduleData } = await api.get('/class-schedules/my-teaching', { timeout: 15000 });
       const scheduleRows = Array.isArray(scheduleData.data) ? scheduleData.data : [];
-      const { data: periodData } = await api.get('/class-schedules/school/period-settings', { timeout: 15000 });
+      let lessonPeriods: Array<{label?: string; startTime: string; endTime: string; isBreak?:boolean}> = [];
+      try {
+        const { data: periodData } = await api.get('/class-schedules/school/period-settings', { timeout: 15000 });
+        lessonPeriods = periodData.data?.periods || [];
+      } catch { /* The online timetable itself also treats period labels as optional. */ }
       await cacheOfflineTeachingSchedule(owner, {
-        schedules: scheduleRows,
-        periods: periodData.data?.periods || [],
-        preparedAt: Date.now(),
+        schedules: scheduleRows, periods: lessonPeriods, preparedAt: Date.now(),
       });
       // A 7-day admin policy prepares ALL Saturday-Friday rosters, not
       // merely the date currently selected by the teacher. Fetch sequentially
