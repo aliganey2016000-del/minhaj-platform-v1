@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { CheckCircle2, Languages, Moon, Sun } from 'lucide-react';
+import { CheckCircle2, Languages, Moon, Sun, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { clearOfflinePin, isOfflinePinReady, setupOfflinePin } from '../../../lib/offline-teacher-pin';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
 import { useTheme } from '../../../store/theme-context';
@@ -11,6 +13,25 @@ export function TeacherSettings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinReady, setPinReady] = useState(isOfflinePinReady);
+  const [pinSaving, setPinSaving] = useState(false);
+
+  const savePin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(''); setMessage('');
+    if (pin !== confirmPin) { setError('PIN and confirmation do not match.'); return; }
+    setPinSaving(true);
+    try {
+      await setupOfflinePin(pin);
+      setPinReady(isOfflinePinReady());
+      setPin(''); setConfirmPin('');
+      setMessage('Offline PIN saved on this device. Now go to Student Attendance and tap Prepare Offline to download your class rosters.');
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Could not set up offline access.');
+    } finally { setPinSaving(false); }
+  };
 
   const changeLanguage = async (nextLanguage: string) => {
     const previousLanguage = language;
@@ -61,7 +82,7 @@ export function TeacherSettings() {
           </select>
         </section>
 
-        <section className="p-5 sm:p-6">
+        <section className="border-b border-[var(--color-border-subtle)] p-5 sm:p-6">
           <div className="mb-4 flex items-center gap-3">
             <span className="rounded-xl bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/40">{theme === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}</span>
             <div><h2 className="font-bold">Appearance</h2><p className="text-xs text-[var(--color-text-tertiary)]">Theme is saved on this device.</p></div>
@@ -69,6 +90,47 @@ export function TeacherSettings() {
           <div className="grid grid-cols-2 gap-3">
             {(['light', 'dark'] as const).map((option) => <button key={option} type="button" aria-pressed={theme === option} onClick={() => setTheme(option)} className={`rounded-xl border px-4 py-3 text-sm font-bold capitalize transition ${theme === option ? 'border-emerald-600 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'border-[var(--color-border-default)] hover:bg-[var(--color-surface-secondary)]'}`}>{option}</button>)}
           </div>
+        </section>
+        <section className="p-5 sm:p-6" id="offline-access">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40"><ShieldCheck className="h-5 w-5" /></span>
+            <div>
+              <h2 className="font-bold">Offline Attendance Access</h2>
+              <p className="text-xs text-[var(--color-text-tertiary)]">Securely unlock previously downloaded rosters without internet.</p>
+            </div>
+          </div>
+          <div className="mb-4 rounded-xl bg-[var(--color-surface-secondary)] p-3 text-sm">
+            <p className="font-semibold">{pinReady ? 'Offline PIN is ready on this device' : 'Offline PIN is not yet configured'}</p>
+            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+              Sign in online, create a six-digit PIN, then visit Student Attendance and select Prepare Offline.
+              Offline access expires within 72 hours of your last online verification.
+            </p>
+          </div>
+          <form onSubmit={(event) => void savePin(event)} className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-semibold">
+              New offline PIN
+              <input type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" minLength={6} maxLength={6} required
+                value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="mt-1.5 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 tracking-widest" />
+            </label>
+            <label className="block text-sm font-semibold">
+              Confirm offline PIN
+              <input type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" minLength={6} maxLength={6} required
+                value={confirmPin} onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="mt-1.5 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 tracking-widest" />
+            </label>
+            <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+              <button type="submit" disabled={pinSaving || !navigator.onLine}
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                <LockKeyhole className="h-4 w-4" />{pinSaving ? 'Saving...' : pinReady ? 'Change Offline PIN' : 'Enable Offline PIN'}
+              </button>
+              {pinReady && <button type="button" onClick={() => { clearOfflinePin(); setPinReady(false); setMessage('Offline PIN disabled on this device.'); }}
+                className="min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 dark:text-red-300">Disable PIN</button>}
+              <Link to="/teacher/attendance" className="inline-flex min-h-11 items-center rounded-xl border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                Go to Attendance
+              </Link>
+            </div>
+          </form>
         </section>
       </div>
     </main>
