@@ -873,6 +873,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-400">{message}</div>}
+        {usingOfflineData && backFallback.startsWith('/teacher') && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Offline mode: roster and scores are saved on this device. Pending scores sync automatically when internet returns.</div>}
 
         {loading && (
           <div className="flex justify-center py-16">
