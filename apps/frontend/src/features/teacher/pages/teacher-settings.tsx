@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Languages, Moon, Sun, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Languages, Moon, Sun, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { clearOfflinePin, isOfflinePinReady, setupOfflinePin } from '../../../lib/offline-teacher-pin';
 import { verifiedOfflineTeacherIdentity } from '../../../lib/teacher-offline-attendance';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
@@ -14,33 +13,14 @@ export function TeacherSettings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [pin, setPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [pinReady, setPinReady] = useState(isOfflinePinReady);
-  const [pinSaving, setPinSaving] = useState(false);
   const [policyDays, setPolicyDays] = useState(verifiedOfflineTeacherIdentity()?.maxOfflineDays ?? 7);
   useEffect(() => {
     let active = true;
     api.get('/attendance/offline-policy', { timeout: 15000 }).then(({ data }) => {
       if (active && typeof data.data?.maxOfflineDays === 'number') setPolicyDays(data.data.maxOfflineDays);
-    }).catch(() => {}).finally(() => { if (active) setPinReady(isOfflinePinReady()); });
+    }).catch(() => {});
     return () => { active = false; };
   }, []);
-
-  const savePin = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(''); setMessage('');
-    if (pin !== confirmPin) { setError('PIN and confirmation do not match.'); return; }
-    setPinSaving(true);
-    try {
-      await setupOfflinePin(pin);
-      setPinReady(isOfflinePinReady());
-      setPin(''); setConfirmPin('');
-      setMessage('Offline PIN saved on this device. Now go to Student Attendance and tap Prepare Offline to download your class rosters.');
-    } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Could not set up offline access.');
-    } finally { setPinSaving(false); }
-  };
 
   const changeLanguage = async (nextLanguage: string) => {
     const previousLanguage = language;
@@ -104,44 +84,23 @@ export function TeacherSettings() {
           <div className="mb-4 flex items-center gap-3">
             <span className="rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40"><ShieldCheck className="h-5 w-5" /></span>
             <div>
-              <h2 className="font-bold">Offline Attendance Access</h2>
-              <p className="text-xs text-[var(--color-text-tertiary)]">Securely unlock previously downloaded rosters without internet.</p>
+              <h2 className="font-bold">Automatic Offline Attendance</h2>
+              <p className="text-xs text-[var(--color-text-tertiary)]">No separate PIN or Prepare Offline action required.</p>
             </div>
           </div>
-          <div className="mb-4 rounded-xl bg-[var(--color-surface-secondary)] p-3 text-sm">
-            <p className="font-semibold">{pinReady ? 'Offline PIN is ready on this device' : 'Offline PIN is not yet configured'}</p>
-            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-              Sign in online, create a six-digit PIN, then visit Student Attendance and select Prepare Offline.
-              {policyDays === 7
-                ? 'Your school uses Saturday–Friday weekly offline periods (Somalia time). Every Saturday begins a new period. Connect online and tap Prepare Offline again to renew access.'
-                : `Your school's administrator allows ${policyDays} day${policyDays === 1 ? '' : 's'} of offline access after successful online verification.`}
+          <div className="space-y-2 rounded-xl bg-[var(--color-surface-secondary)] p-4 text-sm">
+            <p className="font-semibold">Online sign-in automatically saves your schedule and attendance rosters on this device.</p>
+            <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
+              When the internet is unavailable, select your teacher account and enter its normal password.
+              Your school allows {policyDays} day{policyDays === 1 ? '' : 's'} without online verification.
+              You will have 24 hours to reconnect and sync after that time, before offline access is locked.
+              Your unsynced attendance remains saved for your next authenticated login.
             </p>
+            <Link to="/teacher/attendance/offline"
+              className="inline-flex min-h-10 items-center rounded-xl border border-emerald-200 px-4 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+              View Offline &amp; Auto Sync
+            </Link>
           </div>
-          <form onSubmit={(event) => void savePin(event)} className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm font-semibold">
-              New offline PIN
-              <input type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" minLength={6} maxLength={6} required
-                value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="mt-1.5 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 tracking-widest" />
-            </label>
-            <label className="block text-sm font-semibold">
-              Confirm offline PIN
-              <input type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{6}" minLength={6} maxLength={6} required
-                value={confirmPin} onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="mt-1.5 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 tracking-widest" />
-            </label>
-            <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-              <button type="submit" disabled={pinSaving || !navigator.onLine}
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-                <LockKeyhole className="h-4 w-4" />{pinSaving ? 'Saving...' : pinReady ? 'Change Offline PIN' : 'Enable Offline PIN'}
-              </button>
-              {pinReady && <button type="button" onClick={() => { clearOfflinePin(); setPinReady(false); setMessage('Offline PIN disabled on this device.'); }}
-                className="min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 dark:text-red-300">Disable PIN</button>}
-              <Link to="/teacher/attendance" className="inline-flex min-h-11 items-center rounded-xl border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                Go to Attendance
-              </Link>
-            </div>
-          </form>
         </section>
       </div>
     </main>
