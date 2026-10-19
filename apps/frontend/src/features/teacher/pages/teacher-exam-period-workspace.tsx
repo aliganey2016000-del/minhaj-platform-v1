@@ -279,6 +279,12 @@ export function TeacherExamPeriodWorkspace() {
           </div>
         )}
 
+        {usingOfflineData && (
+          <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            Offline mode: showing the last exam schedule and assignments saved on this device. Pending changes will sync when internet returns.
+          </div>
+        )}
+
         {!loading && !error && !period ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-900/40 dark:bg-amber-950/20">
             <h2 className="font-bold text-amber-800 dark:text-amber-300">This exam period is not available.</h2>
