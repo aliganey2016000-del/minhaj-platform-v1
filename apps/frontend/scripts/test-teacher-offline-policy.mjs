@@ -64,29 +64,16 @@ for (const days of [1, 3, 7, 14, 30]) {
   const windowForTeacher = getOfflineAttendanceAccessWindow();
   assert.ok(windowForTeacher, 'Prepared identity must expose the display window');
   assert.equal(windowForTeacher.maxOfflineDays, days);
-  assert.equal(windowForTeacher.from, days === 7 ? Date.parse(policy.periodStart) : identity.verifiedAt);
+  assert.equal(windowForTeacher.from, identity.verifiedAt);
   assert.equal(windowForTeacher.to, identity.expiresAt);
-  assert.equal(windowForTeacher.calendarAligned, days === 7);
+  assert.equal(windowForTeacher.calendarAligned, false);
   assert.equal(windowForTeacher.expired, false);
   assert.equal(windowForTeacher.to - windowForTeacher.from, days * DAY);
   assert.equal(identity.maxOfflineDays, days);
   const prepared = preparedAttendanceDates(windowForTeacher, '2026-10-19');
-  assert.equal(prepared.length, days === 7 ? 7 : 1);
-  if (days === 7) {
-    const first = new Date(windowForTeacher.from + 3 * HOUR).toISOString().slice(0, 10);
-    const last = new Date(windowForTeacher.from + 6 * DAY + 3 * HOUR).toISOString().slice(0, 10);
-    assert.equal(prepared[0], first);
-    assert.equal(prepared[6], last);
-    assert.equal(new Date(prepared[0] + 'T00:00:00Z').getUTCDay(), 6, 'weekly roster download starts Saturday');
-    assert.equal(new Date(prepared[6] + 'T00:00:00Z').getUTCDay(), 5, 'weekly roster download ends Friday');
-    assert.equal(identity.expiresAt, Date.parse(policy.periodEndExclusive),
-      '7 days expires NEXT SATURDAY, never on the rolling verification day');
-    assert.ok(identity.expiresAt <= before + 7 * DAY);
-    assert.ok(windowForTeacher.from <= before);
-  } else {
-    assert.ok(identity.expiresAt >= before + days * DAY);
-    assert.ok(identity.expiresAt <= Date.now() + days * DAY + 1000);
-  }
+  assert.equal(prepared.length, 1, 'auth duration is rolling even when school rosters use Sat–Fri weeks');
+  assert.ok(identity.expiresAt >= before + days * DAY);
+  assert.ok(identity.expiresAt <= Date.now() + days * DAY + 1000);
   assert.ok(offlineAttendanceOwner()?.includes('school-a:teacher-a'));
 }
 assert.equal(policyCalls, 5);
@@ -107,11 +94,11 @@ assert.equal(verifiedOfflineTeacherIdentity(), null, 'Teacher grant must be host
 window.location.hostname = 'school-a.schoolapp.so';
 
 const expired = JSON.parse(previous);
-expired.expiresAt = Date.now() - 1;
+expired.expiresAt = Date.now() - DAY - 1;
 expired.verifiedAt = expired.expiresAt - expired.maxOfflineDays * 86400000;
 localStorage.setItem(OFFLINE_TEACHER_IDENTITY_KEY, JSON.stringify(expired));
-assert.equal(verifiedOfflineTeacherIdentity(), null, 'Expired access must lock');
+assert.equal(verifiedOfflineTeacherIdentity(), null, 'Offline grant must lock after the additional 24-hour grace');
 const expiredDisplay = getOfflineAttendanceAccessWindow();
 assert.ok(expiredDisplay?.expired, 'Expired grants should still show expiry to the teacher');
 assert.equal(expiredDisplay?.to, expired.expiresAt);
-console.log('PASS: Saturday weekly grant and renewal, rolling nonweekly periods, expiry, tenant scoping, no offline extension');
+console.log('PASS: rolling admin periods, 24h grace expiry, tenant scoping and no offline extension');

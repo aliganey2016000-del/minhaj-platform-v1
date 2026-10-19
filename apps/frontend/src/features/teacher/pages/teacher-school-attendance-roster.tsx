@@ -133,7 +133,7 @@ export function TeacherSchoolAttendanceRoster() {
         }
       }
       if (!next && owner && fromCache) next = await getCachedAttendanceRoster(owner, date, scheduleId);
-      if (!next) throw new Error('No offline roster is available. Connect online and tap Prepare Offline.');
+      if (!next) throw new Error('No offline roster is available for this date. Connect online and sign in so SAHAL can download it automatically.');
       setDetail(next);
       setOfflineView(fromCache);
       const existingQueue = owner ? await pendingForSession(owner, date, scheduleId) : null;

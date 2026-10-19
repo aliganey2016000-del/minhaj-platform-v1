@@ -19,7 +19,7 @@ const mockReact={
   useEffect:fn=>{effects.push(fn);},
 };
 const loginNavigation=[];
-const context={exports:{},window:{location:{}},
+const context={exports:{},window:{location:{},setInterval:()=>1,clearInterval:()=>{}},
   require(path){
     if(path==='react')return mockReact;
     if(path==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'fragment'};
@@ -42,6 +42,8 @@ const context={exports:{},window:{location:{}},
       offlineAttendanceOwner:()=> 'balcad.schoolapp.so:school-a:teacher-a:session-a',
       getOfflineTeacherSidebar:async()=>({'teacher/attendance':true,'teacher/schedule':true}),
       getOfflineTeachingSchedule:async()=>({schedules:[],periods:[]}),
+      getOfflineAttendanceAccessWindow:()=>({from:Date.now()-3600000,to:Date.now()+86400000}),
+      OFFLINE_RECONNECT_GRACE_MS:86400000,
     };
     if(path.endsWith('/teacher-sidebar'))return {TeacherSidebar:'TeacherSidebar'};
     if(path.endsWith('/dashboard-header'))return {DashboardHeader:'DashboardHeader'};

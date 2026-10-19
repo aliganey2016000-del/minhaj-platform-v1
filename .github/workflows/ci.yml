@@ -567,7 +567,7 @@ jobs:
         run: node scripts/test-attendance-local-dates.mjs
 
       - name: Offline teacher PIN and cold-launch auth regressions
-        run: node scripts/test-teacher-offline-pin.mjs && node scripts/test-teacher-offline-policy.mjs && node scripts/test-teacher-offline-window-display.mjs && node scripts/test-teacher-offline-route-guard.mjs && node scripts/test-teacher-offline-navigation.mjs && node scripts/test-auth-recovery.mjs
+        run: node scripts/test-teacher-offline-pin.mjs && node scripts/test-teacher-offline-password.mjs && node scripts/test-teacher-offline-auto-prepare.mjs && node scripts/test-teacher-offline-policy.mjs && node scripts/test-teacher-offline-window-display.mjs && node scripts/test-teacher-offline-route-guard.mjs && node scripts/test-teacher-offline-navigation.mjs && node scripts/test-auth-recovery.mjs
 
       - name: Teacher sidebar direct-route access regression
         run: node scripts/test-teacher-sidebar-route-access.mjs

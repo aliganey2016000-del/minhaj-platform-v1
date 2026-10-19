@@ -11,7 +11,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TeacherSidebar } from './teacher-sidebar';
 import { DashboardHeader } from '../../shared/components/dashboard-header';
 import api from '../../../lib/axios';
-import { getOfflineTeacherSidebar, getOfflineTeachingSchedule, offlineAttendanceOwner } from '../../../lib/teacher-offline-attendance';
+import { getOfflineTeacherSidebar, getOfflineTeachingSchedule, offlineAttendanceOwner, getOfflineAttendanceAccessWindow, OFFLINE_RECONNECT_GRACE_MS } from '../../../lib/teacher-offline-attendance';
 import { useAuth } from '../../../store/auth-context';
 import {
   firstAllowedTeacherRoute,
@@ -24,6 +24,12 @@ export function TeacherLayout() {
   const navigate = useNavigate();
   const { user, logout, lockOfflineSession } = useAuth();
   const offlineOnly = user?.offlineOnly === true;
+  const [offlineClock, setOfflineClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!offlineOnly) return;
+    const timer = window.setInterval(() => setOfflineClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [offlineOnly]);
   const isDashboardRoot = pathname === '/teacher' || pathname === '/teacher/';
   const [visibility, setVisibility] = useState<TeacherSidebarVisibility | null>(null);
   const [accessError, setAccessError] = useState('');
@@ -75,6 +81,18 @@ export function TeacherLayout() {
   // No online sidebar API, dashboard, exams, finance or generic teacher
   // routes may be reached with an offline-only identity.
   if (offlineOnly) {
+    const verifiedWindow = getOfflineAttendanceAccessWindow();
+    if (!verifiedWindow || offlineClock >= verifiedWindow.to + OFFLINE_RECONNECT_GRACE_MS) {
+      return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[var(--color-surface-primary)] p-6 text-center">
+        <p className="text-lg font-bold">Offline access has expired</p>
+        <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
+          You have been offline beyond your school's limit and 24-hour grace.
+          Connect and sign in online to renew access and sync attendance already saved on this device.
+        </p>
+        <button type="button" onClick={() => { lockOfflineSession(); navigate('/auth/login', { replace: true }); }}
+          className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Sign in online</button>
+      </div>;
+    }
     if (offlineVisibility['teacher/attendance'] === false) {
       return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[var(--color-surface-primary)] p-6 text-center">
         <p className="font-bold">Offline attendance is not permitted for this teacher.</p>
