@@ -13,6 +13,16 @@ type GlobalCourse = {
   globalGrade: number;
 };
 
+/** Full book jacket when present, clean fallback for older courses. */
+function GuulgaarBookCover({ cover, title }: { cover?: string; title: string }) {
+  const [broken, setBroken] = useState(false);
+  return cover && !broken ? (
+    <img src={cover} alt={`${title} book cover`}
+      loading="lazy" decoding="async" onError={() => setBroken(true)}
+      className="h-full w-full object-contain p-1.5 sm:p-2" />
+  ) : <BookOpen size={44} strokeWidth={1.3} aria-hidden="true" />;
+}
+
 export function GlobalCoursesPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -186,11 +196,7 @@ export function GlobalCoursesPage() {
                         ? 'bg-gradient-to-br from-slate-700 to-emerald-950 text-amber-200'
                         : 'bg-gradient-to-br from-amber-100 to-amber-200 text-amber-800'
                     }`}>
-                      {course.thumbnail ? (
-                        <img src={course.thumbnail} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <BookOpen size={44} strokeWidth={1.3} aria-hidden="true" />
-                      )}
+                      <GuulgaarBookCover cover={course.thumbnail} title={course.title.en} />
                     </div>
 
                     <div className="min-w-0 flex-1 p-4">
