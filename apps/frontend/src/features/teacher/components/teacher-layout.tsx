@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TeacherSidebar } from './teacher-sidebar';
 import { DashboardHeader } from '../../shared/components/dashboard-header';
 import api from '../../../lib/axios';
@@ -20,6 +20,7 @@ import {
 
 export function TeacherLayout() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { user, logout, lockOfflineSession } = useAuth();
   const offlineOnly = user?.offlineOnly === true;
   const isDashboardRoot = pathname === '/teacher' || pathname === '/teacher/';
@@ -58,7 +59,7 @@ export function TeacherLayout() {
     return <div className="min-h-screen bg-[var(--color-surface-secondary)]">
       <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
         <span>Offline Attendance · {user?.email || 'Teacher'} · Saved locally until online sign-in</span>
-        <button type="button" onClick={() => { lockOfflineSession(); window.location.assign('/auth/login'); }} className="min-h-9 rounded-lg border border-emerald-300 px-3 py-1.5 font-bold">Switch teacher</button>
+        <button type="button" onClick={() => { lockOfflineSession(); navigate('/auth/login', { replace: true }); }} className="min-h-9 rounded-lg border border-emerald-300 px-3 py-1.5 font-bold">Switch teacher</button>
       </div>
       <Outlet />
     </div>;
