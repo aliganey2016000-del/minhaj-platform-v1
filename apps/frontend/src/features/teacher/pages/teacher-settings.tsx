@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle2, Languages, Moon, Sun, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { clearOfflinePin, isOfflinePinReady, setupOfflinePin } from '../../../lib/offline-teacher-pin';
+import { verifiedOfflineTeacherIdentity } from '../../../lib/teacher-offline-attendance';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
 import { useTheme } from '../../../store/theme-context';
@@ -17,6 +18,14 @@ export function TeacherSettings() {
   const [confirmPin, setConfirmPin] = useState('');
   const [pinReady, setPinReady] = useState(isOfflinePinReady);
   const [pinSaving, setPinSaving] = useState(false);
+  const [policyDays, setPolicyDays] = useState(verifiedOfflineTeacherIdentity()?.maxOfflineDays ?? 7);
+  useEffect(() => {
+    let active = true;
+    api.get('/attendance/offline-policy', { timeout: 15000 }).then(({ data }) => {
+      if (active && typeof data.data?.maxOfflineDays === 'number') setPolicyDays(data.data.maxOfflineDays);
+    }).catch(() => {}).finally(() => { if (active) setPinReady(isOfflinePinReady()); });
+    return () => { active = false; };
+  }, []);
 
   const savePin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -103,7 +112,7 @@ export function TeacherSettings() {
             <p className="font-semibold">{pinReady ? 'Offline PIN is ready on this device' : 'Offline PIN is not yet configured'}</p>
             <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
               Sign in online, create a six-digit PIN, then visit Student Attendance and select Prepare Offline.
-              Offline access expires within 72 hours of your last online verification.
+              Your school's administrator allows {policyDays} day{policyDays === 1 ? '' : 's'} of offline access after successful online verification.
             </p>
           </div>
           <form onSubmit={(event) => void savePin(event)} className="grid gap-3 sm:grid-cols-2">
