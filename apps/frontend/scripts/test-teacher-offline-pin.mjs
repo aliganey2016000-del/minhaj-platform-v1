@@ -63,7 +63,7 @@ const bKey=vault.offlineAccountKey(identity);
 await setupOfflinePin('654321');
 const profiles=listPreparedTeachers();
 assert.equal(profiles.length,2);
-assert.deepEqual(profiles.map(x=>x.email).sort(),['teacher-a@balcad.com','teacher-b@balcad.com']);
+assert.equal(JSON.stringify(profiles.map(x=>x.email).sort()),JSON.stringify(['teacher-a@balcad.com','teacher-b@balcad.com']));
 
 navigator.onLine=false;
 await assert.rejects(unlockTeacherWithPin('123456',bKey),/Incorrect PIN/);
