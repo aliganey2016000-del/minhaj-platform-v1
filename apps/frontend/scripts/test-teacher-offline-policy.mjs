@@ -49,6 +49,7 @@ const context = {
   require(path) {
     if (path === './axios') return api;
     if (path === './offline-store') return {};
+    if (path === './offline-teacher-vault') return { rememberVerifiedTeacher: () => {}, isOfflineIdentityUnlocked: () => false };
     throw new Error('Unexpected dependency ' + path);
   },
 };
