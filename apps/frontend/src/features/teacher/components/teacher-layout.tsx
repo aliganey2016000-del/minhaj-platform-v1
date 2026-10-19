@@ -56,7 +56,7 @@ export function TeacherLayout() {
     ]).then(([rights, timetable, cachedExams]) => {
       if (!current) return;
       const source = rights || {};
-      const examsReady = Array.isArray(cachedExams?.periods) && cachedExams.periods.length > 0;
+      const examsReady = Boolean(rights) && Array.isArray(cachedExams?.periods) && cachedExams.periods.length > 0;
       // Offline PIN access is intentionally restricted to downloaded attendance
       // and the explicitly prepared exam workspace. Do not expose other cached
       // sidebar capabilities through an offline-only identity.
