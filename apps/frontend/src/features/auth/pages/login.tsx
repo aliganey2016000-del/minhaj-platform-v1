@@ -43,7 +43,7 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [offlineMode, setOfflineMode] = useState(!navigator.onLine);
-  const [offlinePassword, setOfflinePin] = useState('');
+  const [offlinePassword, setOfflinePassword] = useState('');
   const [pinBusy, setPinBusy] = useState(false);
   const [pinError, setPinError] = useState('');
   const [preparedAccounts, setPreparedAccounts] = useState(listAutomaticOfflineTeachers);
@@ -170,7 +170,7 @@ export function LoginPage() {
                   <p className="text-center text-xs text-[var(--color-text-secondary)]">Use the same password as your SAHAL teacher account. No separate PIN or Prepare Offline is required.</p>
                   <label htmlFor="teacher-offline-account" className="block text-xs font-bold text-[var(--color-text-primary)]">Teacher account</label>
                   <select id="teacher-offline-account" value={selectedAccount}
-                    onChange={(event) => { setSelectedAccount(event.target.value); setOfflinePin(''); setPinError(''); }}
+                    onChange={(event) => { setSelectedAccount(event.target.value); setOfflinePassword(''); setPinError(''); }}
                     className="w-full rounded-xl border border-emerald-200 bg-[var(--color-surface-primary)] px-3 py-3 text-sm font-semibold">
                     {preparedAccounts.filter(a => !a.expired).map(account =>
                       <option key={account.key} value={account.key}>{account.email}</option>)}
@@ -183,9 +183,9 @@ export function LoginPage() {
                       7 days without online verification. Reconnect within 24 hours to sync your saved attendance. Otherwise offline access will be locked.
                     </p>
                   )}
-                  <label htmlFor="offline-pin" className="block text-xs font-bold text-[var(--color-text-primary)]">Account password</label>
+                  <label htmlFor="offline-password" className="block text-xs font-bold text-[var(--color-text-primary)]">Account password</label>
                   <input id="offline-password" type="password" autoComplete="off"
-                    value={offlinePassword} onChange={(event) => setOfflinePin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    value={offlinePassword} onChange={(event) => setOfflinePassword(event.target.value)}
                     className="w-full rounded-xl border border-emerald-200 bg-[var(--color-surface-primary)] px-4 py-3 text-sm outline-none focus:border-emerald-600"
                     placeholder="••••••" required />
                   {(pinError || authError) && <p role="alert" className="text-xs text-red-700 dark:text-red-300">{pinError || authError}</p>}
