@@ -106,9 +106,19 @@ export async function queueTeacherExamAttendance(examId: string, records: Array<
   const key = pendingKey('attendance', examId);
   const prefix = ownerPrefix();
   if (!key || !prefix) throw new Error('Please sign in online before preparing offline exam attendance.');
+  const existing = await getOfflineData<PendingTeacherExamWrite>(key);
+  if (existing?.owner === prefix && existing.status === 'conflict') {
+    throw new Error('This exam attendance has a sync conflict. Review it online before saving more offline changes.');
+  }
+  const merged = new Map<string, { student: string; status: 'present' | 'absent'; notes?: string }>();
+  const previousRecords = existing?.owner === prefix && existing.kind === 'attendance' && Array.isArray(existing.body.records)
+    ? existing.body.records as Array<{ student: string; status: 'present' | 'absent'; notes?: string }>
+    : [];
+  previousRecords.forEach((record) => merged.set(record.student, record));
+  records.forEach((record) => merged.set(record.student, record));
   await saveOfflineData(key, {
     key, owner: prefix, kind: 'attendance', url: '/exams/' + encodeURIComponent(examId) + '/attendance',
-    body: { records }, createdAt: Date.now(), status: 'pending',
+    body: { records: Array.from(merged.values()) }, createdAt: existing?.createdAt ?? Date.now(), status: 'pending',
   } satisfies PendingTeacherExamWrite);
   notifyQueueChanged();
 }
@@ -117,9 +127,19 @@ export async function queueTeacherInvigilationAttendance(assignmentId: string, r
   const key = pendingKey('attendance', 'room:' + assignmentId);
   const prefix = ownerPrefix();
   if (!key || !prefix) throw new Error('Please sign in online before preparing offline exam attendance.');
+  const existing = await getOfflineData<PendingTeacherExamWrite>(key);
+  if (existing?.owner === prefix && existing.status === 'conflict') {
+    throw new Error('This room attendance has a sync conflict. Review it online before saving more offline changes.');
+  }
+  const merged = new Map<string, { student: string; status: 'present' | 'absent'; notes?: string }>();
+  const previousRecords = existing?.owner === prefix && existing.kind === 'attendance' && Array.isArray(existing.body.records)
+    ? existing.body.records as Array<{ student: string; status: 'present' | 'absent'; notes?: string }>
+    : [];
+  previousRecords.forEach((record) => merged.set(record.student, record));
+  records.forEach((record) => merged.set(record.student, record));
   await saveOfflineData(key, {
     key, owner: prefix, kind: 'attendance', url: '/exams/invigilators/' + encodeURIComponent(assignmentId) + '/attendance',
-    body: { records }, createdAt: Date.now(), status: 'pending',
+    body: { records: Array.from(merged.values()) }, createdAt: existing?.createdAt ?? Date.now(), status: 'pending',
   } satisfies PendingTeacherExamWrite);
   notifyQueueChanged();
 }
