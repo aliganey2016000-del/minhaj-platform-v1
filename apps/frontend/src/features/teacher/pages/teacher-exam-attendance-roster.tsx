@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Check, Save, Search, Users, X } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
 import { cacheTeacherExamAttendance, getCachedTeacherExamAttendance, queueTeacherExamAttendance } from '../../../lib/teacher-offline-exams';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
@@ -138,6 +139,7 @@ export function TeacherExamAttendanceRoster() {
           </div>
         </div>
 
+        <TeacherExamOfflineStatus />
         {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-600 dark:border-red-900/50 dark:bg-red-950/30">{error}</div>}
         {usingOfflineData && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Offline mode: attendance is stored on this device. It will sync when connectivity returns; keep this device signed in to the same account.</div>}
         {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30">{message}</div>}
