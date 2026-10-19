@@ -35,13 +35,20 @@ const context = {
   },
 };
 vm.runInNewContext(code, context);
-const { OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity, offlineAttendanceOwner } = context.exports;
+const { OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity, offlineAttendanceOwner, getOfflineAttendanceAccessWindow } = context.exports;
 for (const days of [1, 3, 7, 14, 30]) {
   policy = { maxOfflineDays: days, organizationId: 'school-a' };
   const before = Date.now();
   await saveVerifiedTeacherIdentity(user);
   const identity = verifiedOfflineTeacherIdentity();
   assert.ok(identity, 'Teacher identity should be prepared with server policy');
+  const windowForTeacher = getOfflineAttendanceAccessWindow();
+  assert.ok(windowForTeacher, 'Prepared identity must expose the display window');
+  assert.equal(windowForTeacher.maxOfflineDays, days);
+  assert.equal(windowForTeacher.from, identity.verifiedAt);
+  assert.equal(windowForTeacher.to, identity.expiresAt);
+  assert.equal(windowForTeacher.expired, false);
+  assert.equal(windowForTeacher.to - windowForTeacher.from, days * 86400000);
   assert.equal(identity.maxOfflineDays, days);
   assert.ok(identity.expiresAt >= before + days * 86400000);
   assert.ok(identity.expiresAt <= Date.now() + days * 86400000 + 1000);
@@ -68,4 +75,7 @@ const expired = JSON.parse(previous);
 expired.expiresAt = Date.now() - 1;
 localStorage.setItem(OFFLINE_TEACHER_IDENTITY_KEY, JSON.stringify(expired));
 assert.equal(verifiedOfflineTeacherIdentity(), null, 'Expired access must lock');
-console.log('PASS: admin duration choices, exact expiry, tenant scoping, no offline extension, expired access lock');
+const expiredDisplay = getOfflineAttendanceAccessWindow();
+assert.ok(expiredDisplay?.expired, 'Expired grants should still show expiry to the teacher');
+assert.equal(expiredDisplay?.to, expired.expiresAt);
+console.log('PASS: admin duration choices, local access window, expiry display, tenant scoping, no offline extension');
