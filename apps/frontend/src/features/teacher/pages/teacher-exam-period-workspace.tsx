@@ -274,7 +274,7 @@ export function TeacherExamPeriodWorkspace() {
         } catch { failed++; }
       }
 
-      setOfflinePrepMessage(`Offline preparation finished: ${prepared} data set(s) saved; ${failed} could not be downloaded. Keep this device signed in and sync pending changes before logging out.`);
+      setOfflinePrepMessage(`Offline preparation finished: ${prepared} item(s) prepared; ${failed} item(s) could not be prepared. Keep this device signed in and sync pending changes before logging out.`);
     } finally {
       setPreparingOffline(false);
     }
