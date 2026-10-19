@@ -58,7 +58,7 @@ assert.ok(checkSource);
 const checkCode = ts.transpileModule(checkSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
 for (const status of [undefined, 401, 500]) {
   const state = { cleared: false, retry: false, loading: true };
-  const context = { exports: {}, controller: new AbortController(), navigator: { onLine: true }, verifiedOfflineTeacherIdentity: () => null, api: { get: async () => { throw { response: status ? { status } : undefined }; } }, localStorage: { getItem: () => 'token' }, setIsLoading: value => { state.loading = value; }, setSessionError: value => { state.retry = value; }, clearAuthStorage: () => { state.cleared = true; }, setUser() {} };
+  const context = { exports: {}, controller: new AbortController(), navigator: { onLine: true }, listPreparedTeachers: () => [], api: { get: async () => { throw { response: status ? { status } : undefined }; } }, localStorage: { getItem: () => 'token' }, setIsLoading: value => { state.loading = value; }, setSessionError: value => { state.retry = value; }, clearAuthStorage: () => { state.cleared = true; }, setUser() {} };
   vm.runInNewContext(checkCode, context);
   await context.exports.check();
   assert.equal(state.cleared, status === 401);
