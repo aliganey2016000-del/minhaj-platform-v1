@@ -134,7 +134,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         setTenant(resolved);
         if (!resolved.isMainSite) {
           try { localStorage.setItem(cacheKey(hostname), JSON.stringify({
-            hostname, tenant: resolved, expiresAt: Date.now() + 72 * 60 * 60 * 1000,
+            hostname, tenant: resolved, expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
           })); } catch { /* storage disabled */ }
         }
       } catch (err: any) {
