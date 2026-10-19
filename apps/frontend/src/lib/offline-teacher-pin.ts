@@ -61,6 +61,24 @@ export function isOfflinePinReady(): boolean {
   return !!identity && !!getRecord(identity);
 }
 
+/**
+ * On verified online login the teacher receives the current school policy.
+ * Keep an existing unexpired PIN in step with an admin shortening/expanding
+ * access, without ever extending a PIN based on a locally chosen duration.
+ */
+export function refreshOfflinePinValidity(): void {
+  const identity = verifiedOfflineTeacherIdentity();
+  if (!identity) return;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const record = JSON.parse(raw) as PinRecord;
+    if (record.version !== 1 || record.subject !== subjectOf(identity) ||
+        record.expiresAt <= Date.now() || record.lockedUntil > Date.now()) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...record, expiresAt: identity.expiresAt }));
+  } catch { /* no storage / invalid old PIN */ }
+}
+
 export function clearOfflinePin(): void {
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* unavailable storage */ }
 }
