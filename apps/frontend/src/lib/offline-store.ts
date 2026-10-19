@@ -117,6 +117,18 @@ export async function getOfflineData<T = any>(key: string): Promise<T | undefine
   return record?.value;
 }
 
+/** List namespaced cached records without exposing unrelated accounts' data. */
+export async function listOfflineData<T = any>(prefix: string): Promise<Array<{ key: string; value: T; updatedAt: number }>> {
+  const db = await getDb();
+  const records = await db.getAll(STORE_OFFLINE_DATA);
+  return records.filter((record: any) => typeof record.key === 'string' && record.key.startsWith(prefix));
+}
+
+export async function deleteOfflineData(key: string): Promise<void> {
+  const db = await getDb();
+  await db.delete(STORE_OFFLINE_DATA, key);
+}
+
 // ---------------------------------------------------------------------------
 // Downloaded courses
 // ---------------------------------------------------------------------------
