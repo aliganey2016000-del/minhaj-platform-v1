@@ -54,7 +54,7 @@ const {prepareTeacherOfflineAutomatically,readAutoOfflineStatus}=context.exports
 const user={id:'teacher-a',role:'teacher',organizationId:'school-a'};
 await prepareTeacherOfflineAutomatically(user);
 assert.equal(shells,1,'PWA shell must be downloaded automatically');
-assert.equal(storedDates.length,7,'Seven consecutive local dates must be prepared');
+assert.equal(storedDates.length,7,'Seven consecutive local dates must be prepared; '+JSON.stringify(readAutoOfflineStatus(owner)));
 assert.equal(storedDates[0].date,today);
 assert.equal(rosters.length,7,'Each permitted date must have its roster');
 assert.equal(teaching.length,1,'My Teaching Schedule must be cached');
