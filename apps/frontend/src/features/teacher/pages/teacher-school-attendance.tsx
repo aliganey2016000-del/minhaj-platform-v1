@@ -85,7 +85,7 @@ export function TeacherSchoolAttendance() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [online, setOnline] = useState(navigator.onLine);
+  const [online, setOnline] = useState(navigator.onLine && !user?.offlineOnly);
   const [offlineData, setOfflineData] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [offlineMessage, setOfflineMessage] = useState('');
@@ -110,7 +110,7 @@ export function TeacherSchoolAttendance() {
     setLoading(true);
     setError('');
     try {
-      if (!navigator.onLine) {
+      if (!navigator.onLine || user?.offlineOnly) {
         const owner = offlineAttendanceOwner();
         const cached = owner ? await getCachedAttendanceSessions(owner, date) : null;
         if (!cached) throw new Error('No downloaded timetable for this date. Connect online and tap Prepare Offline.');
@@ -143,7 +143,7 @@ export function TeacherSchoolAttendance() {
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, user?.offlineOnly]);
 
   useEffect(() => { void loadSessions(); }, [loadSessions]);
 
@@ -154,27 +154,27 @@ export function TeacherSchoolAttendance() {
       if (active) setQueuedCount(items.length);
     };
     const whenOnline = () => {
-      setOnline(true);
+      setOnline(!user?.offlineOnly);
       setAccessWindow(getOfflineAttendanceAccessWindow());
       setClockNow(Date.now());
-      void flushTeacherAttendanceQueue().finally(() => { void refreshQueue(); void loadSessions(); });
+      if (!user?.offlineOnly) void flushTeacherAttendanceQueue().finally(() => { void refreshQueue(); void loadSessions(); });
     };
     const whenOffline = () => { setOnline(false); setAccessWindow(getOfflineAttendanceAccessWindow()); setClockNow(Date.now()); };
     window.addEventListener('online', whenOnline);
     window.addEventListener('offline', whenOffline);
     window.addEventListener('sahal-attendance-queue-change', refreshQueue);
     void refreshQueue();
-    if (navigator.onLine) void flushTeacherAttendanceQueue().then(refreshQueue);
+    if (navigator.onLine && !user?.offlineOnly) void flushTeacherAttendanceQueue().then(refreshQueue);
     return () => {
       active = false;
       window.removeEventListener('online', whenOnline);
       window.removeEventListener('offline', whenOffline);
       window.removeEventListener('sahal-attendance-queue-change', refreshQueue);
     };
-  }, [loadSessions]);
+  }, [loadSessions, user?.offlineOnly]);
 
   const prepareOffline = async () => {
-    if (!navigator.onLine || preparing || user?.role !== 'teacher' || !user.organizationId) return;
+    if (!navigator.onLine || user?.offlineOnly || preparing || user?.role !== 'teacher' || !user.organizationId) return;
     // Check the PIN AFTER a fresh online policy verification: Saturday
     // begins a new school week and the old PIN expiry may be in the past,
     // even though the same enrolled device can renew it securely online.
@@ -277,10 +277,10 @@ export function TeacherSchoolAttendance() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={!online || preparing || loading || !sessions.length} onClick={() => void prepareOffline()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+            <button type="button" disabled={!online || user?.offlineOnly || preparing || loading || !sessions.length} onClick={() => void prepareOffline()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
               <DownloadCloud className="h-4 w-4" />{preparing ? 'Preparing...' : 'Prepare Offline'}
             </button>
-            <button type="button" disabled={!online} onClick={() => { void flushTeacherAttendanceQueue(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-300 px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-50 dark:text-emerald-300">Sync Now</button>
+            <button type="button" disabled={!online || user?.offlineOnly} onClick={() => { void flushTeacherAttendanceQueue(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-300 px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-50 dark:text-emerald-300">Sync Now</button>
           </div>
         </div>
         {offlineMessage && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">{offlineMessage}</p>}
