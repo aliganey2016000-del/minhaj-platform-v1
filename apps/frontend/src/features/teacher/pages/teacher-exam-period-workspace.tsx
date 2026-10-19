@@ -226,6 +226,17 @@ export function TeacherExamPeriodWorkspace() {
       // launch while offline, not only while the current SPA remains open.
       try { await prepareTeacherOfflineAppShell(); prepared++; } catch { failed++; }
 
+      // Force-load every exam workspace page while online so the service
+      // worker can cache their lazy-loaded JS/CSS chunks for offline navigation.
+      try {
+        await Promise.all([
+          import('./teacher-exam-attendance-roster'),
+          import('./teacher-invigilation-attendance-roster'),
+          import('../../admin/pages/results-entry'),
+        ]);
+        prepared++;
+      } catch { failed++; }
+
       try {
         const { data } = await api.get('/gradebook-courses');
         const resultCourses = Array.isArray(data.data) ? data.data : [];
