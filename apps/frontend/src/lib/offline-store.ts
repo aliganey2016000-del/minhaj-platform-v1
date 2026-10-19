@@ -181,31 +181,56 @@ export async function removeQueuedAction(id: number): Promise<void> {
  * login takes effect) so no other account's queued mutations or cached
  * progress can survive the switch.
  */
-export async function clearAllOfflineData(preserveAttendanceQueue = false): Promise<void> {
-  const db = await getDb();
-  await Promise.all(
-    [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_OFFLINE_DATA, STORE_QUIZ_PROGRESS,
-      ...(preserveAttendanceQueue ? [] : [STORE_ATTENDANCE_QUEUE])].map((store) => db.clear(store)),
-  );
+function isTeacherAttendanceKey(key: string): boolean {
+  return key.startsWith('school-attendance:v1:') || key.startsWith('attendance-school-mode:');
 }
 
-/**
- * A teacher may reconnect after refresh credentials have expired. Preserve
- * their pending roster ONLY after a fresh server-verified login to the exact
- * same teacher in the exact same tenant, atomically rebinding it to the new
- * login session. A different user gets a full wipe as before.
- */
+/** A shared phone can contain several teacher rosters. Clear unscopeable
+ * generic course/gamification data but preserve every teacher's own keyed
+ * attendance drafts, rosters and unsent submissions. */
+export async function clearAllOfflineData(preserveAttendanceQueue = false): Promise<void> {
+  const db = await getDb();
+  const otherStores = [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_QUIZ_PROGRESS];
+  const tx = db.transaction([...otherStores, STORE_OFFLINE_DATA,
+    STORE_ATTENDANCE_QUEUE], 'readwrite');
+  for (const store of otherStores) await tx.objectStore(store).clear();
+  const offlineStore = tx.objectStore(STORE_OFFLINE_DATA);
+  for (const item of await offlineStore.getAll()) {
+    if (!isTeacherAttendanceKey(String(item.key || ''))) await offlineStore.delete(item.key);
+  }
+  if (!preserveAttendanceQueue) await tx.objectStore(STORE_ATTENDANCE_QUEUE).clear();
+  await tx.done;
+}
+
+/** Rebind only this *same* teacher's cached records after fresh online login.
+ * Entries for teachers B/C remain unchanged and completely inaccessible
+ * through teacher A's owner key. */
 export async function resetOfflineDataOnLogin(fromAttendanceOwner: string | null, toAttendanceOwner: string | null): Promise<void> {
   const db = await getDb();
-  const allStores = [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_OFFLINE_DATA, STORE_QUIZ_PROGRESS, STORE_ATTENDANCE_QUEUE];
-  const tx = db.transaction(allStores, 'readwrite');
-  const attendance = await tx.objectStore(STORE_ATTENDANCE_QUEUE).getAll() as OfflineAttendanceSubmission[];
-  for (const store of allStores) await tx.objectStore(store).clear();
-  if (fromAttendanceOwner && toAttendanceOwner) {
-    for (const row of attendance) {
+  const otherStores = [STORE_COURSES, STORE_QUEUE, STORE_GATE, STORE_QUIZ_PROGRESS];
+  const tx = db.transaction([...otherStores, STORE_OFFLINE_DATA, STORE_ATTENDANCE_QUEUE], 'readwrite');
+  for (const store of otherStores) await tx.objectStore(store).clear();
+  const attendanceCache = tx.objectStore(STORE_OFFLINE_DATA);
+  for (const item of await attendanceCache.getAll()) {
+    const key = String(item.key || '');
+    if (!isTeacherAttendanceKey(key)) { await attendanceCache.delete(item.key); continue; }
+    if (!fromAttendanceOwner || !toAttendanceOwner || fromAttendanceOwner === toAttendanceOwner) continue;
+    const prefix = 'school-attendance:v1:' + fromAttendanceOwner + ':';
+    const mode = 'attendance-school-mode:' + fromAttendanceOwner;
+    const target = key.startsWith(prefix)
+      ? 'school-attendance:v1:' + toAttendanceOwner + ':' + key.slice(prefix.length)
+      : key === mode ? 'attendance-school-mode:' + toAttendanceOwner : null;
+    if (!target) continue;
+    await attendanceCache.put({ ...item, key: target });
+    await attendanceCache.delete(item.key);
+  }
+  const queue = tx.objectStore(STORE_ATTENDANCE_QUEUE);
+  if (fromAttendanceOwner && toAttendanceOwner && fromAttendanceOwner !== toAttendanceOwner) {
+    for (const row of await queue.getAll() as OfflineAttendanceSubmission[]) {
       if (row.owner !== fromAttendanceOwner) continue;
       const key = 'school-attendance:v1:' + toAttendanceOwner + ':submission:' + row.date + ':' + row.scheduleId;
-      await tx.objectStore(STORE_ATTENDANCE_QUEUE).put({ ...row, owner: toAttendanceOwner, key });
+      await queue.put({ ...row, owner: toAttendanceOwner, key });
+      await queue.delete(row.key);
     }
   }
   await tx.done;
