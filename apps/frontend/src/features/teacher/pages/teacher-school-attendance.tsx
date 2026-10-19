@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
 import {
   cacheAttendanceSessions, cacheAttendanceRoster,
   getCachedAttendanceSessions, listMyAttendanceQueue,
@@ -154,6 +155,7 @@ export function TeacherSchoolAttendance() {
   const prepareOffline = async () => {
     const owner = offlineAttendanceOwner();
     if (!owner || !navigator.onLine || preparing) return;
+    if (!isOfflinePinReady()) { setOfflineMessage('Set up a six-digit PIN under Teacher Settings first, then prepare your rosters.'); return; }
     setPreparing(true); setOfflineMessage('Downloading today\'s classroom rosters...');
     try {
       // Cache the current HTML shell and lazy teacher roster bundle. The
@@ -223,7 +225,11 @@ export function TeacherSchoolAttendance() {
           </div>
         </div>
         {offlineMessage && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">{offlineMessage}</p>}
-        <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">Download rosters before leaving the internet. Auto sync runs when the app is open again with a connection; server confirmation is required.</p>
+        <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">
+          First enable your device PIN in <Link to="/teacher/settings#offline-access" className="font-bold text-emerald-700 underline dark:text-emerald-300">Teacher Settings</Link>,
+          then download rosters before leaving the internet. Reopen SAHAL and enter your PIN to take attendance offline.
+          Auto sync runs when the app is open again with a connection; server confirmation is required.
+        </p>
       </section>
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
