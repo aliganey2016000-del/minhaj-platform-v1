@@ -75,6 +75,14 @@ export function TeacherLayout() {
   // No online sidebar API, dashboard, exams, finance or generic teacher
   // routes may be reached with an offline-only identity.
   if (offlineOnly) {
+    if (offlineVisibility['teacher/attendance'] === false) {
+      return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[var(--color-surface-primary)] p-6 text-center">
+        <p className="font-bold">Offline attendance is not permitted for this teacher.</p>
+        <p className="text-sm text-[var(--color-text-secondary)]">Reconnect to verify your school's Teacher Sidebar permissions.</p>
+        <button type="button" onClick={() => { lockOfflineSession(); navigate('/auth/login', { replace:true }); }}
+          className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white">Switch teacher</button>
+      </div>;
+    }
     if (!isTeacherRouteAllowed(pathname, offlineVisibility)) {
       return <Navigate to="/teacher/attendance" replace />;
     }
