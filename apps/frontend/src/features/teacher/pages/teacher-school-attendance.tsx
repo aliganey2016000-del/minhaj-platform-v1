@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
   ArrowRight,
   BarChart3,
   BookOpen,
@@ -74,7 +75,7 @@ function prettyDate(value: string) {
   return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function TeacherSchoolAttendance() {
+export function TeacherSchoolAttendance({ view = 'list' }: { view?: 'list' | 'offline' }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [date, setDate] = useState(localDate());
@@ -287,83 +288,123 @@ export function TeacherSchoolAttendance() {
     navigate(`/teacher/attendance/session/${sessionId}?date=${encodeURIComponent(date)}`);
   };
 
+  // Reuse the exact existing preparation/sync/access panel on a dedicated
+  // route. Both routes use this component so no offline state or logic is duplicated.
+  const offlinePanel = (
+    <section className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-cyan-50 p-4 dark:border-emerald-900 dark:from-emerald-950/20 dark:to-cyan-950/20">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {online ? <CloudUpload className="h-5 w-5 text-emerald-700" /> : <CloudOff className="h-5 w-5 text-amber-600" />}
+          <div><p className="text-sm font-black text-[var(--color-text-primary)]">Offline Attendance & Auto Sync</p>
+            <p className="text-xs text-[var(--color-text-secondary)]">{online ? 'Connected' : 'Offline mode'} · {queuedCount} saved submission(s) awaiting review/sync{offlineData ? ' · cached timetable' : ''}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={!online || user?.offlineOnly || preparing || loading || !sessions.length} onClick={() => void prepareOffline()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+            <DownloadCloud className="h-4 w-4" />{preparing ? 'Preparing...' : 'Prepare Offline'}
+          </button>
+          <button type="button" disabled={!online || user?.offlineOnly} onClick={() => { void flushTeacherAttendanceQueue(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-300 px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-50 dark:text-emerald-300">Sync Now</button>
+        </div>
+      </div>
+      {offlineMessage && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">{offlineMessage}</p>}
+      {accessWindow ? (
+        <div data-testid="offline-access-window"
+          className={`mt-3 rounded-xl border p-3 sm:p-4 ${accessWindow.to <= clockNow
+            ? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
+            : 'border-emerald-200 bg-white/80 dark:border-emerald-900 dark:bg-emerald-950/20'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-black text-[var(--color-text-primary)]">
+              <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-700" />
+              Offline Access Period
+            </div>
+            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+              Admin limit: {accessWindow.maxOfflineDays} day{accessWindow.maxOfflineDays === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
+              <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">{accessWindow.calendarAligned ? 'From (Saturday, school week)' : 'From (online verification)'}</p>
+              <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.from)}</p>
+            </div>
+            <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
+              <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">{accessWindow.calendarAligned ? 'Until (next Saturday 00:00)' : 'Until (offline access expires)'}</p>
+              <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.to)}</p>
+            </div>
+          </div>
+          <div className={`mt-3 flex items-center gap-2 text-xs font-bold ${accessWindow.to <= clockNow
+            ? 'text-amber-800 dark:text-amber-300'
+            : accessWindow.to - clockNow <= 24 * 60 * 60 * 1000
+              ? 'text-amber-800 dark:text-amber-300'
+              : 'text-emerald-800 dark:text-emerald-300'}`}>
+            <Clock3 className="h-4 w-4 shrink-0" />
+            {offlineAccessTimeLeft(accessWindow.to, clockNow)}
+          </div>
+          <p className="mt-2 text-[11px] text-[var(--color-text-secondary)]">
+            {accessWindow.calendarAligned
+              ? 'School week: Saturday to Friday (Africa/Mogadishu). The next Saturday starts a NEW period. Reconnect and tap Prepare Offline again to activate it.'
+              : 'This is your offline PIN login period.'}
+            {' '}Download each needed class/date roster while connected.
+            {accessWindow.to <= clockNow ? ' Saved unsynced attendance is kept for your next verified login.' : ''}
+          </p>
+        </div>
+      ) : (
+        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          Offline access dates are not ready. Enable your PIN in Teacher Settings while connected and tap Prepare Offline.
+        </p>
+      )}
+      <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">
+        First enable your device PIN in <Link to="/teacher/settings#offline-access" className="font-bold text-emerald-700 underline dark:text-emerald-300">Teacher Settings</Link>,
+        then download rosters before leaving the internet. Reopen SAHAL and enter your PIN to take attendance offline.
+        Auto sync runs when the app is open again with a connection; server confirmation is required.
+      </p>
+    </section>
+  );
+
   const card = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm';
+
+  if (view === 'offline') {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-5 p-3 pt-4 sm:p-5 md:p-6 lg:p-8">
+        <header className="space-y-3">
+          <Link to="/teacher/attendance"
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm font-semibold text-[var(--color-text-secondary)] hover:text-emerald-700">
+            <ArrowLeft className="h-4 w-4" /> Back to Student Attendance
+          </Link>
+          <div className="flex items-center gap-2 text-emerald-600">
+            <CloudOff className="h-4 w-4" />
+            <span className="text-xs font-black uppercase tracking-widest">Teacher · Offline</span>
+          </div>
+          <h1 className="text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">
+            Offline Attendance &amp; Auto Sync
+          </h1>
+          <p className="text-sm text-[var(--color-text-tertiary)]">
+            Prepare your classes, review the admin-approved access period, and sync saved attendance.
+          </p>
+        </header>
+        {offlinePanel}
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5 p-3 pt-4 sm:p-5 md:p-6 lg:p-8">
       <header>
         <div className="flex items-center gap-2 text-emerald-600"><CalendarDays className="h-4 w-4"/><span className="text-xs font-black uppercase tracking-widest">Teacher</span></div>
-        <h1 className="mt-1 text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Student Attendance</h1>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <h1 className="min-w-0 text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">
+            Student Attendance
+          </h1>
+          <Link to="/teacher/attendance/offline"
+            aria-label="Open Offline Attendance and Auto Sync"
+            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 shadow-sm transition hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70 sm:px-4 sm:text-sm">
+            <CloudOff className="h-4 w-4" />
+            <span className="sm:hidden">Offline</span>
+            <span className="hidden sm:inline">Offline Attendance &amp; Auto Sync</span>
+          </Link>
+        </div>
         <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Take attendance for your scheduled classes and track student participation.</p>
       </header>
 
-      <section className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-cyan-50 p-4 dark:border-emerald-900 dark:from-emerald-950/20 dark:to-cyan-950/20">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            {online ? <CloudUpload className="h-5 w-5 text-emerald-700" /> : <CloudOff className="h-5 w-5 text-amber-600" />}
-            <div><p className="text-sm font-black text-[var(--color-text-primary)]">Offline Attendance & Auto Sync</p>
-              <p className="text-xs text-[var(--color-text-secondary)]">{online ? 'Connected' : 'Offline mode'} · {queuedCount} saved submission(s) awaiting review/sync{offlineData ? ' · cached timetable' : ''}</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={!online || user?.offlineOnly || preparing || loading || !sessions.length} onClick={() => void prepareOffline()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
-              <DownloadCloud className="h-4 w-4" />{preparing ? 'Preparing...' : 'Prepare Offline'}
-            </button>
-            <button type="button" disabled={!online || user?.offlineOnly} onClick={() => { void flushTeacherAttendanceQueue(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-300 px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-50 dark:text-emerald-300">Sync Now</button>
-          </div>
-        </div>
-        {offlineMessage && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">{offlineMessage}</p>}
-        {accessWindow ? (
-          <div data-testid="offline-access-window"
-            className={`mt-3 rounded-xl border p-3 sm:p-4 ${accessWindow.to <= clockNow
-              ? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
-              : 'border-emerald-200 bg-white/80 dark:border-emerald-900 dark:bg-emerald-950/20'}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-sm font-black text-[var(--color-text-primary)]">
-                <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-700" />
-                Offline Access Period
-              </div>
-              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-                Admin limit: {accessWindow.maxOfflineDays} day{accessWindow.maxOfflineDays === 1 ? '' : 's'}
-              </span>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
-                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">{accessWindow.calendarAligned ? 'From (Saturday, school week)' : 'From (online verification)'}</p>
-                <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.from)}</p>
-              </div>
-              <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
-                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">{accessWindow.calendarAligned ? 'Until (next Saturday 00:00)' : 'Until (offline access expires)'}</p>
-                <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.to)}</p>
-              </div>
-            </div>
-            <div className={`mt-3 flex items-center gap-2 text-xs font-bold ${accessWindow.to <= clockNow
-              ? 'text-amber-800 dark:text-amber-300'
-              : accessWindow.to - clockNow <= 24 * 60 * 60 * 1000
-                ? 'text-amber-800 dark:text-amber-300'
-                : 'text-emerald-800 dark:text-emerald-300'}`}>
-              <Clock3 className="h-4 w-4 shrink-0" />
-              {offlineAccessTimeLeft(accessWindow.to, clockNow)}
-            </div>
-            <p className="mt-2 text-[11px] text-[var(--color-text-secondary)]">
-              {accessWindow.calendarAligned
-                ? 'School week: Saturday to Friday (Africa/Mogadishu). The next Saturday starts a NEW period. Reconnect and tap Prepare Offline again to activate it.'
-                : 'This is your offline PIN login period.'}
-              {' '}Download each needed class/date roster while connected.
-              {accessWindow.to <= clockNow ? ' Saved unsynced attendance is kept for your next verified login.' : ''}
-            </p>
-          </div>
-        ) : (
-          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-            Offline access dates are not ready. Enable your PIN in Teacher Settings while connected and tap Prepare Offline.
-          </p>
-        )}
-        <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">
-          First enable your device PIN in <Link to="/teacher/settings#offline-access" className="font-bold text-emerald-700 underline dark:text-emerald-300">Teacher Settings</Link>,
-          then download rosters before leaving the internet. Reopen SAHAL and enter your PIN to take attendance offline.
-          Auto sync runs when the app is open again with a connection; server confirmation is required.
-        </p>
-      </section>
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</div>}
       {calendarDay?.isInstructional === false && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"><strong>{calendarDay.name || 'Non-instructional day'}:</strong> attendance is closed.</div>}
