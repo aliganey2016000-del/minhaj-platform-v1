@@ -44,6 +44,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<User>;
   unlockOffline: (pin: string, accountKey?: string) => Promise<User>;
+  lockOfflineSession: () => void;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
@@ -343,6 +344,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const lockOfflineSession = useCallback(() => {
+    lockOfflineTeacher();
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('loginSessionId');
+    localStorage.removeItem(OFFLINE_TEACHER_IDENTITY_KEY);
+    setUser(null);
+    setError(null);
+  }, []);
+
   const register = useCallback(async (formData: RegisterData) => {
     setError(null);
     const loginSessionId = newLoginSessionId();
@@ -403,6 +413,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: !!user,
     login,
     unlockOffline,
+    lockOfflineSession,
     register,
     logout,
     completeOnboarding,
