@@ -1,11 +1,12 @@
 /**
  * Teacher-facing copy for the device's verified offline login window.
- * Use local calendar dates and times (never UTC date truncation), since
- * administrators set a duration measured in complete 24-hour periods.
+ * Display all weekly period boundaries in the school calendar timezone
+ * (Africa/Mogadishu), independently of teacher phone timezone.
  */
 export function formatOfflineAccessDate(timestamp: number, locale?: string): string {
   return new Intl.DateTimeFormat(locale, {
-    day: '2-digit', month: 'short', year: 'numeric',
+    timeZone: 'Africa/Mogadishu',
+    weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   }).format(new Date(timestamp));
 }
