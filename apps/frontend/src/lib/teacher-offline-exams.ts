@@ -11,6 +11,10 @@ import { getOfflineData, saveOfflineData, listOfflineData, deleteOfflineData } f
 
 const PREFIX = 'teacher-exams:v1:';
 
+function notifyQueueChanged(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('sahal-teacher-exam-queue-updated'));
+}
+
 function ownerPrefix(): string | null {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
   const session = localStorage.getItem('loginSessionId');
@@ -96,6 +100,7 @@ export async function queueTeacherExamAttendance(examId: string, records: Array<
     key, owner: prefix, kind: 'attendance', url: '/exams/' + encodeURIComponent(examId) + '/attendance',
     body: { records }, createdAt: Date.now(), status: 'pending',
   } satisfies PendingTeacherExamWrite);
+  notifyQueueChanged();
 }
 
 export async function queueTeacherInvigilationAttendance(assignmentId: string, records: Array<{ student: string; status: 'present' | 'absent'; notes?: string }>): Promise<void> {
@@ -141,6 +146,7 @@ export async function flushTeacherExamQueue(): Promise<void> {
       try {
         await api.post(item.url, item.body);
         await deleteOfflineData(item.key);
+        notifyQueueChanged();
       } catch (err: any) {
         const status = err?.response?.status;
         const permanent = typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429;
@@ -149,6 +155,7 @@ export async function flushTeacherExamQueue(): Promise<void> {
             ...item, status: 'conflict',
             error: err?.response?.data?.message || 'Server rejected this offline change. Review it online before retrying.',
           });
+          notifyQueueChanged();
         }
         // Network/5xx failures remain pending and retry at next reconnect.
       }
