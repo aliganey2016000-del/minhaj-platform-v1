@@ -205,7 +205,9 @@ export function TeacherSchoolAttendance() {
         await cacheAttendanceRoster(owner, date, session._id, data.data);
         ready++;
       }
-      setOfflineMessage(ready + ' rosters for ' + date + ' ready for offline attendance. Keep this device private.');
+      setOfflineMessage(ready + ' rosters for ' + date + ' ready for offline attendance. ' +
+        (getOfflineAttendanceAccessWindow()?.calendarAligned ? 'Period ends when the next Saturday begins (Somalia time).' : '') +
+        ' Keep this device private.');
     } catch (e: any) {
       setOfflineMessage(e?.response?.data?.message || e?.message || 'Some rosters could not be downloaded. Please retry while online.');
     } finally { setPreparing(false); }
@@ -277,11 +279,11 @@ export function TeacherSchoolAttendance() {
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
-                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">From (online verification)</p>
+                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">{accessWindow.calendarAligned ? 'From (Saturday, school week)' : 'From (online verification)'}</p>
                 <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.from)}</p>
               </div>
               <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
-                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">Until (offline access expires)</p>
+                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">{accessWindow.calendarAligned ? 'Until (next Saturday 00:00)' : 'Until (offline access expires)'}</p>
                 <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.to)}</p>
               </div>
             </div>
@@ -294,8 +296,10 @@ export function TeacherSchoolAttendance() {
               {offlineAccessTimeLeft(accessWindow.to, clockNow)}
             </div>
             <p className="mt-2 text-[11px] text-[var(--color-text-secondary)]">
-              This is your offline PIN login period, not a download of all attendance dates.
-              Download each needed class/date roster while connected.
+              {accessWindow.calendarAligned
+                ? 'School week: Saturday to Friday (Africa/Mogadishu). The next Saturday starts a NEW period. Reconnect and tap Prepare Offline again to activate it.'
+                : 'This is your offline PIN login period.'}
+              {' '}Download each needed class/date roster while connected.
               {accessWindow.to <= clockNow ? ' Saved unsynced attendance is kept for your next verified login.' : ''}
             </p>
           </div>
