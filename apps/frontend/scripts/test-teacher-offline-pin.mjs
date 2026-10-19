@@ -30,7 +30,7 @@ const context = {
   exports: {}, localStorage, crypto: webcrypto, TextEncoder, Date,
   navigator: { onLine: true },
   require(path) {
-    if (path === './axios') return { default: api };
+    if (path === './axios') return api;
     if (path === './teacher-offline-attendance') return { verifiedOfflineTeacherIdentity: () => identity };
     throw new Error('Unexpected import: ' + path);
   },
