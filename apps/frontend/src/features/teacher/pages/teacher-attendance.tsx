@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 import { getOfflineData, saveOfflineData } from '../../../lib/offline-store';
 import { offlineAttendanceOwner, flushTeacherAttendanceQueue } from '../../../lib/teacher-offline-attendance';
 import TeacherAttendanceLegacy from './teacher-attendance-legacy';
@@ -16,13 +17,14 @@ function localDate() {
 
 /** Student attendance only; personal check-in has its own My Attendance route. */
 export function TeacherAttendance() {
+  const { user } = useAuth();
   const [schoolMode, setSchoolMode] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        if (!navigator.onLine) {
+        if (!navigator.onLine || user?.offlineOnly) {
           const owner = offlineAttendanceOwner();
           const cached = owner ? await getOfflineData<boolean>('attendance-school-mode:' + owner) : null;
           if (!cancelled) setSchoolMode(cached === true);
@@ -47,7 +49,9 @@ export function TeacherAttendance() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [user?.offlineOnly]);
+
+  if (user?.offlineOnly) return <TeacherSchoolAttendance />;
 
   return (
     <>
