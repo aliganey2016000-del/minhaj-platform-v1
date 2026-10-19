@@ -11,7 +11,8 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
-import { clearOfflinePin, unlockTeacherWithPin, refreshOfflinePinValidity } from '../lib/offline-teacher-pin';
+import { unlockTeacherWithPin, refreshOfflinePinValidity, listPreparedTeachers } from '../lib/offline-teacher-pin';
+import { lockOfflineTeacher, getPreparedTeacher, offlineAccountKey } from '../lib/offline-teacher-vault';
 import { clearAllOfflineData, resetOfflineDataOnLogin } from '../lib/offline-store';
 import {
   OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity,
@@ -29,6 +30,7 @@ interface User {
   onboardingCompleted?: boolean;
   permissions: Array<{ module: string; page?: string; actions: string[] }>;
   sidebarAccess: string[];
+  offlineOnly?: boolean;
   /** From Profile, only present once /auth/me has loaded. */
   firstName?: string;
   lastName?: string;
@@ -41,7 +43,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<User>;
-  unlockOffline: (pin: string) => Promise<User>;
+  unlockOffline: (pin: string, accountKey?: string) => Promise<User>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
@@ -100,9 +102,8 @@ async function clearAuthStorage(options: {
   transferTo?: string | null;
 } = {}): Promise<void> {
   if (typeof window === 'undefined') return;
-  clearOfflinePin();
-  const keysToClear = ['accessToken', 'tenant', 'tenantSlug', 'selectedTenant', 'activeTenant', 'loginSessionId',
-    ...(options.preservePendingAttendance ? [] : [OFFLINE_TEACHER_IDENTITY_KEY])];
+  lockOfflineTeacher();
+  const keysToClear = ['accessToken', 'tenant', 'tenantSlug', 'selectedTenant', 'activeTenant', 'loginSessionId', OFFLINE_TEACHER_IDENTITY_KEY];
   keysToClear.forEach((key) => {
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
@@ -132,7 +133,7 @@ async function clearAuthStorage(options: {
     if (options.transferFrom && options.transferTo) {
       await resetOfflineDataOnLogin(options.transferFrom, options.transferTo);
     } else {
-      await clearAllOfflineData(!!options.preservePendingAttendance);
+      await clearAllOfflineData(true);
     }
   } catch {
     // Browser storage may be unavailable; account/tenant session keys above
@@ -142,9 +143,13 @@ async function clearAuthStorage(options: {
 
 function attendanceLoginTransfer(next: User, newLoginSessionId: string): { transferFrom: string | null; transferTo: string | null } {
   try {
+    if (next.role !== 'teacher' || !next.organizationId) return { transferFrom: null, transferTo: null };
+    const prepared = getPreparedTeacher(offlineAccountKey({
+      hostname: window.location.hostname, organizationId: next.organizationId, id: next.id,
+    }));
     const raw = localStorage.getItem(OFFLINE_TEACHER_IDENTITY_KEY);
-    if (!raw || next.role !== 'teacher' || !next.organizationId) return { transferFrom: null, transferTo: null };
-    const last = JSON.parse(raw);
+    const last = prepared?.identity || (raw ? JSON.parse(raw) : null);
+    if (!last) return { transferFrom: null, transferTo: null };
     if (last.role !== 'teacher' || last.id !== next.id ||
       last.organizationId !== next.organizationId || last.hostname !== window.location.hostname ||
       typeof last.loginSessionId !== 'string') return { transferFrom: null, transferTo: null };
@@ -215,6 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSessionError(false);
       const token = localStorage.getItem('accessToken');
       if (!token) {
+        setUser(null);
         setIsLoading(false);
         return;
       }
@@ -244,7 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // recover it after a new server-verified login.
           await clearAuthStorage({ preservePendingAttendance: true });
           setUser(null);
-        } else if (!err?.response && (verifiedOfflineTeacherIdentity() || !navigator.onLine)) {
+        } else if (!err?.response && (listPreparedTeachers().length > 0 || !navigator.onLine)) {
           // Fall through to the login page, which offers PIN unlock only
           // when this exact teacher/device was prepared while online.
           setUser(null);
@@ -324,11 +330,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [enrichUserInBackground]);
 
-  const unlockOffline = useCallback(async (pin: string): Promise<User> => {
+  const unlockOffline = useCallback(async (pin: string, accountKey?: string): Promise<User> => {
     setError(null);
     try {
-      const identity = await unlockTeacherWithPin(pin);
-      const offlineUser = normalizeUser(identity);
+      const identity = await unlockTeacherWithPin(pin, accountKey);
+      const offlineUser: User = { ...normalizeUser(identity), offlineOnly: true };
       setUser(offlineUser);
       return offlineUser;
     } catch (err: any) {
