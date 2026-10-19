@@ -267,14 +267,14 @@ export function TeacherSchoolAttendance() {
                 Admin limit: {accessWindow.maxOfflineDays} day{accessWindow.maxOfflineDays === 1 ? '' : 's'}
               </span>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
                 <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">From (online verification)</p>
-                <p className="mt-1 text-sm font-bold text-[var(--color-text-primary)]">{formatOfflineAccessDate(accessWindow.from)}</p>
+                <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.from)}</p>
               </div>
               <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
                 <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">Until (offline access expires)</p>
-                <p className="mt-1 text-sm font-bold text-[var(--color-text-primary)]">{formatOfflineAccessDate(accessWindow.to)}</p>
+                <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.to)}</p>
               </div>
             </div>
             <div className={`mt-3 flex items-center gap-2 text-xs font-bold ${accessWindow.to <= clockNow
