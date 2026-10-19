@@ -142,7 +142,7 @@ export function TeacherSchedule() {
       try {
         if (offlineOnly || !navigator.onLine) {
           const snapshot = owner ? await getOfflineTeachingSchedule(owner) : null;
-          if (!snapshot) throw new Error('Teaching schedule has not been downloaded. Connect online and tap Prepare Offline from Student Attendance.');
+          if (!snapshot) throw new Error('Teaching schedule has not been downloaded yet. Connect online and sign in so SAHAL can cache it automatically.');
           if (!active) return;
           setSchedules(snapshot.schedules || []);
           setPeriods(snapshot.periods || []);
