@@ -188,7 +188,8 @@ export async function flushTeacherExamQueue(): Promise<void> {
         // the request was in flight. The queue belongs to the original session.
         if (ownerPrefix() !== prefix) return;
         const latest = await getOfflineData<PendingTeacherExamWrite>(item.key);
-        if (latest?.owner === prefix && latest.status === 'pending' && latest.createdAt === item.createdAt) {
+        if (latest?.owner === prefix && latest.status === 'pending' &&
+            latest.createdAt === item.createdAt && JSON.stringify(latest.body) === JSON.stringify(item.body)) {
           await deleteOfflineData(item.key);
           notifyQueueChanged();
         }
