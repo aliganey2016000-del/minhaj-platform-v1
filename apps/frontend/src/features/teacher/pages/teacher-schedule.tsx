@@ -21,6 +21,8 @@ import {
   Users,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
+import { cacheOfflineTeachingSchedule, getOfflineTeachingSchedule, offlineAttendanceOwner } from '../../../lib/teacher-offline-attendance';
 
 interface Schedule {
   _id: string;
@@ -121,6 +123,9 @@ function formatLongDate(date: Date) {
 }
 
 export function TeacherSchedule() {
+  const { user } = useAuth();
+  const offlineOnly = !!user?.offlineOnly;
+  const [offlineSnapshot, setOfflineSnapshot] = useState(false);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,26 +134,47 @@ export function TeacherSchedule() {
   const [weekOffset, setWeekOffset] = useState(0);
 
   useEffect(() => {
+    let active = true;
     (async () => {
       setLoading(true);
       setError('');
+      const owner = offlineAttendanceOwner(user);
       try {
-        const { data } = await api.get('/class-schedules/my-teaching');
-        setSchedules(data.data || []);
-
-        try {
-          const periodResponse = await api.get('/class-schedules/school/period-settings');
-          setPeriods(periodResponse.data?.data?.periods || []);
-        } catch {
-          setPeriods([]);
+        if (offlineOnly || !navigator.onLine) {
+          const snapshot = owner ? await getOfflineTeachingSchedule(owner) : null;
+          if (!snapshot) throw new Error('Teaching schedule has not been downloaded. Connect online and tap Prepare Offline from Student Attendance.');
+          if (!active) return;
+          setSchedules(snapshot.schedules || []);
+          setPeriods(snapshot.periods || []);
+          setOfflineSnapshot(true);
+          return;
         }
+        const { data } = await api.get('/class-schedules/my-teaching', { timeout: 15000 });
+        const rows = Array.isArray(data.data) ? data.data : [];
+        let settings: Period[] = [];
+        try {
+          const periodResponse = await api.get('/class-schedules/school/period-settings', { timeout: 15000 });
+          settings = periodResponse.data?.data?.periods || [];
+        } catch { /* Timetable still works with default period order. */ }
+        if (!active) return;
+        setSchedules(rows);
+        setPeriods(settings);
+        setOfflineSnapshot(false);
+        if (owner) await cacheOfflineTeachingSchedule(owner, {
+          schedules: rows, periods: settings, preparedAt: Date.now(),
+        }).catch(() => {});
       } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to load your schedule');
-      } finally {
-        setLoading(false);
-      }
+        const snapshot = owner && !err?.response ? await getOfflineTeachingSchedule(owner) : null;
+        if (!active) return;
+        if (snapshot) {
+          setSchedules(snapshot.schedules || []);
+          setPeriods(snapshot.periods || []);
+          setOfflineSnapshot(true);
+        } else setError(err?.response?.data?.message || err?.message || 'Failed to load your schedule');
+      } finally { if (active) setLoading(false); }
     })();
-  }, []);
+    return () => { active = false; };
+  }, [offlineOnly, user?.id, user?.organizationId]);
 
   const lessonPeriods = useMemo(
     () => periods
@@ -202,7 +228,9 @@ export function TeacherSchedule() {
           <div className="flex flex-col gap-4 px-4 py-6 pl-16 sm:flex-row sm:items-center sm:justify-between sm:px-7 sm:py-7">
             <div className="min-w-0">
               <h1 className="text-2xl font-black tracking-tight sm:text-3xl lg:text-4xl">My Teaching Schedule</h1>
-              <p className="mt-1 text-sm font-medium text-emerald-50/90 sm:text-base">Your weekly class timetable</p>
+              <p className="mt-1 text-sm font-medium text-emerald-50/90 sm:text-base">
+                {offlineSnapshot ? 'Offline copy of your last prepared weekly timetable' : 'Your weekly class timetable'}
+              </p>
             </div>
             <button
               type="button"
@@ -291,6 +319,7 @@ export function TeacherSchedule() {
                 <button
                   type="button"
                   onClick={() => setWeekOffset((value) => value - 1)}
+                  disabled={offlineSnapshot}
                   aria-label="Previous week"
                   className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-secondary)]"
                 >
@@ -299,6 +328,7 @@ export function TeacherSchedule() {
                 <button
                   type="button"
                   onClick={() => setWeekOffset((value) => value + 1)}
+                  disabled={offlineSnapshot}
                   aria-label="Next week"
                   className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-secondary)]"
                 >
