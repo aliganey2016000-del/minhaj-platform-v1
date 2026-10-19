@@ -563,6 +563,9 @@ jobs:
       - name: Legacy attendance local calendar date regression
         run: node scripts/test-attendance-local-dates.mjs
 
+      - name: Offline teacher PIN and cold-launch auth regressions
+        run: node scripts/test-teacher-offline-pin.mjs && node scripts/test-auth-recovery.mjs
+
       - name: Teacher sidebar direct-route access regression
         run: node scripts/test-teacher-sidebar-route-access.mjs
 
