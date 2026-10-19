@@ -68,6 +68,8 @@ export function TeacherLayout() {
       restricted['group:teacher-exams'] = examsReady && source['group:teacher-exams'] !== false;
       restricted['teacher/exams'] = examsReady && source['teacher/exams'] !== false;
       restricted['teacher/exam-attendance'] = examsReady && source['teacher/exam-attendance'] !== false;
+      restricted['group:gradebook'] = examsReady && source['group:gradebook'] !== false;
+      restricted['teacher/results/enter'] = examsReady && source['teacher/results/enter'] !== false;
       // Confidential exam papers and incident-management pages are not part of
       // the offline workspace and must never open from an offline PIN session.
       restricted['teacher/exam-papers'] = false;
@@ -132,7 +134,8 @@ export function TeacherLayout() {
       /^\/teacher\/exams\/periods\/[^/]+\/?$/.test(pathname) ||
       /^\/teacher\/exams\/[^/]+\/attendance\/?$/.test(pathname) ||
       pathname === '/teacher/exam-attendance' ||
-      /^\/teacher\/exam-attendance\/[^/]+\/?$/.test(pathname);
+      /^\/teacher\/exam-attendance\/[^/]+\/?$/.test(pathname) ||
+      pathname === '/teacher/results/enter';
     if ((!offlineExamRoute && !isTeacherRouteAllowed(pathname, offlineVisibility)) ||
         (offlineExamRoute && (!offlineExamReady || !isTeacherRouteAllowed(pathname, offlineVisibility)))) {
       return <Navigate to="/teacher/attendance" replace />;
