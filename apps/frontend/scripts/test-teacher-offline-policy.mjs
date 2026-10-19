@@ -73,6 +73,7 @@ window.location.hostname = 'school-a.schoolapp.so';
 
 const expired = JSON.parse(previous);
 expired.expiresAt = Date.now() - 1;
+expired.verifiedAt = expired.expiresAt - expired.maxOfflineDays * 86400000;
 localStorage.setItem(OFFLINE_TEACHER_IDENTITY_KEY, JSON.stringify(expired));
 assert.equal(verifiedOfflineTeacherIdentity(), null, 'Expired access must lock');
 const expiredDisplay = getOfflineAttendanceAccessWindow();
