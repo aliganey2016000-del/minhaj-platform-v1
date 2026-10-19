@@ -199,6 +199,17 @@ export async function prepareTeacherOfflineAppShell(): Promise<void> {
   await cache.put('/', response);
 }
 
+/**
+ * Calendar dates of the school week, independent of browser timezone.
+ * The weekly start is a server-issued Saturday midnight in Mogadishu.
+ */
+export function preparedAttendanceDates(access: OfflineAttendanceAccessWindow, selectedDate: string): string[] {
+  if (!access.calendarAligned || access.maxOfflineDays !== 7) return [selectedDate];
+  const offset = 3 * 60 * 60 * 1000;
+  return Array.from({ length: 7 }, (_, index) =>
+    new Date(access.from + index * DAY_MS + offset).toISOString().slice(0, 10));
+}
+
 export const cacheAttendanceSessions = (owner: string, date: string, value: OfflineSessionList) =>
   writeCached(keyFor(owner, 'sessions', date), value);
 export const getCachedAttendanceSessions = (owner: string, date: string) =>
