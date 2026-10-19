@@ -149,9 +149,13 @@ export async function queueTeacherExamResult(courseId: string, studentId: string
   const key = pendingKey('result', identity);
   const prefix = ownerPrefix();
   if (!key || !prefix) throw new Error('Please sign in online before preparing offline results.');
+  const existing = await getOfflineData<PendingTeacherExamWrite>(key);
+  if (existing?.owner === prefix && existing.status === 'conflict') {
+    throw new Error('This result has a sync conflict. Review the result online before saving more offline changes.');
+  }
   await saveOfflineData(key, {
     key, owner: prefix, kind: 'result', url: '/gradebook/' + encodeURIComponent(courseId) + '/manual-entry-roster/bulk',
-    body: { entries: [{ studentId, slot, score }] }, createdAt: Date.now(), status: 'pending',
+    body: { entries: [{ studentId, slot, score }] }, createdAt: existing?.createdAt ?? Date.now(), status: 'pending',
   } satisfies PendingTeacherExamWrite);
   notifyQueueChanged();
 }
@@ -180,8 +184,14 @@ export async function flushTeacherExamQueue(): Promise<void> {
       if (ownerPrefix() !== prefix) return;
       try {
         await api.post(item.url, item.body);
-        await deleteOfflineData(item.key);
-        notifyQueueChanged();
+        // Do not remove a queued record if another account became active while
+        // the request was in flight. The queue belongs to the original session.
+        if (ownerPrefix() !== prefix) return;
+        const latest = await getOfflineData<PendingTeacherExamWrite>(item.key);
+        if (latest?.owner === prefix && latest.status === 'pending' && latest.createdAt === item.createdAt) {
+          await deleteOfflineData(item.key);
+          notifyQueueChanged();
+        }
       } catch (err: any) {
         const status = err?.response?.status;
         const permanent = typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429;
