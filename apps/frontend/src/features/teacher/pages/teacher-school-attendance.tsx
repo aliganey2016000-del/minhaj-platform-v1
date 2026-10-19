@@ -25,7 +25,8 @@ import {
   cacheAttendanceSessions, cacheAttendanceRoster,
   getCachedAttendanceSessions, listMyAttendanceQueue,
   offlineAttendanceOwner, flushTeacherAttendanceQueue, prepareTeacherOfflineAppShell,
-  getOfflineAttendanceAccessWindow, saveVerifiedTeacherIdentity, preparedAttendanceDates,
+  getOfflineAttendanceAccessWindow, saveVerifiedTeacherIdentity,
+  cacheOfflineTeachingSchedule, cacheOfflineTeacherSidebar, preparedAttendanceDates,
 } from '../../../lib/teacher-offline-attendance';
 
 interface Session {
@@ -196,7 +197,33 @@ export function TeacherSchoolAttendance() {
       // Cache the current HTML shell and lazy teacher roster bundle. The
       // PWA can now cold-launch the previously prepared attendance screen.
       await prepareTeacherOfflineAppShell();
-      await import('./teacher-school-attendance-roster');
+      // Prepare every route needed after a cold PWA launch (not only the
+      // attendance cards visible on the current date).
+      await Promise.all([
+        import('./teacher-school-attendance-roster'),
+        import('./teacher-schedule'),
+      ]);
+      const { data: sidebarData } = await api.get('/sidebar-settings/mine', {
+        params: { portal: 'teacher' }, timeout: 15000,
+      });
+      const sidebar: Record<string, boolean> = {};
+      (sidebarData.data?.items || []).forEach((item: {key:string;visible:boolean}) => {
+        sidebar[item.key] = item.visible;
+      });
+      if (sidebar['teacher/attendance'] === false) {
+        throw new Error('Your school has disabled Student Attendance.');
+      }
+      await cacheOfflineTeacherSidebar(owner, sidebar);
+
+      // Use exactly the same endpoints as My Teaching Schedule online.
+      const { data: scheduleData } = await api.get('/class-schedules/my-teaching', { timeout: 15000 });
+      const scheduleRows = Array.isArray(scheduleData.data) ? scheduleData.data : [];
+      const { data: periodData } = await api.get('/class-schedules/school/period-settings', { timeout: 15000 });
+      await cacheOfflineTeachingSchedule(owner, {
+        schedules: scheduleRows,
+        periods: periodData.data?.periods || [],
+        preparedAt: Date.now(),
+      });
       // A 7-day admin policy prepares ALL Saturday-Friday rosters, not
       // merely the date currently selected by the teacher. Fetch sequentially
       // to stay usable on slow mobile networks and cache even holiday/empty
