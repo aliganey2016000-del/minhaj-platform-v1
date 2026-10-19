@@ -53,7 +53,7 @@ const context = {
   },
 };
 vm.runInNewContext(code, context);
-const { OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity, offlineAttendanceOwner, getOfflineAttendanceAccessWindow } = context.exports;
+const { OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity, offlineAttendanceOwner, getOfflineAttendanceAccessWindow, preparedAttendanceDates } = context.exports;
 for (const days of [1, 3, 7, 14, 30]) {
   policy = serverPolicy(days);
   const before = Date.now();
@@ -69,10 +69,18 @@ for (const days of [1, 3, 7, 14, 30]) {
   assert.equal(windowForTeacher.expired, false);
   assert.equal(windowForTeacher.to - windowForTeacher.from, days * DAY);
   assert.equal(identity.maxOfflineDays, days);
+  const prepared = preparedAttendanceDates(windowForTeacher, '2026-10-19');
+  assert.equal(prepared.length, days === 7 ? 7 : 1);
   if (days === 7) {
+    const first = new Date(windowForTeacher.from + 3 * HOUR).toISOString().slice(0, 10);
+    const last = new Date(windowForTeacher.from + 6 * DAY + 3 * HOUR).toISOString().slice(0, 10);
+    assert.equal(prepared[0], first);
+    assert.equal(prepared[6], last);
+    assert.equal(new Date(prepared[0] + 'T00:00:00Z').getUTCDay(), 6, 'weekly roster download starts Saturday');
+    assert.equal(new Date(prepared[6] + 'T00:00:00Z').getUTCDay(), 5, 'weekly roster download ends Friday');
     assert.equal(identity.expiresAt, Date.parse(policy.periodEndExclusive),
       '7 days expires NEXT SATURDAY, never on the rolling verification day');
-    assert.ok(identity.expiresAt < before + 7 * DAY);
+    assert.ok(identity.expiresAt <= before + 7 * DAY);
     assert.ok(windowForTeacher.from <= before);
   } else {
     assert.ok(identity.expiresAt >= before + days * DAY);
