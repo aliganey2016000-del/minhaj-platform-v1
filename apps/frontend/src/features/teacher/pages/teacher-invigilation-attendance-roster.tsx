@@ -141,13 +141,13 @@ export function TeacherInvigilationAttendanceRoster(){
     if(!records.length){setError('Mark at least one student before saving.');return}
     setSaving(true);setError('');setMessage('');
     const saveLocally=async()=>{
-      await queueTeacherInvigilationAttendance(assignmentId,records);
+      await queueTeacherInvigilationAttendance(assignmentId || '',records);
       const updatedRows=rows.map(row=>{
         const record=records.find(item=>item.student===row.student._id);
         return record?{...row,attendance:{...(row.attendance||{}),status:record.status,notes:record.notes||''}}:row;
       });
       setRows(updatedRows);
-      await cacheTeacherInvigilationRoster(assignmentId,{assignment,roster:updatedRows,cachedAt:Date.now()});
+      await cacheTeacherInvigilationRoster(assignmentId || '',{assignment,roster:updatedRows,cachedAt:Date.now()});
       setUsingOfflineData(true);
       setMessage(`Saved on this device for ${records.length} students. It will sync automatically when internet returns.`);
     };
