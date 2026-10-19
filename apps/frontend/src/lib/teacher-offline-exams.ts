@@ -37,6 +37,16 @@ function scopedKey(suffix: string): string | null {
   return prefix ? prefix + suffix : null;
 }
 
+export async function cacheTeacherExamPeriods(value: unknown): Promise<void> {
+  const key = scopedKey('published-periods');
+  if (key) await saveOfflineData(key, value);
+}
+
+export async function getCachedTeacherExamPeriods<T = any>(): Promise<T | undefined> {
+  const key = scopedKey('published-periods');
+  return key ? getOfflineData<T>(key) : undefined;
+}
+
 export async function cacheTeacherExamWorkspace(periodId: string, value: unknown): Promise<void> {
   const key = scopedKey('workspace:' + periodId);
   if (key) await saveOfflineData(key, value);
