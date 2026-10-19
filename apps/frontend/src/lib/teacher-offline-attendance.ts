@@ -76,6 +76,7 @@ export const OFFLINE_TEACHER_IDENTITY_KEY = 'sahal-offline-teacher-session';
 const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
 const ALLOWED_OFFLINE_DAYS = [1, 3, 7, 14, 30] as const;
 const DAY_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_RECONNECT_GRACE_MS = DAY_MS;
 
 export async function saveVerifiedTeacherIdentity(user: { id: string; role: string; organizationId?: string; email?: string; preferredLanguage?: string }): Promise<void> {
   if (user.role !== 'teacher' || !user.id || !user.organizationId || !navigator.onLine) return;
@@ -103,14 +104,14 @@ export async function saveVerifiedTeacherIdentity(user: { id: string; role: stri
   if (localStorage.getItem('loginSessionId') !== loginSessionId || window.location.hostname !== hostname ||
       !localStorage.getItem('accessToken')) return;
   const verifiedAt = Date.now();
-  // A 7-day grant is NEVER extended to 7 days after Monday/Wednesday login.
-  // Server-controlled Saturday-to-Saturday boundaries are authoritative.
-  // Other policies keep their rolling duration.
+  // The admin's maxOfflineDays measures time since the last successful online
+  // verification. Saturday remains the school roster/week boundary, but does
+  // NOT prematurely lock a teacher who reconnects during the week.
   const identity: OfflineTeacherIdentity = {
     id: user.id, role: 'teacher', organizationId: user.organizationId,
     loginSessionId, hostname, maxOfflineDays, verifiedAt,
-    periodStart: serverPeriodStart, calendarAligned,
-    expiresAt: maxOfflineDays === 7 ? serverPeriodEnd : verifiedAt + maxOfflineDays * DAY_MS,
+    periodStart: serverPeriodStart, calendarAligned: false,
+    expiresAt: verifiedAt + maxOfflineDays * DAY_MS,
     email: user.email, preferredLanguage: user.preferredLanguage,
   };
   localStorage.setItem(OFFLINE_TEACHER_IDENTITY_KEY, JSON.stringify(identity));
@@ -128,7 +129,8 @@ export function verifiedOfflineTeacherIdentity(): OfflineTeacherIdentity | null 
     if (!stored) return null;
     const info = JSON.parse(stored) as OfflineTeacherIdentity;
     if (info.role !== 'teacher' || !info.id || !info.organizationId ||
-        info.expiresAt < Date.now() || !ALLOWED_OFFLINE_DAYS.some(days => days === info.maxOfflineDays) ||
+        info.expiresAt + OFFLINE_RECONNECT_GRACE_MS <= Date.now() ||
+        !ALLOWED_OFFLINE_DAYS.some(days => days === info.maxOfflineDays) ||
         info.hostname !== window.location.hostname ||
         info.loginSessionId !== localStorage.getItem('loginSessionId') ||
         (!localStorage.getItem('accessToken') && !isOfflineIdentityUnlocked(info))) return null;
@@ -168,7 +170,7 @@ export function getOfflineAttendanceAccessWindow(): OfflineAttendanceAccessWindo
         Math.abs((info.expiresAt - from) - info.maxOfflineDays * DAY_MS) > 1000) return null;
     return { from, to: info.expiresAt, maxOfflineDays: info.maxOfflineDays,
       calendarAligned: !!info.calendarAligned, verifiedAt,
-      expired: info.expiresAt <= Date.now() };
+      expired: info.expiresAt + OFFLINE_RECONNECT_GRACE_MS <= Date.now() };
   } catch { return null; }
 }
 
