@@ -95,7 +95,15 @@ export function TeacherSchoolAttendance() {
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
+    const refreshGrant = () => {
+      setAccessWindow(getOfflineAttendanceAccessWindow());
+      setClockNow(Date.now());
+    };
+    window.addEventListener('sahal-offline-access-updated', refreshGrant);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('sahal-offline-access-updated', refreshGrant);
+    };
   }, []);
 
   const loadSessions = useCallback(async () => {
