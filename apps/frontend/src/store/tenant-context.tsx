@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
+import { verifiedOfflineTeacherIdentity } from '../lib/teacher-offline-attendance';
 import { isPlatformRootHostname, primaryPlatformDomain } from '../lib/platform-domains';
 
 export interface TenantBranding {
@@ -51,6 +52,21 @@ function extractSubdomain(hostname: string): string | null {
 }
 
 const TenantContext = createContext<TenantContextValue | undefined>(undefined);
+
+// Offline branding is public tenant metadata, not an authorization decision.
+// Key by exact hostname; only a verified, non-expired teacher device may
+// use it while the backend is unreachable.
+const cacheKey = (host: string) => 'sahal-offline-tenant:' + host;
+function getOfflineTenant(host: string): TenantData | null {
+  if (!verifiedOfflineTeacherIdentity()) return null;
+  try {
+    const stored = JSON.parse(localStorage.getItem(cacheKey(host)) || 'null');
+    if (stored?.hostname !== host || stored?.expiresAt < Date.now() || !stored?.tenant ||
+        stored.tenant.isMainSite === true) return null;
+    return stored.tenant as TenantData;
+  } catch { return null; }
+}
+
 
 export function TenantProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant] = useState<TenantData | null>(null);
@@ -97,22 +113,36 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const cached = getOfflineTenant(hostname);
+      if (!navigator.onLine && cached) {
+        if (!cancelled) { setTenant(cached); setIsLoading(false); }
+        return;
+      }
+
       try {
         const { data } = await api.get('/tenant/current');
         if (cancelled) return;
         const value = data.data || {};
-        setTenant({
+        const resolved: TenantData = {
           isMainSite: value.isMainSite === true,
           slug: value.slug || '',
           name: value.name || 'Sahal Education Platform',
           institutionType: value.institutionType || value.organizationType || 'school',
           branding: value.branding || DEFAULT_BRANDING,
           portalUrl: value.portalUrl,
-        });
+        };
+        setTenant(resolved);
+        if (!resolved.isMainSite) {
+          try { localStorage.setItem(cacheKey(hostname), JSON.stringify({
+            hostname, tenant: resolved, expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+          })); } catch { /* storage disabled */ }
+        }
       } catch (err: any) {
         if (cancelled) return;
-        setTenant(null);
         const status = err.response?.status;
+        // Never use a cached tenant after an explicit server rejection.
+        if (!status && cached) { setTenant(cached); return; }
+        setTenant(null);
         setError(
           status === 404
             ? `Portal "${hostname}" not found. The organization does not exist or has been deactivated.`

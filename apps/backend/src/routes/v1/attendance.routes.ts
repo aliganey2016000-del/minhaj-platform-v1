@@ -5,6 +5,7 @@ import * as attendanceReportController from '../../controllers/attendance-report
 import * as attendanceSummaryController from '../../controllers/attendance-summary.controller';
 import * as dailyAttendanceController from '../../controllers/daily-attendance.controller';
 import * as schoolAttendanceController from '../../controllers/school-attendance.controller';
+import * as offlinePolicyController from '../../controllers/offline-attendance-policy.controller';
 import * as schoolCalendarController from '../../controllers/school-calendar.controller';
 import * as substituteAssignmentController from '../../controllers/substitute-assignment.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
@@ -15,6 +16,11 @@ import { asyncHandler } from '../../middleware/async-handler.middleware';
 const router = Router();
 
 router.use(authMiddleware);
+
+// Policy is always resolved by the authenticated teacher/admin's own tenant;
+// platform admins must explicitly select a school.
+router.get('/offline-policy', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(offlinePolicyController.getOfflineAttendancePolicy));
+router.put('/offline-policy', roleMiddleware(['admin', 'org_admin']), asyncHandler(offlinePolicyController.updateOfflineAttendancePolicy));
 
 router.get('/my', roleMiddleware(['student']), asyncHandler(attendanceSummaryController.getMyAttendance));
 router.get('/my/courses', roleMiddleware(['student']), asyncHandler(attendanceSummaryController.getMyAttendanceByCourse));

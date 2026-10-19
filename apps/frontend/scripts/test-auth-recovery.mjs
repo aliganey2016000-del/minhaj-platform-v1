@@ -58,7 +58,7 @@ assert.ok(checkSource);
 const checkCode = ts.transpileModule(checkSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
 for (const status of [undefined, 401, 500]) {
   const state = { cleared: false, retry: false, loading: true };
-  const context = { exports: {}, controller: new AbortController(), api: { get: async () => { throw { response: status ? { status } : undefined }; } }, localStorage: { getItem: () => 'token' }, setIsLoading: value => { state.loading = value; }, setSessionError: value => { state.retry = value; }, clearAuthStorage: () => { state.cleared = true; }, setUser() {} };
+  const context = { exports: {}, controller: new AbortController(), navigator: { onLine: true }, verifiedOfflineTeacherIdentity: () => null, api: { get: async () => { throw { response: status ? { status } : undefined }; } }, localStorage: { getItem: () => 'token' }, setIsLoading: value => { state.loading = value; }, setSessionError: value => { state.retry = value; }, clearAuthStorage: () => { state.cleared = true; }, setUser() {} };
   vm.runInNewContext(checkCode, context);
   await context.exports.check();
   assert.equal(state.cleared, status === 401);
@@ -66,3 +66,20 @@ for (const status of [undefined, 401, 500]) {
   assert.equal(state.loading, false);
 }
 console.log('PASS: startup keeps session on connection/server failure and offers retry; invalid credentials still clear');
+
+const offlineState = { loading: true, retry: false, user: undefined, calls: 0 };
+const offlineContext = {
+  exports: {}, controller: new AbortController(), navigator: { onLine: false },
+  localStorage: { getItem: () => 'token' },
+  setUser: value => { offlineState.user = value; },
+  setIsLoading: value => { offlineState.loading = value; },
+  setSessionError: value => { offlineState.retry = value; },
+  api: { get: async () => { offlineState.calls++; throw new Error('No offline request allowed'); } },
+};
+vm.runInNewContext(checkCode, offlineContext);
+await offlineContext.exports.check();
+assert.equal(offlineState.calls, 0, 'A cold offline launch must not request /auth/me');
+assert.equal(offlineState.user, null, 'A cached identity must not silently restore an authenticated teacher');
+assert.equal(offlineState.loading, false);
+assert.equal(offlineState.retry, false);
+console.log('PASS: cold offline launch requires explicit PIN unlock');

@@ -1,22 +1,27 @@
 import { useState } from 'react';
-import { ClipboardList, UserRoundCheck } from 'lucide-react';
+import { ClipboardList, UserRoundCheck, ShieldCheck } from 'lucide-react';
+import { useAuth } from '../../../store/auth-context';
+import SchoolAttendanceOfflineSettings from './components/school-attendance-offline-settings';
 import SchoolPeriodAttendanceManage from './school-period-attendance-manage';
 import { SchoolSubstitutesPanel } from './components/school-substitutes-panel';
 
-type Workspace = 'period' | 'substitutes';
+type Workspace = 'period' | 'substitutes' | 'offline';
 
 export function SchoolAttendanceManage() {
   const [workspace, setWorkspace] = useState<Workspace>('period');
+  const { user } = useAuth();
+  const canManageOffline = user?.role === 'org_admin';
 
   const tabs = [
     ['period', 'Period Attendance', ClipboardList],
     ['substitutes', 'Substitutes', UserRoundCheck],
+    ...(canManageOffline ? [['offline', 'Offline Settings', ShieldCheck] as const] : []),
   ] as const;
 
   return (
     <div className="min-w-0 w-full space-y-4 p-3 pt-20 sm:p-6 lg:pt-6">
       <div className="sticky top-0 z-20 min-w-0 w-full">
-        <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
           {tabs.map(([key, label, Icon]) => (
             <button
               key={key}
@@ -37,6 +42,7 @@ export function SchoolAttendanceManage() {
 
       {workspace === 'period' && <SchoolPeriodAttendanceManage />}
       {workspace === 'substitutes' && <SchoolSubstitutesPanel />}
+      {workspace === 'offline' && canManageOffline && <SchoolAttendanceOfflineSettings />}
     </div>
   );
 }

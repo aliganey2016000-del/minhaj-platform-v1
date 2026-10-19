@@ -60,24 +60,49 @@ export interface OfflineTeacherIdentity {
   loginSessionId: string;
   hostname: string;
   expiresAt: number;
+  /** Last successful online policy verification, not a roster-download date. */
+  verifiedAt?: number;
+  maxOfflineDays: number;
   email?: string;
   preferredLanguage?: string;
 }
 export const OFFLINE_TEACHER_IDENTITY_KEY = 'sahal-offline-teacher-session';
-const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
-const IDENTITY_TTL = 72 * 60 * 60 * 1000;
+// The administrator can choose up to 30 days. Cached rosters are scoped by
+// teacher/session/date and never become server authority after expiration.
+const CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
+const ALLOWED_OFFLINE_DAYS = [1, 3, 7, 14, 30] as const;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function saveVerifiedTeacherIdentity(user: { id: string; role: string; organizationId?: string; email?: string; preferredLanguage?: string }): void {
-  if (user.role !== 'teacher' || !user.id || !user.organizationId) return;
+export async function saveVerifiedTeacherIdentity(user: { id: string; role: string; organizationId?: string; email?: string; preferredLanguage?: string }): Promise<void> {
+  if (user.role !== 'teacher' || !user.id || !user.organizationId || !navigator.onLine) return;
   const loginSessionId = localStorage.getItem('loginSessionId');
+  const hostname = window.location.hostname;
   if (!loginSessionId) return;
+  // Never guess the number of days from a local value. Fetch the admin's
+  // authoritative policy following successful online verification.
+  const { data } = await api.get('/attendance/offline-policy', { timeout: 15000 });
+  const maxOfflineDays = data.data?.maxOfflineDays;
+  if (!ALLOWED_OFFLINE_DAYS.some(days => days === maxOfflineDays) ||
+      String(data.data?.organizationId) !== user.organizationId) {
+    throw new Error('Offline attendance policy could not be verified for your school.');
+  }
+  // Avoid a stale background request binding a previous teacher's identity
+  // after another user has logged in or the school domain has changed.
+  if (localStorage.getItem('loginSessionId') !== loginSessionId || window.location.hostname !== hostname ||
+      !localStorage.getItem('accessToken')) return;
+  const verifiedAt = Date.now();
   const identity: OfflineTeacherIdentity = {
     id: user.id, role: 'teacher', organizationId: user.organizationId,
-    loginSessionId, hostname: window.location.hostname,
-    expiresAt: Date.now() + IDENTITY_TTL,
+    loginSessionId, hostname, maxOfflineDays, verifiedAt,
+    expiresAt: verifiedAt + maxOfflineDays * DAY_MS,
     email: user.email, preferredLanguage: user.preferredLanguage,
   };
   localStorage.setItem(OFFLINE_TEACHER_IDENTITY_KEY, JSON.stringify(identity));
+  // A background /auth/me verification may finish after Attendance renders.
+  // Notify the current page so its From/Until labels reflect the new grant.
+  if (typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new Event('sahal-offline-access-updated'));
+  }
 }
 
 export function verifiedOfflineTeacherIdentity(): OfflineTeacherIdentity | null {
@@ -86,9 +111,37 @@ export function verifiedOfflineTeacherIdentity(): OfflineTeacherIdentity | null 
     if (!stored || !localStorage.getItem('accessToken')) return null;
     const info = JSON.parse(stored) as OfflineTeacherIdentity;
     if (info.role !== 'teacher' || !info.id || !info.organizationId ||
-        info.expiresAt < Date.now() || info.hostname !== window.location.hostname ||
+        info.expiresAt < Date.now() || !ALLOWED_OFFLINE_DAYS.some(days => days === info.maxOfflineDays) ||
+        info.hostname !== window.location.hostname ||
         info.loginSessionId !== localStorage.getItem('loginSessionId')) return null;
     return info;
+  } catch { return null; }
+}
+
+/** Display-only offline PIN access window, including expired grants. Never
+ * use this function to authorize attendance or unlock cached rosters. */
+export interface OfflineAttendanceAccessWindow {
+  from: number;
+  to: number;
+  maxOfflineDays: number;
+  expired: boolean;
+}
+
+export function getOfflineAttendanceAccessWindow(): OfflineAttendanceAccessWindow | null {
+  try {
+    const raw = localStorage.getItem(OFFLINE_TEACHER_IDENTITY_KEY);
+    if (!raw || !localStorage.getItem('accessToken')) return null;
+    const info = JSON.parse(raw) as OfflineTeacherIdentity;
+    if (info.role !== 'teacher' || !info.id || !info.organizationId ||
+        info.hostname !== window.location.hostname ||
+        info.loginSessionId !== localStorage.getItem('loginSessionId') ||
+        !ALLOWED_OFFLINE_DAYS.some(days => days === info.maxOfflineDays) ||
+        !Number.isFinite(info.expiresAt)) return null;
+    const from = info.verifiedAt ?? info.expiresAt - info.maxOfflineDays * DAY_MS;
+    if (!Number.isFinite(from) || from > info.expiresAt ||
+        Math.abs((info.expiresAt - from) - info.maxOfflineDays * DAY_MS) > 1000) return null;
+    return { from, to: info.expiresAt, maxOfflineDays: info.maxOfflineDays,
+      expired: info.expiresAt <= Date.now() };
   } catch { return null; }
 }
 
