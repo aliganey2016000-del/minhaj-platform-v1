@@ -11,7 +11,8 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
-import { unlockTeacherWithPin, refreshOfflinePinValidity, listPreparedTeachers } from '../lib/offline-teacher-pin';
+import { unlockTeacherWithPassword, enrollTeacherOfflinePassword, listAutomaticOfflineTeachers } from '../lib/offline-teacher-password';
+import { prepareTeacherOfflineAutomatically } from '../lib/teacher-offline-auto-prepare';
 import { lockOfflineTeacher, getPreparedTeacher, offlineAccountKey } from '../lib/offline-teacher-vault';
 import { clearAllOfflineData, resetOfflineDataOnLogin } from '../lib/offline-store';
 import {
@@ -43,7 +44,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<User>;
-  unlockOffline: (pin: string, accountKey?: string) => Promise<User>;
+  unlockOffline: (password: string, accountKey: string) => Promise<User>;
   lockOfflineSession: () => void;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
@@ -239,9 +240,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!localStorage.getItem('loginSessionId')) localStorage.setItem('loginSessionId', newLoginSessionId());
         const verified = normalizeUser(data.data?.user, data.data?.profile);
         setUser(verified);
-        await saveVerifiedTeacherIdentity(verified).then(refreshOfflinePinValidity).catch(() => {
-          // Online login remains usable if policy lookup is unavailable;
-          // offline unlock stays disabled until it can be verified.
+        await saveVerifiedTeacherIdentity(verified).then(() => {
+          void prepareTeacherOfflineAutomatically(verified);
+        }).catch(() => {
+          // A verified online account is still usable when offline preparation fails.
         });
       } catch (err: any) {
         if (controller.signal.aborted) return;
@@ -251,7 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // recover it after a new server-verified login.
           await clearAuthStorage({ preservePendingAttendance: true });
           setUser(null);
-        } else if (!err?.response && (listPreparedTeachers().length > 0 || !navigator.onLine)) {
+        } else if (!err?.response && (listAutomaticOfflineTeachers().length > 0 || !navigator.onLine)) {
           // Fall through to the login page, which offers PIN unlock only
           // when this exact teacher/device was prepared while online.
           setUser(null);
@@ -290,7 +292,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser((current) => {
         if (!current) return current;
         const next = normalizeUser(data.data?.user, data.data?.profile);
-        void saveVerifiedTeacherIdentity(next).then(refreshOfflinePinValidity).catch(() => {});
+        // Profile updates never replace a locally verified account password.
+        // An online login explicitly enrolls the new password.
         return next;
       });
     }).catch(() => {
@@ -298,6 +301,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // only fills in the greeting name and org logo.
     });
   }, []);
+
+  useEffect(() => {
+    if (user?.role !== 'teacher' || user.offlineOnly) return;
+    const refresh = () => {
+      if (!navigator.onLine) return;
+      void saveVerifiedTeacherIdentity(user).then(() => prepareTeacherOfflineAutomatically(user)).catch(() => {});
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    const poll = window.setInterval(refresh, 12 * 60 * 60_000);
+    return () => {
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(poll);
+    };
+  }, [user?.id, user?.organizationId, user?.role, user?.offlineOnly]);
 
   const login = useCallback(async (email: string, password: string) => {
     setError(null);
@@ -317,7 +337,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('accessToken', accessToken);
         localStorage.setItem('loginSessionId', loginSessionId);
         setUser(normalized);
-        await saveVerifiedTeacherIdentity(normalized).then(refreshOfflinePinValidity).catch(() => {
+        await saveVerifiedTeacherIdentity(normalized).then(async () => {
+          if (normalized.role === 'teacher') {
+            const preparedIdentity = verifiedOfflineTeacherIdentity();
+            if (preparedIdentity && preparedIdentity.id === normalized.id) {
+              await enrollTeacherOfflinePassword(password, preparedIdentity);
+              void prepareTeacherOfflineAutomatically(normalized);
+            }
+          }
+        }).catch(() => {
           // Do not block a valid online login because offline setup failed.
         });
         enrichUserInBackground();
@@ -331,10 +359,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [enrichUserInBackground]);
 
-  const unlockOffline = useCallback(async (pin: string, accountKey?: string): Promise<User> => {
+  const unlockOffline = useCallback(async (password: string, accountKey: string): Promise<User> => {
     setError(null);
     try {
-      const identity = await unlockTeacherWithPin(pin, accountKey);
+      const identity = await unlockTeacherWithPassword(password, accountKey);
       const offlineUser: User = { ...normalizeUser(identity), offlineOnly: true };
       setUser(offlineUser);
       return offlineUser;
