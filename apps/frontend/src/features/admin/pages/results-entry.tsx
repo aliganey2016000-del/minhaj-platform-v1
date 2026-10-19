@@ -346,7 +346,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
         const { data } = await api.get('/gradebook-courses');
         const nextCourses = data.data || [];
         setCourses(nextCourses);
-        if (backFallback.startsWith('/teacher')) await cacheTeacherResultCourses(nextCourses);
+        if (backFallback.startsWith('/teacher')) await cacheTeacherResultCourses(nextCourses).catch(() => undefined);
       } catch {
         if (backFallback.startsWith('/teacher')) {
           const cachedCourses = await getCachedTeacherResultCourses<CourseBrief[]>().catch(() => undefined);
@@ -432,7 +432,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
         const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
         r = data.data;
         if (backFallback.startsWith('/teacher')) {
-          await cacheTeacherResultRoster(courseId, r);
+          await cacheTeacherResultRoster(courseId, r).catch(() => undefined);
           setUsingOfflineData(false);
         }
       } catch (loadError: any) {
