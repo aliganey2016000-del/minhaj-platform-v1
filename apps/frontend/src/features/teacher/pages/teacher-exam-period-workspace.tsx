@@ -15,6 +15,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
 import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
+import { prepareTeacherOfflineAppShell } from '../../../lib/teacher-offline-attendance';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
 
@@ -219,10 +220,17 @@ export function TeacherExamPeriodWorkspace() {
     setOfflinePrepMessage('');
     let prepared = 0;
     let failed = 0;
+    const resultCourseIds = new Set<string>(exams.map((exam) => exam.course?._id).filter((id): id is string => Boolean(id)));
     try {
+      // Cache the verified app shell so this exam URL can reopen after a cold
+      // launch while offline, not only while the current SPA remains open.
+      try { await prepareTeacherOfflineAppShell(); prepared++; } catch { failed++; }
+
       try {
         const { data } = await api.get('/gradebook-courses');
-        await cacheTeacherResultCourses(data.data || []);
+        const resultCourses = Array.isArray(data.data) ? data.data : [];
+        await cacheTeacherResultCourses(resultCourses);
+        resultCourses.forEach((course: { _id?: string }) => { if (course._id) resultCourseIds.add(String(course._id)); });
         prepared++;
       } catch { failed++; }
 
@@ -234,7 +242,6 @@ export function TeacherExamPeriodWorkspace() {
         } catch { failed++; }
       }
 
-      const courseIds = [...new Set(exams.map((exam) => exam.course?._id).filter((id): id is string => Boolean(id)))];
       for (const assignment of assignments) {
         try {
           const { data } = await api.get(`/exams/invigilators/${assignment._id}/roster`);
@@ -243,7 +250,9 @@ export function TeacherExamPeriodWorkspace() {
         } catch { failed++; }
       }
 
-      for (const courseId of courseIds) {
+      // Prepare result-entry rosters for every course available in the
+      // teacher's gradebook list, not only courses that have a scheduled paper.
+      for (const courseId of resultCourseIds) {
         try {
           const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
           await cacheTeacherResultRoster(courseId, data.data);
