@@ -7,28 +7,46 @@ export function TeacherExamOfflineStatus() {
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [queue, setQueue] = useState<PendingTeacherExamWrite[]>([]);
   const [syncing, setSyncing] = useState(false);
+  const [hasAuthToken, setHasAuthToken] = useState(typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('accessToken')));
 
   const refresh = useCallback(async () => {
     try { setQueue(await getTeacherExamQueue()); } catch { setQueue([]); }
   }, []);
 
   useEffect(() => {
-    const onOnline = () => { setOnline(true); void refresh(); };
+    const refreshAuth = () => setHasAuthToken(typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('accessToken')));
+    const onOnline = () => {
+      setOnline(true);
+      refreshAuth();
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('accessToken')) {
+        void flushTeacherExamQueue().finally(() => { void refresh(); });
+      } else {
+        void refresh();
+      }
+    };
     const onOffline = () => setOnline(false);
     const onQueueChanged = () => { void refresh(); };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    window.addEventListener('storage', refreshAuth);
+    window.addEventListener('sahal-offline-access-updated', refreshAuth);
     window.addEventListener('sahal-teacher-exam-queue-updated', onQueueChanged);
+    refreshAuth();
+    if (navigator.onLine && typeof localStorage !== 'undefined' && localStorage.getItem('accessToken')) {
+      void flushTeacherExamQueue().finally(() => { void refresh(); });
+    }
     void refresh();
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      window.removeEventListener('storage', refreshAuth);
+      window.removeEventListener('sahal-offline-access-updated', refreshAuth);
       window.removeEventListener('sahal-teacher-exam-queue-updated', onQueueChanged);
     };
   }, [refresh]);
 
   const syncNow = async () => {
-    if (!online || syncing) return;
+    if (!online || !hasAuthToken || syncing) return;
     setSyncing(true);
     try { await flushTeacherExamQueue(); } finally { await refresh(); setSyncing(false); }
   };
@@ -46,12 +64,12 @@ export function TeacherExamOfflineStatus() {
           <p className="mt-0.5 text-xs opacity-90">
             {pending > 0 ? `${pending} pending change(s)` : 'No pending changes'}
             {conflicts > 0 ? ` · ${conflicts} rejected change(s) need review online` : ''}
-            {!online ? ' · Reconnect to sync automatically' : ''}
+            {!online ? ' · Reconnect to sync automatically' : !hasAuthToken && pending > 0 ? ' · Sign in online to sync securely' : ''}
           </p>
           {conflicts > 0 && <p className="mt-1 text-xs">{queue.find((item) => item.status === 'conflict')?.error || 'The server rejected one or more changes.'}</p>}
         </div>
       </div>
-      {online && pending > 0 && <button type="button" onClick={() => void syncNow()} disabled={syncing} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-current/20 bg-white/60 px-3 py-2 text-xs font-bold disabled:opacity-60 dark:bg-black/10"><RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />{syncing ? 'Syncing…' : 'Sync now'}</button>}
+      {online && hasAuthToken && pending > 0 && <button type="button" onClick={() => void syncNow()} disabled={syncing} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-current/20 bg-white/60 px-3 py-2 text-xs font-bold disabled:opacity-60 dark:bg-black/10"><RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />{syncing ? 'Syncing…' : 'Sync now'}</button>}
     </div>
   );
 }
