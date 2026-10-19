@@ -228,16 +228,16 @@ export interface OfflineTeachingSchedule {
   preparedAt:number;
 }
 export function cacheOfflineTeachingSchedule(owner:string, value:OfflineTeachingSchedule) {
-  return writeCached(keyFor(owner,'teaching-schedule'),value);
+  return writeCached(keyFor(owner,'teaching-schedule','weekly'),value);
 }
 export function getOfflineTeachingSchedule(owner:string) {
-  return readCached<OfflineTeachingSchedule>(keyFor(owner,'teaching-schedule'));
+  return readCached<OfflineTeachingSchedule>(keyFor(owner,'teaching-schedule','weekly'));
 }
 export function cacheOfflineTeacherSidebar(owner:string, visibility:Record<string,boolean>) {
-  return writeCached(keyFor(owner,'sidebar-visibility'),visibility);
+  return writeCached(keyFor(owner,'sidebar-visibility','prepared'),visibility);
 }
 export function getOfflineTeacherSidebar(owner:string) {
-  return readCached<Record<string,boolean>>(keyFor(owner,'sidebar-visibility'));
+  return readCached<Record<string,boolean>>(keyFor(owner,'sidebar-visibility','prepared'));
 }
 
 export const cacheAttendanceSessions = (owner: string, date: string, value: OfflineSessionList) =>
