@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const src=fs.readFileSync(new URL('../src/lib/teacher-offline-auto-prepare.ts',import.meta.url),'utf8');
 const code=ts.transpileModule(src,{compilerOptions:{
-  module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,
+  module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true,
 }}).outputText;
 const saved=new Map([['accessToken','online-token']]);
 const localStorage={
