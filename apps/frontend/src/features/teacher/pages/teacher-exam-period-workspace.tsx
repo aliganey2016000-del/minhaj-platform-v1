@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   ClipboardEdit,
+  CloudDownload,
   Clock3,
   GraduationCap,
   Users,
@@ -13,7 +14,7 @@ import {
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
-import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace } from '../../../lib/teacher-offline-exams';
+import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
 
@@ -170,6 +171,8 @@ export function TeacherExamPeriodWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [usingOfflineData, setUsingOfflineData] = useState(false);
+  const [preparingOffline, setPreparingOffline] = useState(false);
+  const [offlinePrepMessage, setOfflinePrepMessage] = useState('');
 
   const load = async () => {
     if (!periodId) return;
@@ -206,6 +209,53 @@ export function TeacherExamPeriodWorkspace() {
   };
 
   useEffect(() => { void load(); }, [periodId]);
+
+  const prepareOffline = async () => {
+    if (!navigator.onLine) {
+      setOfflinePrepMessage('Connect to the internet before preparing this exam period for offline use.');
+      return;
+    }
+    setPreparingOffline(true);
+    setOfflinePrepMessage('');
+    let prepared = 0;
+    let failed = 0;
+    try {
+      try {
+        const { data } = await api.get('/gradebook-courses');
+        await cacheTeacherResultCourses(data.data || []);
+        prepared++;
+      } catch { failed++; }
+
+      for (const exam of exams) {
+        try {
+          const { data } = await api.get(`/exams/${exam._id}/attendance`);
+          await cacheTeacherExamAttendance(exam._id, { ...(data.data || {}), cachedAt: Date.now() });
+          prepared++;
+        } catch { failed++; }
+      }
+
+      const courseIds = [...new Set(exams.map((exam) => exam.course?._id).filter((id): id is string => Boolean(id)))];
+      for (const assignment of assignments) {
+        try {
+          const { data } = await api.get(`/exams/invigilators/${assignment._id}/roster`);
+          await cacheTeacherInvigilationRoster(assignment._id, { ...(data.data || {}), cachedAt: Date.now() });
+          prepared++;
+        } catch { failed++; }
+      }
+
+      for (const courseId of courseIds) {
+        try {
+          const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
+          await cacheTeacherResultRoster(courseId, data.data);
+          prepared++;
+        } catch { failed++; }
+      }
+
+      setOfflinePrepMessage(`Offline preparation finished: ${prepared} data set(s) saved; ${failed} could not be downloaded. Keep this device signed in and sync pending changes before logging out.`);
+    } finally {
+      setPreparingOffline(false);
+    }
+  };
 
   const period = useMemo(
     () => periods.find((item) => item._id === periodId && item.status === 'published'),
@@ -262,8 +312,9 @@ export function TeacherExamPeriodWorkspace() {
             Exam Periods
           </Link>
 
-          <div className="min-w-0">
-            <h1 className="truncate text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">
               {period?.name || (loading ? 'Loading exam…' : 'Exam Workspace')}
             </h1>
             {period && (
@@ -271,6 +322,11 @@ export function TeacherExamPeriodWorkspace() {
                 {period.academicYear}{period.term ? ` · ${period.term}` : ''} · {formatRange(period)}
               </p>
             )}
+            </div>
+            {period && <button type="button" onClick={() => void prepareOffline()} disabled={preparingOffline || loading || !navigator.onLine} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
+              <CloudDownload className={`h-4 w-4 ${preparingOffline ? 'animate-pulse' : ''}`} />
+              {preparingOffline ? 'Preparing…' : 'Prepare for offline'}
+            </button>}
           </div>
         </header>
 
@@ -281,6 +337,7 @@ export function TeacherExamPeriodWorkspace() {
         )}
 
         <TeacherExamOfflineStatus />
+        {offlinePrepMessage && <p role="status" className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 text-sm text-[var(--color-text-secondary)]">{offlinePrepMessage}</p>}
 
         {usingOfflineData && (
           <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
