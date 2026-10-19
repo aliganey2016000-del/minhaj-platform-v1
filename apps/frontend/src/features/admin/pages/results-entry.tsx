@@ -627,8 +627,8 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
     setSaving(true);
     setError('');
     setMessage('');
+    const entries: { studentId: string; slot: ManualEntrySlot; score: number }[] = [];
     try {
-      const entries: { studentId: string; slot: ManualEntrySlot; score: number }[] = [];
       roster.students.forEach((s) => {
         MANUAL_ENTRY_SLOTS.forEach(({ slot }) => {
           const cat = roster.slots[slot];
