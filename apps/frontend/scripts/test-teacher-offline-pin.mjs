@@ -36,7 +36,7 @@ const context = {
   },
 };
 vm.runInNewContext(compiled, context);
-const { isOfflinePinReady, setupOfflinePin, unlockTeacherWithPin, clearOfflinePin } = context.exports;
+const { isOfflinePinReady, setupOfflinePin, unlockTeacherWithPin, refreshOfflinePinValidity, clearOfflinePin } = context.exports;
 
 assert.equal(isOfflinePinReady(), false, 'A session alone must not unlock offline');
 await assert.rejects(setupOfflinePin('111111'), /six different-enough digits/);
@@ -48,6 +48,21 @@ assert.equal(serverCalls, 1, 'PIN setup must verify current backend role/account
 assert.equal(isOfflinePinReady(), true);
 assert.ok(!JSON.stringify([...memory]).includes('123456'), 'PIN must never be stored as cleartext');
 assert.equal((await unlockTeacherWithPin('123456')).id, 'teacher-1');
+
+// Saturday: old week's PIN has expired but a fresh ONLINE server policy
+// verification must let this same device reuse the same PIN (no reset).
+const key = 'sahal-teacher-offline-pin-v1';
+let previousPin = JSON.parse(localStorage.getItem(key));
+localStorage.setItem(key, JSON.stringify({ ...previousPin, expiresAt: Date.now() - 1000 }));
+assert.equal(isOfflinePinReady(), false, 'Previous Saturday period has ended');
+identity = { ...identity, expiresAt: Date.now() + 7 * 86400000, verifiedAt: Date.now() };
+context.navigator.onLine = false;
+refreshOfflinePinValidity();
+assert.equal(isOfflinePinReady(), false, 'Offline clock cannot silently renew the expired PIN');
+context.navigator.onLine = true;
+refreshOfflinePinValidity();
+assert.equal(isOfflinePinReady(), true, 'Same teacher can renew PIN after fresh online verification');
+assert.equal((await unlockTeacherWithPin('123456')).id, 'teacher-1', 'Existing PIN still works after renewal');
 
 for (let i = 0; i < 5; i++) await assert.rejects(unlockTeacherWithPin('654321'), /Incorrect PIN|locked for 15 minutes/);
 await assert.rejects(unlockTeacherWithPin('123456'), /Wait 15 minutes/);
