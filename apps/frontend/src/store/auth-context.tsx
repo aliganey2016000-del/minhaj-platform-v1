@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import api from '../lib/axios';
+import { clearOfflinePin, unlockTeacherWithPin } from '../lib/offline-teacher-pin';
 import { clearAllOfflineData, resetOfflineDataOnLogin } from '../lib/offline-store';
 import {
   OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity,
@@ -40,6 +41,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<User>;
+  unlockOffline: (pin: string) => Promise<User>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
@@ -98,6 +100,7 @@ async function clearAuthStorage(options: {
   transferTo?: string | null;
 } = {}): Promise<void> {
   if (typeof window === 'undefined') return;
+  clearOfflinePin();
   const keysToClear = ['accessToken', 'tenant', 'tenantSlug', 'selectedTenant', 'activeTenant', 'loginSessionId',
     ...(options.preservePendingAttendance ? [] : [OFFLINE_TEACHER_IDENTITY_KEY])];
   keysToClear.forEach((key) => {
@@ -216,12 +219,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // A teacher who previously verified this exact login on this device
-      // can reopen the PWA without connectivity. The server will still
-      // enforce current permissions before any queued submission is applied.
-      const offline = verifiedOfflineTeacherIdentity();
-      if (!navigator.onLine && offline) {
-        setUser(normalizeUser(offline));
+      // A cold offline launch must pass the device PIN gate first. A cached
+      // identity or bearer token alone must never silently unlock rosters.
+      if (!navigator.onLine) {
+        setUser(null);
         setIsLoading(false);
         return;
       }
@@ -240,10 +241,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // recover it after a new server-verified login.
           await clearAuthStorage({ preservePendingAttendance: true });
           setUser(null);
-        } else if (!err?.response && verifiedOfflineTeacherIdentity()) {
-          // Connection stalled, but this local PWA has a recent, same-account
-          // teacher session. Only cached attendance will work until reconnect.
-          setUser(normalizeUser(verifiedOfflineTeacherIdentity()));
+        } else if (!err?.response && (verifiedOfflineTeacherIdentity() || !navigator.onLine)) {
+          // Fall through to the login page, which offers PIN unlock only
+          // when this exact teacher/device was prepared while online.
+          setUser(null);
         } else {
           setSessionError(true);
         }
@@ -318,6 +319,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [enrichUserInBackground]);
 
+  const unlockOffline = useCallback(async (pin: string): Promise<User> => {
+    setError(null);
+    try {
+      const identity = await unlockTeacherWithPin(pin);
+      const offlineUser = normalizeUser(identity);
+      setUser(offlineUser);
+      return offlineUser;
+    } catch (err: any) {
+      setError(err?.message || 'Offline unlock failed.');
+      throw err;
+    }
+  }, []);
+
   const register = useCallback(async (formData: RegisterData) => {
     setError(null);
     const loginSessionId = newLoginSessionId();
@@ -377,6 +391,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     isAuthenticated: !!user,
     login,
+    unlockOffline,
     register,
     logout,
     completeOnboarding,
