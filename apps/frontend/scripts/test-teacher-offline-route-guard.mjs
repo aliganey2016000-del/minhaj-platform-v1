@@ -33,7 +33,15 @@ const context={exports:{},window:{location:{}},
       logout:()=>{},lockOfflineSession:()=>{},
     })};
     if(path.endsWith('/teacher-sidebar-access'))return {
-      firstAllowedTeacherRoute:()=>'/teacher/attendance',isTeacherRouteAllowed:()=>true,
+      firstAllowedTeacherRoute:()=>'/teacher/attendance',
+      isTeacherRouteAllowed:(path,rights)=>
+        (path==='/teacher/attendance' && rights['teacher/attendance']!==false) ||
+        (path==='/teacher/schedule' && rights['teacher/schedule']!==false),
+    };
+    if(path.endsWith('/teacher-offline-attendance'))return {
+      offlineAttendanceOwner:()=> 'balcad.schoolapp.so:school-a:teacher-a:session-a',
+      getOfflineTeacherSidebar:async()=>({'teacher/attendance':true,'teacher/schedule':true}),
+      getOfflineTeachingSchedule:async()=>({schedules:[],periods:[]}),
     };
     if(path.endsWith('/teacher-sidebar'))return {TeacherSidebar:'TeacherSidebar'};
     if(path.endsWith('/dashboard-header'))return {DashboardHeader:'DashboardHeader'};
@@ -50,6 +58,7 @@ let tree=context.exports.TeacherLayout();
 for(const effect of effects.splice(0))effect();
 assert.equal(calls.length,0,'Offline PIN session must not fetch sidebar settings');
 assert.ok(flatten(tree).some(n=>n.type==='Outlet'),'Offline attendance must mount cached attendance');
+assert.ok(flatten(tree).some(n=>n.type==='TeacherSidebar'),'Offline portal must display teacher navigation');
 route='/teacher/exams';
 tree=context.exports.TeacherLayout();
 for(const effect of effects.splice(0))effect();
