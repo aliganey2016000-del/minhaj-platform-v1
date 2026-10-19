@@ -191,7 +191,7 @@ export function TeacherExamPeriodWorkspace() {
       setExams(nextExams);
       setAssignments(nextAssignments);
       setUsingOfflineData(false);
-      await cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() });
+      await cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() }).catch(() => undefined);
     } catch (err: any) {
       const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
       if (cached) {
