@@ -19,7 +19,17 @@ function ownerPrefix(): string | null {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
   const session = localStorage.getItem('loginSessionId');
   if (!session) return null;
-  return PREFIX + encodeURIComponent(window.location.hostname) + ':' + encodeURIComponent(session) + ':';
+  // Match the existing teacher offline-attendance ownership format so the
+  // auth provider can safely transfer pending work across a same-teacher login.
+  try {
+    const raw = localStorage.getItem('sahal-offline-teacher-session');
+    const identity = raw ? JSON.parse(raw) : null;
+    if (identity?.role === 'teacher' && identity.hostname === window.location.hostname &&
+      identity.loginSessionId === session && identity.id && identity.organizationId) {
+      return PREFIX + [window.location.hostname, identity.organizationId, identity.id, session].map((part) => encodeURIComponent(String(part))).join(':') + ':';
+    }
+  } catch { /* Fall back to this exact login session when no verified teacher identity exists. */ }
+  return PREFIX + encodeURIComponent(window.location.hostname) + ':session:' + encodeURIComponent(session) + ':';
 }
 
 function scopedKey(suffix: string): string | null {
