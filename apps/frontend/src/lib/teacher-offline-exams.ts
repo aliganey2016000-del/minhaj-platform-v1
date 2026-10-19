@@ -43,6 +43,16 @@ export async function getCachedTeacherExamAttendance<T = any>(examId: string): P
   return key ? getOfflineData<T>(key) : undefined;
 }
 
+export async function cacheTeacherInvigilationRoster(assignmentId: string, value: unknown): Promise<void> {
+  const key = scopedKey('room-attendance:' + assignmentId);
+  if (key) await saveOfflineData(key, value);
+}
+
+export async function getCachedTeacherInvigilationRoster<T = any>(assignmentId: string): Promise<T | undefined> {
+  const key = scopedKey('room-attendance:' + assignmentId);
+  return key ? getOfflineData<T>(key) : undefined;
+}
+
 export async function cacheTeacherResultCourses(value: unknown): Promise<void> {
   const key = scopedKey('result-courses');
   if (key) await saveOfflineData(key, value);
@@ -84,6 +94,16 @@ export async function queueTeacherExamAttendance(examId: string, records: Array<
   if (!key || !prefix) throw new Error('Please sign in online before preparing offline exam attendance.');
   await saveOfflineData(key, {
     key, owner: prefix, kind: 'attendance', url: '/exams/' + encodeURIComponent(examId) + '/attendance',
+    body: { records }, createdAt: Date.now(), status: 'pending',
+  } satisfies PendingTeacherExamWrite);
+}
+
+export async function queueTeacherInvigilationAttendance(assignmentId: string, records: Array<{ student: string; status: 'present' | 'absent'; notes?: string }>): Promise<void> {
+  const key = pendingKey('attendance', 'room:' + assignmentId);
+  const prefix = ownerPrefix();
+  if (!key || !prefix) throw new Error('Please sign in online before preparing offline exam attendance.');
+  await saveOfflineData(key, {
+    key, owner: prefix, kind: 'attendance', url: '/exams/invigilators/' + encodeURIComponent(assignmentId) + '/attendance',
     body: { records }, createdAt: Date.now(), status: 'pending',
   } satisfies PendingTeacherExamWrite);
 }
