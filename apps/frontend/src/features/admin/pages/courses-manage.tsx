@@ -352,7 +352,7 @@ function CourseCard({ course: c, teachers, selected, onToggleSelect, onChangeTea
     <article className="group rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
       <div className="relative h-40 bg-gradient-to-br from-primary-100 via-primary-50 to-sky-100 dark:from-primary-900/40 dark:via-sky-900/30 dark:to-primary-950/50 flex items-center justify-center">
         {c.thumbnail && !thumbnailBroken ? (
-          <img src={c.thumbnail} alt={c.title.en} className="w-full h-full object-cover" onError={() => setThumbnailBroken(true)} />
+          <img src={c.thumbnail} alt={`${c.title.en} book cover`} className={`h-full w-full ${c.scope === 'global' ? 'object-contain p-2' : 'object-cover'}`} onError={() => setThumbnailBroken(true)} />
         ) : (
           <BookOpen className="h-10 w-10 text-primary-400" strokeWidth={1.5} />
         )}
