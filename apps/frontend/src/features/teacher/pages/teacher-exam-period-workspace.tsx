@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
 import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace } from '../../../lib/teacher-offline-exams';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
@@ -278,6 +279,8 @@ export function TeacherExamPeriodWorkspace() {
             {error}
           </div>
         )}
+
+        <TeacherExamOfflineStatus />
 
         {usingOfflineData && (
           <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
