@@ -25,7 +25,7 @@ import {
   cacheAttendanceSessions, cacheAttendanceRoster,
   getCachedAttendanceSessions, listMyAttendanceQueue,
   offlineAttendanceOwner, flushTeacherAttendanceQueue, prepareTeacherOfflineAppShell,
-  getOfflineAttendanceAccessWindow, saveVerifiedTeacherIdentity,
+  getOfflineAttendanceAccessWindow, saveVerifiedTeacherIdentity, preparedAttendanceDates,
 } from '../../../lib/teacher-offline-attendance';
 
 interface Session {
@@ -197,16 +197,38 @@ export function TeacherSchoolAttendance() {
       // PWA can now cold-launch the previously prepared attendance screen.
       await prepareTeacherOfflineAppShell();
       await import('./teacher-school-attendance-roster');
-      // Download one at a time to avoid spiking a low-bandwidth school.
+      // A 7-day admin policy prepares ALL Saturday-Friday rosters, not
+      // merely the date currently selected by the teacher. Fetch sequentially
+      // to stay usable on slow mobile networks and cache even holiday/empty
+      // timetable days, so the PWA can open every day of the school week.
+      const grant = getOfflineAttendanceAccessWindow();
+      if (!grant) throw new Error('Offline week could not be verified. Reconnect and try again.');
+      const daysToPrepare = preparedAttendanceDates(grant, date);
       let ready = 0;
-      for (const session of sessions) {
-        const { data } = await api.get('/attendance/school/session/' + session._id, { params: { date }, timeout: 15000 });
-        await cacheAttendanceRoster(owner, date, session._id, data.data);
-        ready++;
+      let preparedDays = 0;
+      for (const targetDate of daysToPrepare) {
+        const { data } = await api.get('/attendance/school/sessions', {
+          params: { date: targetDate }, timeout: 15000,
+        });
+        const dayData = data.data;
+        const daySessions: Session[] = dayData?.sessions || [];
+        await cacheAttendanceSessions(owner, targetDate, {
+          sessions: daySessions, calendarDay: dayData?.calendarDay || null,
+        });
+        for (const session of daySessions) {
+          const response = await api.get('/attendance/school/session/' + session._id, {
+            params: { date: targetDate }, timeout: 15000,
+          });
+          await cacheAttendanceRoster(owner, targetDate, session._id, response.data.data);
+          ready++;
+        }
+        preparedDays++;
+        setOfflineMessage('Prepared ' + preparedDays + '/' + daysToPrepare.length +
+          ' days and ' + ready + ' class rosters...');
       }
-      setOfflineMessage(ready + ' rosters for ' + date + ' ready for offline attendance. ' +
-        (getOfflineAttendanceAccessWindow()?.calendarAligned ? 'Period ends when the next Saturday begins (Somalia time).' : '') +
-        ' Keep this device private.');
+      setOfflineMessage(ready + ' class rosters across ' + preparedDays + ' date(s) ready. ' +
+        (grant.calendarAligned ? 'Saturday–Friday school week; renew online next Saturday. ' : '') +
+        'Keep this device private.');
     } catch (e: any) {
       setOfflineMessage(e?.response?.data?.message || e?.message || 'Some rosters could not be downloaded. Please retry while online.');
     } finally { setPreparing(false); }
