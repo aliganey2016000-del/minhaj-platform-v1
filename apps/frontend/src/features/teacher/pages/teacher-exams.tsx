@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { cacheTeacherExamPeriods, getCachedTeacherExamPeriods } from '../../../lib/teacher-offline-exams';
+import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
 
 interface ExamPeriod {
   _id: string;
@@ -48,6 +50,7 @@ export function TeacherExams() {
   const [exams, setExams] = useState<TeacherExam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [usingOfflineData, setUsingOfflineData] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -57,10 +60,22 @@ export function TeacherExams() {
         api.get('/exams/periods'),
         api.get('/exams', { params: { limit: 200 } }),
       ]);
-      setPeriods((periodResponse.data?.data || []).filter((period: ExamPeriod) => period.status === 'published'));
-      setExams(examResponse.data?.data || []);
+      const publishedPeriods = (periodResponse.data?.data || []).filter((period: ExamPeriod) => period.status === 'published');
+      const nextExams = examResponse.data?.data || [];
+      setPeriods(publishedPeriods);
+      setExams(nextExams);
+      setUsingOfflineData(false);
+      await cacheTeacherExamPeriods({ periods: publishedPeriods, exams: nextExams, cachedAt: Date.now() }).catch(() => undefined);
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Could not load published exam periods.');
+      const cached = await getCachedTeacherExamPeriods<{ periods?: ExamPeriod[]; exams?: TeacherExam[]; cachedAt?: number }>().catch(() => undefined);
+      if (cached) {
+        setPeriods((cached.periods || []).filter((period) => period.status === 'published'));
+        setExams(cached.exams || []);
+        setUsingOfflineData(true);
+        setError('');
+      } else {
+        setError(err?.response?.data?.message || 'No saved exam periods are available. Connect once and open this page to prepare the exam portal for offline use.');
+      }
     } finally {
       setLoading(false);
     }
@@ -91,6 +106,13 @@ export function TeacherExams() {
         {error && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
             {error}
+          </div>
+        )}
+
+        <TeacherExamOfflineStatus />
+        {usingOfflineData && (
+          <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            Offline mode: showing published exam periods and assignments saved on this device. Open each period while online and use “Prepare for offline” to cache its full workspace.
           </div>
         )}
 
