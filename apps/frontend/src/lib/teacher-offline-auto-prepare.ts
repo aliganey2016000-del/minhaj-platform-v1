@@ -13,6 +13,7 @@ import {
 
 const prefix='sahal-offline-auto-prep:';
 let inFlight:Promise<void>|null=null;
+let activeOwner:string|null=null;
 function localISO(date:Date):string {
   return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
 }
@@ -32,12 +33,18 @@ export async function prepareTeacherOfflineAutomatically(user:{id:string;role:st
   const previous=readAutoOfflineStatus(owner);
   const today=localISO(new Date());
   if(!force&&previous?.state==='ready'&&previous.detail===today&&Date.now()-previous.at<12*60*60_000)return;
-  if(inFlight)return inFlight;
+  if (inFlight) {
+    if (activeOwner === owner) return inFlight;
+    // An account switch must not steal the previous account's preparation job.
+    await inFlight;
+    return prepareTeacherOfflineAutomatically(user,force);
+  }
   const grant=getOfflineAttendanceAccessWindow();
   if(!grant)return;
   const token=localStorage.getItem('accessToken');
   const valid=()=>navigator.onLine&&offlineAttendanceOwner(user)===owner&&
     localStorage.getItem('accessToken')===token;
+  activeOwner=owner;
   inFlight=(async()=>{
     let preparedDays=0,rosters=0;
     emit(owner,{state:'preparing',preparedDays,rosters,at:Date.now()});
@@ -99,6 +106,6 @@ export async function prepareTeacherOfflineAutomatically(user:{id:string;role:st
     }catch(e:any){
       emit(owner,{state:'error',preparedDays,rosters,detail:e?.message||'Reconnect to finish automatic offline preparation.',at:Date.now()});
     }
-  })().finally(()=>{inFlight=null});
+  })().finally(()=>{inFlight=null;activeOwner=null});
   return inFlight;
 }
