@@ -109,8 +109,8 @@ export function TeacherLayout() {
     if (!offlineOnly) void loadAccess();
   }, [loadAccess, offlineOnly]);
 
-  // PIN grants read/write access only to locally downloaded attendance.
-  // No online sidebar API, dashboard, exams, finance or generic teacher
+  // PIN grants access only to locally downloaded attendance and the explicitly
+  // prepared exam workspace. No dashboard, finance, exam-paper or generic teacher
   // routes may be reached with an offline-only identity.
   if (offlineOnly) {
     if (!offlineAccessLoaded) {
