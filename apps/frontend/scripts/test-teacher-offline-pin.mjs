@@ -31,7 +31,7 @@ const context = {
   navigator: { onLine: true },
   require(path) {
     if (path === './axios') return api;
-    if (path === './teacher-offline-attendance') return { verifiedOfflineTeacherIdentity: () => identity };
+    if (path === './teacher-offline-attendance') return { verifiedOfflineTeacherIdentity: () => identity, saveVerifiedTeacherIdentity: async () => {} };
     throw new Error('Unexpected import: ' + path);
   },
 };
