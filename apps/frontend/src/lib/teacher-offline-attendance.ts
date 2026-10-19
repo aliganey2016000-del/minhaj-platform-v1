@@ -7,6 +7,7 @@
  * not guarantee delivery after the application is fully closed.
  */
 import api from './axios';
+import { rememberVerifiedTeacher, isOfflineIdentityUnlocked } from './offline-teacher-vault';
 import {
   getOfflineData, saveOfflineData,
   listAttendanceSubmissions, putAttendanceSubmission, removeAttendanceSubmission,
@@ -113,6 +114,7 @@ export async function saveVerifiedTeacherIdentity(user: { id: string; role: stri
     email: user.email, preferredLanguage: user.preferredLanguage,
   };
   localStorage.setItem(OFFLINE_TEACHER_IDENTITY_KEY, JSON.stringify(identity));
+  rememberVerifiedTeacher(identity);
   // A background /auth/me verification may finish after Attendance renders.
   // Notify the current page so its From/Until labels reflect the new grant.
   if (typeof window.dispatchEvent === 'function') {
@@ -123,12 +125,13 @@ export async function saveVerifiedTeacherIdentity(user: { id: string; role: stri
 export function verifiedOfflineTeacherIdentity(): OfflineTeacherIdentity | null {
   try {
     const stored = localStorage.getItem(OFFLINE_TEACHER_IDENTITY_KEY);
-    if (!stored || !localStorage.getItem('accessToken')) return null;
+    if (!stored) return null;
     const info = JSON.parse(stored) as OfflineTeacherIdentity;
     if (info.role !== 'teacher' || !info.id || !info.organizationId ||
         info.expiresAt < Date.now() || !ALLOWED_OFFLINE_DAYS.some(days => days === info.maxOfflineDays) ||
         info.hostname !== window.location.hostname ||
-        info.loginSessionId !== localStorage.getItem('loginSessionId')) return null;
+        info.loginSessionId !== localStorage.getItem('loginSessionId') ||
+        (!localStorage.getItem('accessToken') && !isOfflineIdentityUnlocked(info))) return null;
     return info;
   } catch { return null; }
 }
@@ -147,12 +150,13 @@ export interface OfflineAttendanceAccessWindow {
 export function getOfflineAttendanceAccessWindow(): OfflineAttendanceAccessWindow | null {
   try {
     const raw = localStorage.getItem(OFFLINE_TEACHER_IDENTITY_KEY);
-    if (!raw || !localStorage.getItem('accessToken')) return null;
+    if (!raw) return null;
     const info = JSON.parse(raw) as OfflineTeacherIdentity;
     if (info.role !== 'teacher' || !info.id || !info.organizationId ||
         info.hostname !== window.location.hostname ||
         info.loginSessionId !== localStorage.getItem('loginSessionId') ||
         !ALLOWED_OFFLINE_DAYS.some(days => days === info.maxOfflineDays) ||
+        (!localStorage.getItem('accessToken') && !isOfflineIdentityUnlocked(info)) ||
         !Number.isFinite(info.expiresAt)) return null;
     const from = info.calendarAligned && info.maxOfflineDays === 7
       ? info.periodStart
@@ -261,10 +265,10 @@ export async function queueTeacherAttendance(owner: string, roster: OfflineRoste
 let flushing = false;
 export async function flushTeacherAttendanceQueue(): Promise<void> {
   const owner = offlineAttendanceOwner();
-  if (!owner || flushing || !navigator.onLine) return;
+  if (!owner || flushing || !navigator.onLine || !localStorage.getItem('accessToken')) return;
   const run = async () => {
     const currentOwner = offlineAttendanceOwner();
-    if (currentOwner !== owner || !navigator.onLine) return;
+    if (currentOwner !== owner || !navigator.onLine || !localStorage.getItem('accessToken')) return;
     const queued = (await listAttendanceSubmissions(owner)).filter(s => s.status === 'pending');
     for (const item of queued.sort((a, b) => a.createdAt - b.createdAt)) {
       if (offlineAttendanceOwner() !== owner || !navigator.onLine) break;
