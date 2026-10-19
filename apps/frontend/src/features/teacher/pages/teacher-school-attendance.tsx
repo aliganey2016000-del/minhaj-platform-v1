@@ -25,7 +25,7 @@ import {
   cacheAttendanceSessions, cacheAttendanceRoster,
   getCachedAttendanceSessions, listMyAttendanceQueue,
   offlineAttendanceOwner, flushTeacherAttendanceQueue, prepareTeacherOfflineAppShell,
-  getOfflineAttendanceAccessWindow, saveVerifiedTeacherIdentity,
+  getOfflineAttendanceAccessWindow, saveVerifiedTeacherIdentity, preparedAttendanceDates,
 } from '../../../lib/teacher-offline-attendance';
 
 interface Session {
@@ -175,10 +175,9 @@ export function TeacherSchoolAttendance() {
 
   const prepareOffline = async () => {
     if (!navigator.onLine || preparing || user?.role !== 'teacher' || !user.organizationId) return;
-    if (!isOfflinePinReady()) {
-      setOfflineMessage('Set up a six-digit PIN under Teacher Settings first, then prepare your rosters.');
-      return;
-    }
+    // Check the PIN AFTER a fresh online policy verification: Saturday
+    // begins a new school week and the old PIN expiry may be in the past,
+    // even though the same enrolled device can renew it securely online.
     setPreparing(true);
     setOfflineMessage('Verifying your school offline policy and downloading class rosters...');
     try {
@@ -189,7 +188,7 @@ export function TeacherSchoolAttendance() {
       refreshOfflinePinValidity();
       const owner = offlineAttendanceOwner(user);
       if (!owner || !isOfflinePinReady()) {
-        throw new Error('Offline PIN or verified session expired. Renew it in Teacher Settings.');
+        throw new Error('Set up a six-digit offline PIN under Teacher Settings, then Prepare Offline again.');
       }
       setAccessWindow(getOfflineAttendanceAccessWindow());
       setClockNow(Date.now());
@@ -198,14 +197,38 @@ export function TeacherSchoolAttendance() {
       // PWA can now cold-launch the previously prepared attendance screen.
       await prepareTeacherOfflineAppShell();
       await import('./teacher-school-attendance-roster');
-      // Download one at a time to avoid spiking a low-bandwidth school.
+      // A 7-day admin policy prepares ALL Saturday-Friday rosters, not
+      // merely the date currently selected by the teacher. Fetch sequentially
+      // to stay usable on slow mobile networks and cache even holiday/empty
+      // timetable days, so the PWA can open every day of the school week.
+      const grant = getOfflineAttendanceAccessWindow();
+      if (!grant) throw new Error('Offline week could not be verified. Reconnect and try again.');
+      const daysToPrepare = preparedAttendanceDates(grant, date);
       let ready = 0;
-      for (const session of sessions) {
-        const { data } = await api.get('/attendance/school/session/' + session._id, { params: { date }, timeout: 15000 });
-        await cacheAttendanceRoster(owner, date, session._id, data.data);
-        ready++;
+      let preparedDays = 0;
+      for (const targetDate of daysToPrepare) {
+        const { data } = await api.get('/attendance/school/sessions', {
+          params: { date: targetDate }, timeout: 15000,
+        });
+        const dayData = data.data;
+        const daySessions: Session[] = dayData?.sessions || [];
+        await cacheAttendanceSessions(owner, targetDate, {
+          sessions: daySessions, calendarDay: dayData?.calendarDay || null,
+        });
+        for (const session of daySessions) {
+          const response = await api.get('/attendance/school/session/' + session._id, {
+            params: { date: targetDate }, timeout: 15000,
+          });
+          await cacheAttendanceRoster(owner, targetDate, session._id, response.data.data);
+          ready++;
+        }
+        preparedDays++;
+        setOfflineMessage('Prepared ' + preparedDays + '/' + daysToPrepare.length +
+          ' days and ' + ready + ' class rosters...');
       }
-      setOfflineMessage(ready + ' rosters for ' + date + ' ready for offline attendance. Keep this device private.');
+      setOfflineMessage(ready + ' class rosters across ' + preparedDays + ' date(s) ready. ' +
+        (grant.calendarAligned ? 'Saturday–Friday school week; renew online next Saturday. ' : '') +
+        'Keep this device private.');
     } catch (e: any) {
       setOfflineMessage(e?.response?.data?.message || e?.message || 'Some rosters could not be downloaded. Please retry while online.');
     } finally { setPreparing(false); }
@@ -277,11 +300,11 @@ export function TeacherSchoolAttendance() {
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
-                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">From (online verification)</p>
+                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">{accessWindow.calendarAligned ? 'From (Saturday, school week)' : 'From (online verification)'}</p>
                 <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.from)}</p>
               </div>
               <div className="rounded-lg bg-[var(--color-surface-primary)]/80 p-2.5">
-                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">Until (offline access expires)</p>
+                <p className="text-[11px] font-bold text-[var(--color-text-secondary)]">{accessWindow.calendarAligned ? 'Until (next Saturday 00:00)' : 'Until (offline access expires)'}</p>
                 <p className="mt-1 text-xs font-bold leading-relaxed text-[var(--color-text-primary)] sm:text-sm">{formatOfflineAccessDate(accessWindow.to)}</p>
               </div>
             </div>
@@ -294,8 +317,10 @@ export function TeacherSchoolAttendance() {
               {offlineAccessTimeLeft(accessWindow.to, clockNow)}
             </div>
             <p className="mt-2 text-[11px] text-[var(--color-text-secondary)]">
-              This is your offline PIN login period, not a download of all attendance dates.
-              Download each needed class/date roster while connected.
+              {accessWindow.calendarAligned
+                ? 'School week: Saturday to Friday (Africa/Mogadishu). The next Saturday starts a NEW period. Reconnect and tap Prepare Offline again to activate it.'
+                : 'This is your offline PIN login period.'}
+              {' '}Download each needed class/date roster while connected.
               {accessWindow.to <= clockNow ? ' Saved unsynced attendance is kept for your next verified login.' : ''}
             </p>
           </div>

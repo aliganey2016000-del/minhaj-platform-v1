@@ -112,7 +112,9 @@ export function TeacherSettings() {
             <p className="font-semibold">{pinReady ? 'Offline PIN is ready on this device' : 'Offline PIN is not yet configured'}</p>
             <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
               Sign in online, create a six-digit PIN, then visit Student Attendance and select Prepare Offline.
-              Your school's administrator allows {policyDays} day{policyDays === 1 ? '' : 's'} of offline access after successful online verification.
+              {policyDays === 7
+                ? 'Your school uses Saturday–Friday weekly offline periods (Somalia time). Every Saturday begins a new period. Connect online and tap Prepare Offline again to renew access.'
+                : `Your school's administrator allows ${policyDays} day${policyDays === 1 ? '' : 's'} of offline access after successful online verification.`}
             </p>
           </div>
           <form onSubmit={(event) => void savePin(event)} className="grid gap-3 sm:grid-cols-2">

@@ -62,6 +62,9 @@ export interface OfflineTeacherIdentity {
   expiresAt: number;
   /** Last successful online policy verification, not a roster-download date. */
   verifiedAt?: number;
+  /** School-local weekly Saturday boundary verified by the server. */
+  periodStart?: number;
+  calendarAligned?: boolean;
   maxOfflineDays: number;
   email?: string;
   preferredLanguage?: string;
@@ -82,8 +85,16 @@ export async function saveVerifiedTeacherIdentity(user: { id: string; role: stri
   // authoritative policy following successful online verification.
   const { data } = await api.get('/attendance/offline-policy', { timeout: 15000 });
   const maxOfflineDays = data.data?.maxOfflineDays;
+  const serverPeriodStart = Date.parse(String(data.data?.periodStart || ''));
+  const serverPeriodEnd = Date.parse(String(data.data?.periodEndExclusive || ''));
+  const serverVerifiedAt = Date.parse(String(data.data?.verifiedAt || ''));
+  const calendarAligned = data.data?.calendarAligned === true;
   if (!ALLOWED_OFFLINE_DAYS.some(days => days === maxOfflineDays) ||
-      String(data.data?.organizationId) !== user.organizationId) {
+      String(data.data?.organizationId) !== user.organizationId ||
+      !Number.isFinite(serverPeriodStart) || !Number.isFinite(serverPeriodEnd) ||
+      !Number.isFinite(serverVerifiedAt) || serverPeriodStart > serverVerifiedAt ||
+      serverVerifiedAt >= serverPeriodEnd || serverPeriodEnd - serverPeriodStart !== maxOfflineDays * DAY_MS ||
+      (maxOfflineDays === 7 && (!calendarAligned || data.data?.timezone !== 'Africa/Mogadishu'))) {
     throw new Error('Offline attendance policy could not be verified for your school.');
   }
   // Avoid a stale background request binding a previous teacher's identity
@@ -91,10 +102,14 @@ export async function saveVerifiedTeacherIdentity(user: { id: string; role: stri
   if (localStorage.getItem('loginSessionId') !== loginSessionId || window.location.hostname !== hostname ||
       !localStorage.getItem('accessToken')) return;
   const verifiedAt = Date.now();
+  // A 7-day grant is NEVER extended to 7 days after Monday/Wednesday login.
+  // Server-controlled Saturday-to-Saturday boundaries are authoritative.
+  // Other policies keep their rolling duration.
   const identity: OfflineTeacherIdentity = {
     id: user.id, role: 'teacher', organizationId: user.organizationId,
     loginSessionId, hostname, maxOfflineDays, verifiedAt,
-    expiresAt: verifiedAt + maxOfflineDays * DAY_MS,
+    periodStart: serverPeriodStart, calendarAligned,
+    expiresAt: maxOfflineDays === 7 ? serverPeriodEnd : verifiedAt + maxOfflineDays * DAY_MS,
     email: user.email, preferredLanguage: user.preferredLanguage,
   };
   localStorage.setItem(OFFLINE_TEACHER_IDENTITY_KEY, JSON.stringify(identity));
@@ -124,6 +139,8 @@ export interface OfflineAttendanceAccessWindow {
   from: number;
   to: number;
   maxOfflineDays: number;
+  calendarAligned: boolean;
+  verifiedAt: number;
   expired: boolean;
 }
 
@@ -137,10 +154,16 @@ export function getOfflineAttendanceAccessWindow(): OfflineAttendanceAccessWindo
         info.loginSessionId !== localStorage.getItem('loginSessionId') ||
         !ALLOWED_OFFLINE_DAYS.some(days => days === info.maxOfflineDays) ||
         !Number.isFinite(info.expiresAt)) return null;
-    const from = info.verifiedAt ?? info.expiresAt - info.maxOfflineDays * DAY_MS;
-    if (!Number.isFinite(from) || from > info.expiresAt ||
+    const from = info.calendarAligned && info.maxOfflineDays === 7
+      ? info.periodStart
+      : info.verifiedAt ?? info.expiresAt - info.maxOfflineDays * DAY_MS;
+    if (from === undefined || !Number.isFinite(from)) return null;
+    const verifiedAt = info.verifiedAt ?? from;
+    if (!Number.isFinite(verifiedAt) ||
+        from > verifiedAt || verifiedAt > info.expiresAt || from > info.expiresAt ||
         Math.abs((info.expiresAt - from) - info.maxOfflineDays * DAY_MS) > 1000) return null;
     return { from, to: info.expiresAt, maxOfflineDays: info.maxOfflineDays,
+      calendarAligned: !!info.calendarAligned, verifiedAt,
       expired: info.expiresAt <= Date.now() };
   } catch { return null; }
 }
@@ -175,6 +198,17 @@ export async function prepareTeacherOfflineAppShell(): Promise<void> {
   }
   const cache = await caches.open('sahal-offline-app-shell');
   await cache.put('/', response);
+}
+
+/**
+ * Calendar dates of the school week, independent of browser timezone.
+ * The weekly start is a server-issued Saturday midnight in Mogadishu.
+ */
+export function preparedAttendanceDates(access: OfflineAttendanceAccessWindow, selectedDate: string): string[] {
+  if (!access.calendarAligned || access.maxOfflineDays !== 7) return [selectedDate];
+  const offset = 3 * 60 * 60 * 1000;
+  return Array.from({ length: 7 }, (_, index) =>
+    new Date(access.from + index * DAY_MS + offset).toISOString().slice(0, 10));
 }
 
 export const cacheAttendanceSessions = (owner: string, date: string, value: OfflineSessionList) =>
