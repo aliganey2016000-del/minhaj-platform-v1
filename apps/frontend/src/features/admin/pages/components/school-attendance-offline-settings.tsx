@@ -4,6 +4,11 @@ import api from '../../../../lib/axios';
 
 const OPTIONS = [1, 3, 7, 14, 30] as const;
 const optionName = (days: number) => days === 1 ? '1 day' : `${days} days`;
+const schoolDate = (iso: string) => new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Mogadishu', weekday: 'short', day: '2-digit',
+  month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  hourCycle: 'h23',
+}).format(new Date(iso));
 
 export function SchoolAttendanceOfflineSettings() {
   const [days, setDays] = useState<number>(7);
@@ -12,6 +17,7 @@ export function SchoolAttendanceOfflineSettings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [weeklyPeriod, setWeeklyPeriod] = useState<{ start: string; end: string } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -22,6 +28,9 @@ export function SchoolAttendanceOfflineSettings() {
         setDays(current);
         setSavedDays(current);
       }
+      if (data.data?.calendarAligned && data.data?.periodStart && data.data?.periodEndExclusive) {
+        setWeeklyPeriod({ start: data.data.periodStart, end: data.data.periodEndExclusive });
+      } else setWeeklyPeriod(null);
     }).catch((err: any) => {
       if (active) setError(err?.response?.data?.message || 'Could not load the school offline policy.');
     }).finally(() => { if (active) setLoading(false); });
@@ -36,6 +45,8 @@ export function SchoolAttendanceOfflineSettings() {
       const applied = data.data?.maxOfflineDays;
       if (!OPTIONS.some(option => option === applied)) throw new Error('Server did not confirm the updated policy.');
       setDays(applied); setSavedDays(applied);
+      setWeeklyPeriod(data.data?.calendarAligned && data.data?.periodStart && data.data?.periodEndExclusive
+        ? { start: data.data.periodStart, end: data.data.periodEndExclusive } : null);
       setMessage('Offline access duration saved for your school.');
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Could not save offline settings.');
@@ -63,9 +74,18 @@ export function SchoolAttendanceOfflineSettings() {
         </select>
         <div className="flex items-start gap-2 text-xs text-[var(--color-text-secondary)]">
           <CalendarClock className="h-4 w-4 shrink-0" />
-          <p>Example: choosing 7 days allows a teacher who verifies online on Monday at 8 AM to unlock offline until the following Monday at 8 AM.</p>
+          <p>{days === 7
+            ? '7 days = Saturday 00:00 through Friday 23:59, Somalia time. Every Saturday begins a new weekly period. A teacher must verify online again to activate the new period.'
+            : 'Other durations are counted from each successful online verification (rolling hours).'}
+          </p>
         </div>
       </div>
+      {days === 7 && days === savedDays && weeklyPeriod && (
+        <div className="grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 sm:grid-cols-2 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+          <div><p className="font-bold">Current period starts</p><p>{schoolDate(weeklyPeriod.start)}</p></div>
+          <div><p className="font-bold">Next period starts / current one expires</p><p>{schoolDate(weeklyPeriod.end)}</p></div>
+        </div>
+      )}
       <p className="text-xs leading-relaxed text-[var(--color-text-tertiary)]">
         Changes reach teachers at their next successful online verification. A phone that is already offline cannot receive a new restriction immediately.
         Unsynced attendance is kept for the same teacher to review and sync after reconnecting; server confirmation is still required.
