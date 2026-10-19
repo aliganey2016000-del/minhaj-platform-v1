@@ -81,7 +81,7 @@ export function TeacherExamAttendanceRoster() {
   });
 
   const save = async () => {
-    const records = rows.filter((r) => statuses[r.student._id]).map((r) => ({ student: r.student._id, status: statuses[r.student._id], notes: notes[r.student._id] || '' }));
+    const records = rows.filter((r) => statuses[r.student._id]).map((r) => ({ student: r.student._id, status: statuses[r.student._id] as Status, notes: notes[r.student._id] || '' }));
     if (!records.length) { setError('Mark at least one student before saving.'); return; }
     setSaving(true); setError(''); setMessage('');
     const saveLocally = async () => {
