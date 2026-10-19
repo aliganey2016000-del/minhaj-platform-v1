@@ -215,6 +215,31 @@ export function preparedAttendanceDates(access: OfflineAttendanceAccessWindow, s
     new Date(access.from + index * DAY_MS + offset).toISOString().slice(0, 10));
 }
 
+/** Teaching schedule snapshot is tied to the same teacher+school+session
+ * owner as rosters. No cached school/teacher grants can authorize server writes. */
+export interface OfflineTeachingSchedule {
+  schedules: Array<{
+    _id:string; dayOfWeek:number; startTime:string; endTime:string; studentCount?:number;
+    school?:{_id:string;name:string};
+    class?:{_id:string;title:string;section:string;shiftMode?:'Morning'|'Afternoon'|'Evening'|'Virtual'};
+    course?:{_id:string;title:{en:string}};
+  }>;
+  periods: Array<{label?:string;startTime:string;endTime:string;isBreak?:boolean}>;
+  preparedAt:number;
+}
+export function cacheOfflineTeachingSchedule(owner:string, value:OfflineTeachingSchedule) {
+  return writeCached(keyFor(owner,'teaching-schedule'),value);
+}
+export function getOfflineTeachingSchedule(owner:string) {
+  return readCached<OfflineTeachingSchedule>(keyFor(owner,'teaching-schedule'));
+}
+export function cacheOfflineTeacherSidebar(owner:string, visibility:Record<string,boolean>) {
+  return writeCached(keyFor(owner,'sidebar-visibility'),visibility);
+}
+export function getOfflineTeacherSidebar(owner:string) {
+  return readCached<Record<string,boolean>>(keyFor(owner,'sidebar-visibility'));
+}
+
 export const cacheAttendanceSessions = (owner: string, date: string, value: OfflineSessionList) =>
   writeCached(keyFor(owner, 'sessions', date), value);
 export const getCachedAttendanceSessions = (owner: string, date: string) =>
