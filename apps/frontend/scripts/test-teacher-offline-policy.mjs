@@ -8,7 +8,25 @@ const code = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText;
 
-let policy = { maxOfflineDays: 7, organizationId: 'school-a' };
+const HOUR = 3600000;
+const DAY = 24 * HOUR;
+function serverPolicy(days, organizationId = 'school-a') {
+  const now = Date.now();
+  const school = new Date(now + 3 * HOUR);
+  const daysSinceSaturday = (school.getUTCDay() + 1) % 7;
+  const weeklyStart = Date.UTC(school.getUTCFullYear(), school.getUTCMonth(),
+    school.getUTCDate() - daysSinceSaturday) - 3 * HOUR;
+  const start = days === 7 ? weeklyStart : now;
+  return {
+    maxOfflineDays: days, organizationId,
+    timezone: 'Africa/Mogadishu',
+    calendarAligned: days === 7,
+    verifiedAt: new Date(now).toISOString(),
+    periodStart: new Date(start).toISOString(),
+    periodEndExclusive: new Date(start + days * DAY).toISOString(),
+  };
+}
+let policy = serverPolicy(7);
 let policyCalls = 0;
 const user = { id: 'teacher-a', role: 'teacher', organizationId: 'school-a', email: 'teacher@school-a.test' };
 const storage = new Map([['loginSessionId', 'session-a'], ['accessToken', 'valid-access']]);
@@ -37,7 +55,7 @@ const context = {
 vm.runInNewContext(code, context);
 const { OFFLINE_TEACHER_IDENTITY_KEY, saveVerifiedTeacherIdentity, verifiedOfflineTeacherIdentity, offlineAttendanceOwner, getOfflineAttendanceAccessWindow } = context.exports;
 for (const days of [1, 3, 7, 14, 30]) {
-  policy = { maxOfflineDays: days, organizationId: 'school-a' };
+  policy = serverPolicy(days);
   const before = Date.now();
   await saveVerifiedTeacherIdentity(user);
   const identity = verifiedOfflineTeacherIdentity();
@@ -45,22 +63,30 @@ for (const days of [1, 3, 7, 14, 30]) {
   const windowForTeacher = getOfflineAttendanceAccessWindow();
   assert.ok(windowForTeacher, 'Prepared identity must expose the display window');
   assert.equal(windowForTeacher.maxOfflineDays, days);
-  assert.equal(windowForTeacher.from, identity.verifiedAt);
+  assert.equal(windowForTeacher.from, days === 7 ? Date.parse(policy.periodStart) : identity.verifiedAt);
   assert.equal(windowForTeacher.to, identity.expiresAt);
+  assert.equal(windowForTeacher.calendarAligned, days === 7);
   assert.equal(windowForTeacher.expired, false);
-  assert.equal(windowForTeacher.to - windowForTeacher.from, days * 86400000);
+  assert.equal(windowForTeacher.to - windowForTeacher.from, days * DAY);
   assert.equal(identity.maxOfflineDays, days);
-  assert.ok(identity.expiresAt >= before + days * 86400000);
-  assert.ok(identity.expiresAt <= Date.now() + days * 86400000 + 1000);
+  if (days === 7) {
+    assert.equal(identity.expiresAt, Date.parse(policy.periodEndExclusive),
+      '7 days expires NEXT SATURDAY, never on the rolling verification day');
+    assert.ok(identity.expiresAt < before + 7 * DAY);
+    assert.ok(windowForTeacher.from <= before);
+  } else {
+    assert.ok(identity.expiresAt >= before + days * DAY);
+    assert.ok(identity.expiresAt <= Date.now() + days * DAY + 1000);
+  }
   assert.ok(offlineAttendanceOwner()?.includes('school-a:teacher-a'));
 }
 assert.equal(policyCalls, 5);
 
 const previous = localStorage.getItem(OFFLINE_TEACHER_IDENTITY_KEY);
-policy = { maxOfflineDays: 14, organizationId: 'other-school' };
+policy = serverPolicy(14, 'other-school');
 await assert.rejects(saveVerifiedTeacherIdentity(user), /policy could not be verified/);
 assert.equal(localStorage.getItem(OFFLINE_TEACHER_IDENTITY_KEY), previous, 'Reject a cross-tenant policy');
-policy = { maxOfflineDays: 999, organizationId: 'school-a' };
+policy = serverPolicy(999);
 await assert.rejects(saveVerifiedTeacherIdentity(user), /policy could not be verified/);
 assert.equal(localStorage.getItem(OFFLINE_TEACHER_IDENTITY_KEY), previous, 'Reject tampered policy duration');
 navigator.onLine = false;
@@ -79,4 +105,4 @@ assert.equal(verifiedOfflineTeacherIdentity(), null, 'Expired access must lock')
 const expiredDisplay = getOfflineAttendanceAccessWindow();
 assert.ok(expiredDisplay?.expired, 'Expired grants should still show expiry to the teacher');
 assert.equal(expiredDisplay?.to, expired.expiresAt);
-console.log('PASS: admin duration choices, local access window, expiry display, tenant scoping, no offline extension');
+console.log('PASS: Saturday weekly grant and renewal, rolling nonweekly periods, expiry, tenant scoping, no offline extension');
