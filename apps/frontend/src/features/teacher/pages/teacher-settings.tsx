@@ -130,10 +130,26 @@ export function TeacherSettings() {
           ready++;
         } catch { recordFailure(); }
       }
+      const assignmentResponse = await api.get('/exams/invigilators/my', { timeout: 15000 }).catch(() => null);
+      const assignments = assignmentResponse?.data?.data || [];
+      if (!assignmentResponse) recordFailure();
       for (const period of periods) {
         try {
-          const { data } = await api.get('/exams/periods/' + period._id + '/teacher-workspace', { timeout: 15000 });
-          await cacheTeacherExamWorkspace(period._id, data.data);
+          const { data } = await api.get('/exams', { params: { period: period._id, limit: 200 }, timeout: 15000 });
+          const periodExams = data.data || [];
+          await cacheTeacherExamWorkspace(period._id, {
+            periods,
+            exams: periodExams,
+            assignments,
+            cachedAt: Date.now(),
+          });
+          ready++;
+        } catch { recordFailure(); }
+      }
+      for (const assignment of assignments) {
+        try {
+          const { data } = await api.get('/exams/invigilators/' + assignment._id + '/roster', { timeout: 15000 });
+          await cacheTeacherInvigilationRoster(assignment._id, { ...(data.data || {}), cachedAt: Date.now() });
           ready++;
         } catch { recordFailure(); }
       }
