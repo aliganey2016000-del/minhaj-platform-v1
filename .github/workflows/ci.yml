@@ -569,6 +569,9 @@ jobs:
       - name: Offline teacher PIN and cold-launch auth regressions
         run: node scripts/test-teacher-offline-pin.mjs && node scripts/test-teacher-offline-policy.mjs && node scripts/test-teacher-offline-window-display.mjs && node scripts/test-teacher-offline-route-guard.mjs && node scripts/test-teacher-offline-navigation.mjs && node scripts/test-auth-recovery.mjs
 
+      - name: Guulgaar book cover upload and student card regression
+        run: node scripts/test-guulgaar-book-cover.mjs
+
       - name: Teacher sidebar direct-route access regression
         run: node scripts/test-teacher-sidebar-route-access.mjs
 

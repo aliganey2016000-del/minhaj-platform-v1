@@ -25,6 +25,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as courseController from '../../controllers/course.controller';
+import * as courseCoverController from '../../controllers/guulgaar-course-cover.controller';
 import * as courseSpreadsheetController from '../../controllers/course-spreadsheet.controller';
 import * as courseGenerationController from '../../controllers/course-generation.controller';
 import * as gateReportController from '../../controllers/gate-report.controller';
@@ -34,6 +35,23 @@ import { asyncHandler } from '../../middleware/async-handler.middleware';
 
 const router = Router();
 router.get('/global', authMiddleware, asyncHandler(courseController.getGlobalCatalog));
+const bookCoverUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 3 * 1024 * 1024, files: 1 },
+});
+
+// Random immutable public covers are safe to serve without authentication.
+// Upload remains Super Admin-only with the Courses module permission.
+router.get('/cover/:file', asyncHandler(courseCoverController.getCourseCover));
+router.post(
+  '/cover',
+  authMiddleware,
+  requireModulePermission('courses'),
+  roleMiddleware(['admin']),
+  bookCoverUpload.single('file'),
+  asyncHandler(courseCoverController.uploadCourseCover),
+);
+
 
 // ---------------------------------------------------------------------------
 // IMPORTANT: Fixed-route paths MUST come BEFORE wildcard /:slug routes

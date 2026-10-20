@@ -25,11 +25,59 @@ function CourseModal({ course, org, onClose, onSaved }: { course?: Course; org: 
   const [classes, setClasses] = useState<Ref[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ scope: course?.scope || (defaultGlobal ? 'global' : 'school') as 'school' | 'global', globalGrade: course?.globalGrade || 12, title: course?.title?.en || '', courseCode: course?.courseCode || '', duration: course?.duration || 8, fee: course?.fee || 0, maxStudents: course?.maxStudents || 50, teacher: course?.teacher?._id || '', classId: course?.class?._id || '', status: course?.status || 'draft' as Status, description: course?.description?.en || '' });
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const [coverPreview, setCoverPreview] = useState<string>('');
+  useEffect(() => {
+    if (!coverFile) { setCoverPreview(''); return; }
+    const url = URL.createObjectURL(coverFile);
+    setCoverPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [coverFile]);
+  const [form, setForm] = useState({ scope: course?.scope || (defaultGlobal ? 'global' : 'school') as 'school' | 'global', globalGrade: course?.globalGrade || 12, title: course?.title?.en || '', courseCode: course?.courseCode || '', duration: course?.duration || 8, fee: course?.fee || 0, maxStudents: course?.maxStudents || 50, teacher: course?.teacher?._id || '', classId: course?.class?._id || '', status: course?.status || 'draft' as Status, description: course?.description?.en || '', thumbnail: course?.thumbnail || '' });
 
   useEffect(() => { (async () => { try { const [t, c] = await Promise.all([api.get('/teachers', { params: { school: org._id, status: 'active', limit: 200 } }), api.get('/classes', { params: { schoolId: org._id, status: 'active', limit: 300 } })]); setTeachers(t.data.data || []); setClasses(c.data.data || []); } catch { setTeachers([]); setClasses([]); } })(); }, [org._id]);
 
-  const submit = async (e: React.FormEvent) => { e.preventDefault(); setSaving(true); setError(''); try { const payload = { title: { en: form.title, so: course?.title?.so || '', ar: course?.title?.ar || '' }, description: { en: form.description, so: course?.description?.so || '', ar: course?.description?.ar || '' }, courseCode: form.courseCode.trim(), ...(type === 'school' ? {} : { duration: Number(form.duration), fee: Number(form.fee), ...(form.scope === 'global' ? {} : { maxStudents: Number(form.maxStudents) }) }), scope: form.scope, globalGrade: form.scope === 'global' ? form.globalGrade : undefined, teacher: form.scope === 'global' ? null : form.teacher || undefined, school: form.scope === 'global' ? null : org._id, class: form.scope === 'global' ? null : form.classId || undefined, status: form.status }; if (course) await api.patch(`/courses/${course._id}`, payload); else await api.post('/courses', payload); onSaved(); onClose(); } catch (err: any) { setError(err.response?.data?.message || 'Failed to save course'); } finally { setSaving(false); } };
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      let thumbnail = form.thumbnail;
+      if (form.scope === 'global' && coverFile) {
+        const body = new FormData();
+        body.append('file', coverFile);
+        const { data } = await api.post('/courses/cover', body);
+        if (typeof data.data?.url !== 'string' || !data.data.url.startsWith('/api/v1/courses/cover/')) {
+          throw new Error('Book cover was not uploaded. Please try again.');
+        }
+        thumbnail = data.data.url;
+      }
+      const payload = {
+        title: { en: form.title, so: course?.title?.so || '', ar: course?.title?.ar || '' },
+        description: { en: form.description, so: course?.description?.so || '', ar: course?.description?.ar || '' },
+        courseCode: form.courseCode.trim(),
+        ...(type === 'school' ? {} : {
+          duration: Number(form.duration), fee: Number(form.fee),
+          ...(form.scope === 'global' ? {} : { maxStudents: Number(form.maxStudents) }),
+        }),
+        scope: form.scope,
+        globalGrade: form.scope === 'global' ? form.globalGrade : undefined,
+        ...(form.scope === 'global' ? { thumbnail } : {}),
+        teacher: form.scope === 'global' ? null : form.teacher || undefined,
+        school: form.scope === 'global' ? null : org._id,
+        class: form.scope === 'global' ? null : form.classId || undefined,
+        status: form.status,
+      };
+      if (course) await api.patch(`/courses/${course._id}`, payload);
+      else await api.post('/courses', payload);
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err.response?.data?.message || err?.message || 'Failed to save course');
+    } finally { setSaving(false); }
+  };
 
   const placement = type === 'school' ? 'Class / Section' : type === 'training_center' ? 'Batch / Cohort' : 'Class / Cohort';
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}><div className="w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-2xl bg-[var(--color-surface-primary)] p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -43,6 +91,51 @@ function CourseModal({ course, org, onClose, onSaved }: { course?: Course; org: 
       {form.scope === 'school' && <label className="block text-xs font-semibold">{placement}<select value={form.classId} onChange={e => setForm({ ...form, classId: e.target.value })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm"><option value="">No class/cohort</option>{classes.map(c => <option key={c._id} value={c._id}>{c.title || c.name}{c.section ? ` — ${c.section}` : ''}</option>)}</select></label>}
       {form.scope === 'school' && <label className="block text-xs font-semibold">Teacher / Instructor<select value={form.teacher} onChange={e => setForm({ ...form, teacher: e.target.value })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm"><option value="">Unassigned</option>{teachers.map(t => <option key={t._id} value={t._id}>{teacherName(t)}</option>)}</select></label>}
       <label className="block text-xs font-semibold">Description<textarea rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label>
+      {form.scope === 'global' && (
+        <section aria-label="Guulgaar book cover" className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-900 dark:bg-emerald-950/20 sm:p-4">
+          <div className="mb-3">
+            <h3 className="text-sm font-bold text-[var(--color-text-primary)]">Book Cover · Jaldiga Buugga</h3>
+            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Upload a cover for the student's Guulgaar course card. JPG, PNG or WebP, maximum 3 MB. A portrait book cover looks best.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex h-36 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+              {(coverPreview || form.thumbnail) ? (
+                <img src={coverPreview || form.thumbnail} alt={`Cover preview for ${form.title || 'course'}`}
+                  className="h-full w-full object-contain" />
+              ) : <BookOpen className="h-11 w-11 text-emerald-600/60" aria-hidden="true" />}
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <label htmlFor="guulgaar-cover-upload" className="block text-xs font-bold text-[var(--color-text-primary)]">
+                {coverPreview || form.thumbnail ? 'Replace book cover' : 'Upload book cover'}
+              </label>
+              <input id="guulgaar-cover-upload" ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+                disabled={saving}
+                onChange={e => {
+                  const file = e.currentTarget.files?.[0];
+                  if (!file) return;
+                  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 3 * 1024 * 1024) {
+                    setError('Please choose a JPG, PNG or WebP cover smaller than 3 MB.');
+                    e.currentTarget.value = '';
+                    return;
+                  }
+                  setError('');
+                  setCoverFile(file);
+                }}
+                className="block w-full max-w-xs text-xs text-[var(--color-text-secondary)] file:mr-3 file:rounded-xl file:border-0 file:bg-emerald-600 file:px-3 file:py-2.5 file:font-semibold file:text-white" />
+              {(coverPreview || form.thumbnail) && (
+                <button type="button" disabled={saving}
+                  onClick={() => { setCoverFile(null); setForm(previous => ({ ...previous, thumbnail: '' })); if (coverInputRef.current) coverInputRef.current.value = ''; }}
+                  className="rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-500/10">
+                  Remove cover
+                </button>
+              )}
+              <p className="text-[11px] text-[var(--color-text-tertiary)]">
+                The cover is saved when you {course ? 'update' : 'create'} the course. Students will see it automatically.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
       {type !== 'school' && <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><label className="text-xs font-semibold">Duration<input type="number" min="1" value={form.duration} onChange={e => setForm({ ...form, duration: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label><label className="text-xs font-semibold">Fee<input type="number" min="0" value={form.fee} onChange={e => setForm({ ...form, fee: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label>{form.scope !== 'global' && <label className="text-xs font-semibold">Capacity<input type="number" min="1" value={form.maxStudents} onChange={e => setForm({ ...form, maxStudents: Number(e.target.value) })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm" /></label>}</div>}
       {course && <label className="block text-xs font-semibold">Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value as Status })} className="mt-1 w-full rounded-xl border border-[var(--color-border-default)] bg-transparent px-3 py-2 text-sm"><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option></select></label>}
       <div className="flex gap-2 pt-2"><button type="button" onClick={onClose} className="flex-1 rounded-xl border px-4 py-2.5 text-sm">Cancel</button><button disabled={saving} className="flex-1 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Saving...' : course ? 'Update Course' : 'Create Course'}</button></div>
@@ -259,7 +352,7 @@ function CourseCard({ course: c, teachers, selected, onToggleSelect, onChangeTea
     <article className="group rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
       <div className="relative h-40 bg-gradient-to-br from-primary-100 via-primary-50 to-sky-100 dark:from-primary-900/40 dark:via-sky-900/30 dark:to-primary-950/50 flex items-center justify-center">
         {c.thumbnail && !thumbnailBroken ? (
-          <img src={c.thumbnail} alt={c.title.en} className="w-full h-full object-cover" onError={() => setThumbnailBroken(true)} />
+          <img src={c.thumbnail} alt={`${c.title.en} book cover`} className={`h-full w-full ${c.scope === 'global' ? 'object-contain p-2' : 'object-cover'}`} onError={() => setThumbnailBroken(true)} />
         ) : (
           <BookOpen className="h-10 w-10 text-primary-400" strokeWidth={1.5} />
         )}
@@ -375,7 +468,7 @@ export default function CoursesManage() {
   const handleDuplicate = async (course: Course) => {
     if (!window.confirm('Duplicate this course?')) return;
     try {
-      const payload: any = { scope: course.scope || 'school', globalGrade: course.globalGrade, title: { en: `${course.title.en} (Copy)`, so: course.title.so || '', ar: course.title.ar || '' }, description: course.description || { en: '', so: '', ar: '' }, category: course.category, level: course.level, duration: course.duration, fee: course.fee, teacher: course.teacher?._id || undefined, school: organizationId, class: course.class?._id || undefined, maxStudents: course.maxStudents };
+      const payload: any = { scope: course.scope || 'school', globalGrade: course.globalGrade, title: { en: `${course.title.en} (Copy)`, so: course.title.so || '', ar: course.title.ar || '' }, description: course.description || { en: '', so: '', ar: '' }, category: course.category, level: course.level, duration: course.duration, fee: course.fee, teacher: course.teacher?._id || undefined, school: organizationId, class: course.class?._id || undefined, maxStudents: course.maxStudents, ...(course.scope === 'global' && course.thumbnail ? { thumbnail: course.thumbnail } : {}) };
       await api.post('/courses', payload);
       await load();
     } catch (err: any) { setError(err.response?.data?.message || 'Failed to duplicate course'); }
