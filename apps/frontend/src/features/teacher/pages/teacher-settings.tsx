@@ -255,10 +255,7 @@ export function TeacherSettings() {
           {showOfflineAccess && <>
           <div className="mb-4 flex items-center gap-3">
             <span className="rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40"><ShieldCheck className="h-5 w-5" /></span>
-            <div>
-              <h2 className="font-bold">Offline Attendance Access</h2>
-              <p className="text-xs text-[var(--color-text-tertiary)]">Securely unlock previously downloaded rosters without internet.</p>
-            </div>
+
           </div>
           <div className="mb-4 rounded-xl bg-[var(--color-surface-secondary)] p-3 text-sm">
             <p className="font-semibold">{pinReady ? 'Offline PIN is ready on this device' : 'Offline PIN is not yet configured'}</p>
