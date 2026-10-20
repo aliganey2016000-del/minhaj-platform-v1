@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BookOpenCheck,
@@ -178,55 +178,71 @@ export function TeacherExamPeriodWorkspace() {
   const [preparingOffline, setPreparingOffline] = useState(false);
   const [offlinePrepMessage, setOfflinePrepMessage] = useState('');
 
+  const requestRef = useRef<Promise<void> | null>(null);
+
   const load = async () => {
-    if (!periodId) return;
-    setLoading(true);
-    setError('');
-    try {
-      const [periodResponse, examResponse, assignmentResponse] = await Promise.all([
-        api.get('/exams/periods'),
-        api.get('/exams', { params: { period: periodId, limit: 200 } }),
-        api.get('/exams/invigilators/my'),
-      ]);
-      const nextPeriods = periodResponse.data?.data || [];
-      const nextExams = examResponse.data?.data || [];
-      const nextAssignments = (assignmentResponse.data?.data || []).filter((assignment: Assignment) => assignmentPeriodId(assignment) === periodId);
-      setPeriods(nextPeriods);
-      setExams(nextExams);
-      setAssignments(nextAssignments);
-      setUsingOfflineData(false);
-      const cachedExamSnapshot = await getCachedTeacherExamPeriods<{ exams?: Exam[] }>().catch(() => undefined);
-      const mergedExams = [
-        ...(cachedExamSnapshot?.exams || []).filter((cachedExam) => !nextExams.some((exam: Exam) => exam._id === cachedExam._id)),
-        ...nextExams,
-      ];
-      await Promise.all([
-        cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() }),
-        // Preserve assignments from other exam periods when this period is
-        // opened; otherwise offline period cards would show misleading zero counts.
-        cacheTeacherExamPeriods({
-          periods: nextPeriods.filter((item: ExamPeriod) => item.status === 'published'),
-          exams: mergedExams,
-          cachedAt: Date.now(),
-        }),
-      ]).catch(() => undefined);
-    } catch (err: any) {
-      const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
-      if (cached) {
-        setPeriods(cached.periods || []);
-        setExams(cached.exams || []);
-        setAssignments(cached.assignments || []);
-        setUsingOfflineData(true);
-        setError('');
-      } else {
-        setError(err?.response?.data?.message || 'Could not load this exam workspace. Connect to the internet once to download it for offline use.');
+    if (!periodId || requestRef.current) return requestRef.current || undefined;
+    const task = (async () => {
+      setError('');
+      let hasCachedData = false;
+      try {
+        // Hydrate from IndexedDB before making any network request.
+        const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
+        if (cached) {
+          hasCachedData = true;
+          setPeriods(cached.periods || []);
+          setExams(cached.exams || []);
+          setAssignments(cached.assignments || []);
+          setUsingOfflineData(typeof navigator !== 'undefined' && !navigator.onLine);
+          setLoading(false);
+        }
+
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          if (!hasCachedData) setError('No saved exam workspace is available. Connect once and use “Prepare for offline” to download it.');
+          return;
+        }
+
+        const [periodResponse, examResponse, assignmentResponse] = await Promise.all([
+          api.get('/exams/periods'),
+          api.get('/exams', { params: { period: periodId, limit: 200 } }),
+          api.get('/exams/invigilators/my'),
+        ]);
+        const nextPeriods = periodResponse.data?.data || [];
+        const nextExams = examResponse.data?.data || [];
+        const nextAssignments = (assignmentResponse.data?.data || []).filter((assignment: Assignment) => assignmentPeriodId(assignment) === periodId);
+        setPeriods(nextPeriods);
+        setExams(nextExams);
+        setAssignments(nextAssignments);
+        setUsingOfflineData(false);
+        const cachedExamSnapshot = await getCachedTeacherExamPeriods<{ exams?: Exam[] }>().catch(() => undefined);
+        const mergedExams = [
+          ...(cachedExamSnapshot?.exams || []).filter((cachedExam) => !nextExams.some((exam: Exam) => exam._id === cachedExam._id)),
+          ...nextExams,
+        ];
+        await Promise.all([
+          cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() }),
+          cacheTeacherExamPeriods({
+            periods: nextPeriods.filter((item: ExamPeriod) => item.status === 'published'),
+            exams: mergedExams,
+            cachedAt: Date.now(),
+          }),
+        ]).catch(() => undefined);
+      } catch (err: any) {
+        if (!hasCachedData) setError(err?.response?.data?.message || 'Could not load this exam workspace. Connect to the internet once to download it for offline use.');
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
+    })();
+    requestRef.current = task;
+    try { await task; } finally { requestRef.current = null; }
   };
 
-  useEffect(() => { void load(); }, [periodId]);
+  useEffect(() => {
+    void load();
+    const onOnline = () => { void load(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [periodId]);
 
   const prepareOffline = async () => {
     if (!navigator.onLine) {
