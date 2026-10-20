@@ -172,6 +172,7 @@ export function TeacherExamPeriodWorkspace() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [invigilationStatus, setInvigilationStatus] = useState<DutyStatus>('upcoming');
+  const [attendanceStatus, setAttendanceStatus] = useState<DutyStatus>('upcoming');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [usingOfflineData, setUsingOfflineData] = useState(false);
@@ -349,6 +350,17 @@ export function TeacherExamPeriodWorkspace() {
   const filteredInvigilationAssignments = useMemo(
     () => sortedAssignments.filter((assignment) => dutyStatus(assignment) === invigilationStatus),
     [sortedAssignments, invigilationStatus],
+  );
+
+  const attendanceCounts = useMemo(() => ({
+    upcoming: sortedAssignments.filter((assignment) => dutyStatus(assignment) === 'upcoming').length,
+    ongoing: sortedAssignments.filter((assignment) => dutyStatus(assignment) === 'ongoing').length,
+    completed: sortedAssignments.filter((assignment) => dutyStatus(assignment) === 'completed').length,
+  }), [sortedAssignments]);
+
+  const filteredAttendanceAssignments = useMemo(
+    () => sortedAssignments.filter((assignment) => dutyStatus(assignment) === attendanceStatus),
+    [sortedAssignments, attendanceStatus],
   );
 
   const setTab = (tab: WorkspaceTab) => {
@@ -620,9 +632,45 @@ export function TeacherExamPeriodWorkspace() {
                   <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Open an assigned room to mark or review student attendance.</p>
                 </div>
 
-                {sortedAssignments.length === 0 ? emptyState('No attendance rooms available', 'Attendance becomes available through rooms assigned to you for invigilation.', ClipboardCheck) : (
+                <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
+                  <nav className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1" aria-label="Attendance room status">
+                    {([
+                      ['upcoming', 'Upcoming'],
+                      ['ongoing', 'Ongoing'],
+                      ['completed', 'Completed'],
+                    ] as Array<[DutyStatus, string]>).map(([key, label]) => {
+                      const selected = attendanceStatus === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setAttendanceStatus(key)}
+                          className={`flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-black transition sm:text-sm ${selected ? 'bg-emerald-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]'}`}
+                          aria-pressed={selected}
+                        >
+                          <span className="truncate">{label}</span>
+                          <span className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-black ${selected ? 'bg-white/20 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)]'}`}>
+                            {attendanceCounts[key]}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </nav>
+                </div>
+
+                {sortedAssignments.length === 0 ? emptyState('No attendance rooms available', 'Attendance becomes available through rooms assigned to you for invigilation.', ClipboardCheck) : filteredAttendanceAssignments.length === 0 ? (
+                  emptyState(
+                    `No ${attendanceStatus} attendance rooms`,
+                    attendanceStatus === 'upcoming'
+                      ? 'You do not have another assigned room waiting to start.'
+                      : attendanceStatus === 'ongoing'
+                        ? 'You do not have an exam room in progress right now.'
+                        : 'No completed attendance rooms yet.',
+                    ClipboardCheck,
+                  )
+                ) : (
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {sortedAssignments.map((assignment) => {
+                    {filteredAttendanceAssignments.map((assignment) => {
                       const status = dutyStatus(assignment);
                       return (
                         <Link
