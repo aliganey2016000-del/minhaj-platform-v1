@@ -11,8 +11,9 @@
  * shape/validation (builder-quiz-editor.tsx) — one codebase for both.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import api from '../../../lib/axios';
+import { cacheTeacherExamPaper, getCachedTeacherExamPaper } from '../../../lib/teacher-offline-exams';
 import type { Chapter, QuizQuestion, QuestionType } from '../pages/course-builder.types';
 import { normalizeQuestion } from '../pages/course-builder.types';
 import { QUESTION_TYPE_META } from '../pages/quiz-question-meta';
@@ -66,19 +67,40 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
+  const dirtyRef = useRef(false);
+
+  const applyPaper = (p: ExamPaper | null) => {
+    setPaper(p);
+    onChange?.(p);
+    setTitle(p?.title || '');
+    setInstructions(p?.instructions || '');
+    setQuestions((p?.questions?.length ? p.questions : []).map(normalizeQuestion));
+  };
+
   const load = useCallback(async () => {
-    setLoading(true);
     setError('');
+    let hasCachedPaper = false;
     try {
+      const cached = await getCachedTeacherExamPaper<ExamPaper | null>(examId).catch(() => undefined);
+      if (cached !== undefined) {
+        hasCachedPaper = true;
+        applyPaper(cached);
+        setLoading(false);
+      }
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (!hasCachedPaper) setError('No saved exam paper is available on this device. Connect once to download its questions for offline viewing.');
+        return;
+      }
+
       const { data } = await api.get(`/exams/${examId}/paper`);
       const p: ExamPaper | null = data.data;
-      setPaper(p);
-      onChange?.(p);
-      setTitle(p?.title || '');
-      setInstructions(p?.instructions || '');
-      setQuestions((p?.questions?.length ? p.questions : []).map(normalizeQuestion));
+      // Never replace edits made while the background request was in flight.
+      if (!dirtyRef.current) {
+        applyPaper(p);
+        await cacheTeacherExamPaper(examId, p).catch(() => undefined);
+      }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load paper');
+      if (!hasCachedPaper) setError(err?.response?.data?.message || 'No saved exam paper is available. Connect once to download its questions for offline viewing.');
     } finally {
       setLoading(false);
     }
@@ -90,6 +112,7 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
   const isLocked = paper && !['draft', 'rejected'].includes(paper.status);
 
   const addQuestion = (type: QuestionType) => {
+    dirtyRef.current = true;
     setQuestions((prev) => [...prev, createQuestion(type)]);
     setTypeMenuOpen(false);
     setValidationError('');
@@ -97,12 +120,14 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
   };
 
   const addGeneratedQuestions = (generated: QuizQuestion[]) => {
+    dirtyRef.current = true;
     setQuestions((prev) => [...prev, ...generated]);
     setValidationError('');
     setInvalidIds(new Set());
   };
 
   const updateQuestion = (idx: number, updated: QuizQuestion) => {
+    dirtyRef.current = true;
     setQuestions((prev) => prev.map((q, i) => (i === idx ? updated : q)));
     if (updated._id) {
       setInvalidIds((prev) => {
@@ -115,6 +140,7 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
   };
 
   const removeQuestion = (idx: number) => {
+    dirtyRef.current = true;
     setQuestions((prev) => prev.filter((_, i) => i !== idx));
     setValidationError('');
     setInvalidIds(new Set());
@@ -154,6 +180,8 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
       const { data } = await api.put(`/exams/${examId}/paper`, { title, instructions, questions });
       setPaper(data.data);
       onChange?.(data.data);
+      dirtyRef.current = false;
+      await cacheTeacherExamPaper(examId, data.data).catch(() => undefined);
       setMessage('✅ Paper saved as draft');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to save paper');
@@ -172,6 +200,8 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
       const { data } = await api.post(`/exams/${examId}/paper/submit`);
       setPaper(data.data);
       onChange?.(data.data);
+      dirtyRef.current = false;
+      await cacheTeacherExamPaper(examId, data.data).catch(() => undefined);
       setMessage('✅ Submitted for admin review');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to submit paper');
@@ -225,11 +255,11 @@ export function ExamPaperEditor({ examId, onChange, chapters = [] }: ExamPaperEd
       <fieldset disabled={!!isLocked} className="space-y-4 disabled:opacity-60">
         <div>
           <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Paper Title *</label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="e.g. Midterm Exam Paper" />
+          <input value={title} onChange={(e) => { dirtyRef.current = true; setTitle(e.target.value); }} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="e.g. Midterm Exam Paper" />
         </div>
         <div>
           <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1 block">Instructions</label>
-          <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="Instructions shown to the student before they start" />
+          <textarea value={instructions} onChange={(e) => { dirtyRef.current = true; setInstructions(e.target.value); }} rows={2} className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-sm" placeholder="Instructions shown to the student before they start" />
         </div>
 
         <div>
