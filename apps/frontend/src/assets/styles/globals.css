@@ -363,3 +363,38 @@
     box-shadow: 0 14px 30px rgba(15, 118, 110, 0.09);
   }
 }
+
+
+/* Keep native form controls and their browser-rendered popups readable in both themes.
+   In particular, <option> menus otherwise inherit the OS light palette in dark mode. */
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark select,
+html.dark select option,
+html.dark optgroup {
+  color: #e2e8f0;
+  background-color: #0f172a;
+}
+
+html:not(.dark) select,
+html:not(.dark) select option,
+html:not(.dark) optgroup {
+  color: #0f172a;
+  background-color: #ffffff;
+}
+
+html.dark input,
+html.dark textarea {
+  color-scheme: dark;
+}
+
+html:not(.dark) input,
+html:not(.dark) textarea {
+  color-scheme: light;
+}
