@@ -164,11 +164,11 @@ function ColumnVisibilityMenu({ hidden, onToggle }: { hidden: Set<ManualEntrySlo
 
 /** A single responsive filter popover keeps course narrowing controls compact on phones and desktops. */
 function ResultsFilterMenu({
-  orgFilter, deptFilter, classFilter, selectedCourseId,
+  isTeacher, orgFilter, deptFilter, classFilter, selectedCourseId,
   orgOptions, deptOptions, classOptions, courseOptions,
   onOrgChange, onDeptChange, onClassChange, onCourseChange,
 }: {
-  orgFilter: string; deptFilter: string; classFilter: string; selectedCourseId: string;
+  isTeacher: boolean; orgFilter: string; deptFilter: string; classFilter: string; selectedCourseId: string;
   orgOptions: SearchableSelectOption[]; deptOptions: SearchableSelectOption[];
   classOptions: SearchableSelectOption[]; courseOptions: SearchableSelectOption[];
   onOrgChange: (value: string) => void; onDeptChange: (value: string) => void;
@@ -176,7 +176,7 @@ function ResultsFilterMenu({
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const activeCount = [orgFilter, deptFilter, classFilter, selectedCourseId].filter(Boolean).length;
+  const activeCount = [deptFilter, classFilter, selectedCourseId].filter(Boolean).length;
 
   useEffect(() => {
     const onClickOutside = (event: MouseEvent) => {
@@ -202,13 +202,13 @@ function ResultsFilterMenu({
               <p className="text-sm font-bold text-[var(--color-text-primary)]">Filter results</p>
               <p className="text-xs text-[var(--color-text-tertiary)]">Choose a department, class, or course.</p>
             </div>
-            {activeCount > 0 && <button type="button" onClick={() => { onOrgChange(''); onDeptChange(''); onClassChange(''); onCourseChange(''); }} className="shrink-0 text-xs font-semibold text-primary-600 hover:underline">Clear all</button>}
+            {activeCount > 0 && <button type="button" onClick={() => { onDeptChange(''); onClassChange(''); onCourseChange(''); }} className="shrink-0 text-xs font-semibold text-primary-600 hover:underline">Clear all</button>}
           </div>
           <div className="grid grid-cols-1 gap-3">
-            <div>
+            {!isTeacher && <div>
               <label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Organization</label>
               <SearchableSelect value={orgFilter} onChange={onOrgChange} options={orgOptions} placeholder="All organizations" searchPlaceholder="Search organizations..." />
-            </div>
+            </div>}
             <div>
               <label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Department</label>
               <SearchableSelect value={deptFilter} onChange={onDeptChange} options={deptOptions} placeholder="All departments" searchPlaceholder="Search departments..." disabled={deptOptions.length === 0} />
@@ -898,7 +898,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
         {!embedded && <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 sm:p-4 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <ResultsFilterMenu
-              orgFilter={orgFilter} deptFilter={deptFilter} classFilter={classFilter} selectedCourseId={selectedCourseId}
+              isTeacher={isTeacher} orgFilter={orgFilter} deptFilter={deptFilter} classFilter={classFilter} selectedCourseId={selectedCourseId}
               orgOptions={orgOptions} deptOptions={deptOptions} classOptions={classOptions} courseOptions={courseOptions}
               onOrgChange={handleOrgChange} onDeptChange={handleDeptChange} onClassChange={handleClassChange} onCourseChange={loadCourse}
             />
