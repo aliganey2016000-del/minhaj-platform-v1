@@ -368,6 +368,7 @@ async function buildManualEntryRoster(req: Request, courseId: string) {
     courseClass: courseClassLabel,
     courseTitle: (course as any).title?.en || '',
     passingScore: scheme?.passingScore ?? 60,
+    resultsSubmitted: !!(scheme as any)?.resultsSubmitted,
     students: roster,
   };
 }
@@ -390,6 +391,8 @@ export const bulkSetManualGrades = async (req: Request, res: Response): Promise<
   const { courseId } = req.params;
   const courseForEntries = await loadCourseAndAssertAccess(req, courseId);
 
+  const existingScheme = await GradingScheme.findOne({ course: courseId }).lean() as any;
+  if (existingScheme?.resultsSubmitted) throw new ForbiddenError('Results have been submitted and are locked. Ask an administrator to unlock them.');
   const { entries } = req.body as { entries?: { studentId: string; slot: ManualEntrySlot; score: number }[] };
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new BadRequestError('At least one entry is required.');
@@ -422,6 +425,22 @@ export const bulkSetManualGrades = async (req: Request, res: Response): Promise<
   }
 
   return ApiResponse.success(res, { saved }, 'Results saved');
+};
+
+export const submitManualEntryResults = async (req: Request, res: Response): Promise<Response> => {
+  const { courseId } = req.params;
+  await loadCourseAndAssertAccess(req, courseId);
+  const scheme = await GradingScheme.findOneAndUpdate({ course: courseId }, { $set: { resultsSubmitted: true, resultsSubmittedAt: new Date(), resultsSubmittedBy: req.user!.userId }, $unset: { resultsUnlockedAt: 1, resultsUnlockedBy: 1 } }, { new: true, upsert: true });
+  return ApiResponse.success(res, { resultsSubmitted: !!scheme.resultsSubmitted }, 'Results submitted and locked');
+};
+
+export const unlockManualEntryResults = async (req: Request, res: Response): Promise<Response> => {
+  if (!['admin', 'org_admin'].includes(req.user?.role || '')) throw new ForbiddenError('Only an administrator can unlock submitted results.');
+  const { courseId } = req.params;
+  await loadCourseAndAssertAccess(req, courseId);
+  const scheme = await GradingScheme.findOneAndUpdate({ course: courseId }, { $set: { resultsSubmitted: false, resultsUnlockedAt: new Date(), resultsUnlockedBy: req.user!.userId } }, { new: true });
+  if (!scheme) throw new NotFoundError('Grading scheme');
+  return ApiResponse.success(res, { resultsSubmitted: false }, 'Results unlocked by administrator');
 };
 
 // ---------------------------------------------------------------------------

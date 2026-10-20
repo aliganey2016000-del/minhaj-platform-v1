@@ -29,6 +29,8 @@ router.get('/grades/:studentId', asyncHandler(gradebookController.getStudentGrad
 router.put('/manual/:studentId', asyncHandler(gradebookController.setManualGrade));
 router.get('/manual-entry-roster', asyncHandler(gradebookController.getManualEntryRoster));
 router.post('/manual-entry-roster/bulk', asyncHandler(gradebookController.bulkSetManualGrades));
+router.post('/manual-entry-roster/submit', asyncHandler(gradebookController.submitManualEntryResults));
+router.post('/manual-entry-roster/unlock', roleMiddleware(['admin', 'org_admin']), asyncHandler(gradebookController.unlockManualEntryResults));
 router.get('/manual-entry-roster/template', asyncHandler(gradebookController.exportManualEntryTemplate as any));
 router.post('/manual-entry-roster/import', upload.single('file'), asyncHandler(gradebookController.importManualEntryRoster));
 router.get('/export', asyncHandler(gradebookController.exportClassGrades as any));

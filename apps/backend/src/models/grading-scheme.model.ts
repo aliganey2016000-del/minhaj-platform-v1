@@ -44,6 +44,11 @@ export interface IGradingScheme extends Document {
   latePenaltyPercent: number;  // deducted from a late assignment submission's own percentage
   bonusCapPercent: number;     // maximum extra credit a teacher may award on top of the weighted total
   dropLowestQuiz: boolean;
+  resultsSubmitted: boolean;
+  resultsSubmittedAt?: Date;
+  resultsSubmittedBy?: mongoose.Types.ObjectId;
+  resultsUnlockedAt?: Date;
+  resultsUnlockedBy?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -68,6 +73,11 @@ const gradingSchemeSchema = new Schema<IGradingScheme>(
     latePenaltyPercent: { type: Number, default: 0, min: 0, max: 100 },
     bonusCapPercent: { type: Number, default: 0, min: 0, max: 100 },
     dropLowestQuiz: { type: Boolean, default: false },
+    resultsSubmitted: { type: Boolean, default: false },
+    resultsSubmittedAt: { type: Date },
+    resultsSubmittedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    resultsUnlockedAt: { type: Date },
+    resultsUnlockedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }
 );
