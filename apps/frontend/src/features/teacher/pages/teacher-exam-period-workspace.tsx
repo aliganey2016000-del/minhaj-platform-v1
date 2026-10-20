@@ -20,6 +20,7 @@ import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherE
 import { prepareTeacherOfflineAppShell, saveVerifiedTeacherIdentity, offlineAttendanceOwner, cacheOfflineTeacherSidebar } from '../../../lib/teacher-offline-attendance';
 
 type WorkspaceTab = 'schedule' | 'attendance' | 'results';
+type ResultStatusTab = 'pending' | 'submitted';
 
 interface ExamPeriod {
   _id: string;
@@ -44,6 +45,9 @@ interface Exam {
     absent?: number;
     totalMarked?: number;
   };
+  resultsSubmitted?: boolean;
+  resultsStatus?: 'pending' | 'submitted';
+  submittedAt?: string | null;
   course?: {
     _id?: string;
     title?: { en?: string };
@@ -171,6 +175,8 @@ export function TeacherExamPeriodWorkspace() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [attendanceStatus, setAttendanceStatus] = useState<DutyStatus>('upcoming');
+  const [resultStatus, setResultStatus] = useState<ResultStatusTab>('pending');
+  const [resultCompletion, setResultCompletion] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [usingOfflineData, setUsingOfflineData] = useState(false);
@@ -364,6 +370,47 @@ export function TeacherExamPeriodWorkspace() {
     () => [...exams].sort((a, b) => new Date(a.examDate || 0).getTime() - new Date(b.examDate || 0).getTime() || String(a.startTime || '').localeCompare(String(b.startTime || ''))),
     [exams],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (activeTab !== 'results' || sortedExams.length === 0) return;
+    const loadResultCompletion = async () => {
+      const next: Record<string, boolean> = {};
+      await Promise.all(sortedExams.map(async (exam) => {
+        const courseId = exam.course?._id;
+        if (!courseId) { next[exam._id] = false; return; }
+        // Prefer an explicit server submission state when the API provides one.
+        if (exam.resultsStatus === 'submitted' || exam.resultsSubmitted === true || exam.submittedAt) {
+          next[exam._id] = true;
+          return;
+        }
+        if (exam.resultsStatus === 'pending' || exam.resultsSubmitted === false) {
+          next[exam._id] = false;
+          return;
+        }
+        // This app saves gradebook cells as they are entered. In the absence of
+        // a dedicated submit endpoint, treat a course as complete only when all
+        // configured score slots are filled for every student.
+        try {
+          const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
+          const roster = data.data;
+          const requiredSlots = Object.entries(roster?.slots || {})
+            .filter(([, slot]) => Boolean(slot))
+            .map(([key]) => key);
+          next[exam._id] = Boolean(roster?.students?.length && requiredSlots.length &&
+            roster.students.every((student: { scores?: Record<string, number | null> }) =>
+              requiredSlots.every((slot) => student.scores?.[slot] !== null && student.scores?.[slot] !== undefined)
+            ));
+        } catch {
+          // If status cannot be checked, keep it pending rather than claiming submission.
+          next[exam._id] = false;
+        }
+      }));
+      if (!cancelled) setResultCompletion(next);
+    };
+    void loadResultCompletion();
+    return () => { cancelled = true; };
+  }, [activeTab, sortedExams]);
 
   const sortedAssignments = useMemo(
     () => [...assignments].sort((a, b) => new Date(a.examDate || 0).getTime() - new Date(b.examDate || 0).getTime() || a.startTime.localeCompare(b.startTime)),
@@ -672,9 +719,22 @@ export function TeacherExamPeriodWorkspace() {
                   <h2 className="text-xl font-black text-[var(--color-text-primary)]">Result Entry</h2>
                 </div>
 
-                {sortedExams.length === 0 ? emptyState('No courses available for results', 'Your assigned scheduled courses for this exam period will appear here.', GraduationCap) : (
+                <div className="grid grid-cols-2 gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-2">
+                  {([
+                    { key: 'pending' as const, label: 'Pending', count: sortedExams.filter((exam) => !resultCompletion[exam._id]).length },
+                    { key: 'submitted' as const, label: 'Submitted', count: sortedExams.filter((exam) => Boolean(resultCompletion[exam._id])).length },
+                  ]).map((tab) => (
+                    <button key={tab.key} type="button" onClick={() => setResultStatus(tab.key)}
+                      className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-black transition ${resultStatus === tab.key ? 'bg-emerald-600 text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
+                      {tab.label}
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${resultStatus === tab.key ? 'bg-white/20' : 'bg-[var(--color-surface-secondary)]'}`}>{tab.count}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {sortedExams.length === 0 ? emptyState('No courses available for results', 'Your assigned scheduled courses for this exam period will appear here.', GraduationCap) : sortedExams.filter((exam) => (resultStatus === 'submitted') === Boolean(resultCompletion[exam._id])).length === 0 ? emptyState(resultStatus === 'pending' ? 'No pending results' : 'No submitted results', resultStatus === 'pending' ? 'All available results appear complete.' : 'Results will appear here when all required score fields are filled.', GraduationCap) : (
                   <div className="grid gap-4 md:grid-cols-2">
-                    {sortedExams.map((exam) => {
+                    {sortedExams.filter((exam) => (resultStatus === 'submitted') === Boolean(resultCompletion[exam._id])).map((exam) => {
                       const courseId = exam.course?._id || '';
                       return (
                         <article key={exam._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm sm:p-5">
