@@ -23,6 +23,8 @@ export function TeacherSettings() {
   const [confirmPin, setConfirmPin] = useState('');
   const [pinReady, setPinReady] = useState(isOfflinePinReady);
   const [pinSaving, setPinSaving] = useState(false);
+  const [pinMessage, setPinMessage] = useState('');
+  const [pinError, setPinError] = useState('');
   const [policyDays, setPolicyDays] = useState(verifiedOfflineTeacherIdentity()?.maxOfflineDays ?? 7);
   const [showOfflineAccess, setShowOfflineAccess] = useState(location.hash === '#offline-access');
   const [preparingAllOffline, setPreparingAllOffline] = useState(false);
@@ -172,17 +174,29 @@ export function TeacherSettings() {
 
   const savePin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError(''); setMessage('');
-    if (pin !== confirmPin) { setError('PIN and confirmation do not match.'); return; }
+    if (pinSaving) return;
+    setPinError('');
+    setPinMessage('');
+    if (pin !== confirmPin) {
+      setPinError('PINs do not match. Please enter the same six-digit PIN in both fields.');
+      return;
+    }
     setPinSaving(true);
     try {
       await setupOfflinePin(pin);
-      setPinReady(isOfflinePinReady());
-      setPin(''); setConfirmPin('');
-      setMessage('Offline PIN saved on this device. Use Prepare Exam Portal for Offline Use below to prepare exam data.');
-    } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Could not set up offline access.');
-    } finally { setPinSaving(false); }
+      // setupOfflinePin resolves only after the verifier has been saved.
+      // Update UI state directly so a post-save readiness read cannot turn a
+      // successful save into a misleading error or disrupt rendering.
+      setPinReady(true);
+      setPin('');
+      setConfirmPin('');
+      setPinMessage('PIN changed successfully. Your new PIN is ready to use for offline access.');
+    } catch (err: unknown) {
+      const failure = err as { response?: { data?: { message?: string } }; message?: string };
+      setPinError(failure?.response?.data?.message || failure?.message || 'PIN update failed. Please try again while online.');
+    } finally {
+      setPinSaving(false);
+    }
   };
 
   const changeLanguage = async (nextLanguage: string) => {
@@ -266,6 +280,8 @@ export function TeacherSettings() {
                 : `Your school's administrator allows ${policyDays} day${policyDays === 1 ? '' : 's'} of offline access after successful online verification.`}
             </p>
           </div>
+          {pinMessage && <div role="status" aria-live="polite" className="mb-3 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><span>{pinMessage}</span></div>}
+          {pinError && <div role="alert" aria-live="assertive" className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{pinError}</div>}
           <form onSubmit={(event) => void savePin(event)} className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm font-semibold">
               New offline PIN
@@ -281,8 +297,9 @@ export function TeacherSettings() {
             </label>
             <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
               <button type="submit" disabled={pinSaving || !navigator.onLine}
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-                <LockKeyhole className="h-4 w-4" />{pinSaving ? 'Saving...' : pinReady ? 'Change Offline PIN' : 'Enable Offline PIN'}
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                {pinSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
+                {pinSaving ? 'Saving PIN…' : pinReady ? 'Change Offline PIN' : 'Enable Offline PIN'}
               </button>
               {pinReady && <button type="button" onClick={() => { clearOfflinePin(); setPinReady(false); setMessage('Offline PIN disabled on this device.'); }}
                 className="min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 dark:text-red-300">Disable PIN</button>}
