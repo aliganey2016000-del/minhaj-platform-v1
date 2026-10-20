@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Building2,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { cacheTeacherInvigilationAssignments, getCachedTeacherInvigilationAssignments } from '../../../lib/teacher-offline-exams';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
 type Assignment = {
@@ -63,19 +64,41 @@ export function TeacherExamAttendance() {
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
 
+  const requestRef=useRef<Promise<void>|null>(null);
   const load=async()=>{
-    setLoading(true);setError('');
-    try{
-      const {data}=await api.get('/exams/invigilators/my');
-      setAssignments(data.data||[]);
-    }catch(err:any){
-      setError(err.response?.data?.message||'Failed to load invigilation duties');
-    }finally{
-      setLoading(false);
-    }
+    if(requestRef.current)return requestRef.current;
+    const task=(async()=>{
+      setError('');
+      let hasCachedData=false;
+      try{
+        const cached=await getCachedTeacherInvigilationAssignments<Assignment[]>().catch(()=>undefined);
+        if(Array.isArray(cached)){
+          hasCachedData=true;
+          setAssignments(cached);
+          setLoading(false);
+        }
+        if(typeof navigator!=='undefined'&&!navigator.onLine){
+          if(!hasCachedData)setError('No saved exam assignments are available. Open an exam period online and prepare it for offline use first.');
+          return;
+        }
+        const {data}=await api.get('/exams/invigilators/my');
+        const next=data.data||[];
+        setAssignments(next);
+        await cacheTeacherInvigilationAssignments(next).catch(()=>undefined);
+      }catch(err:any){
+        if(!hasCachedData)setError(err?.response?.data?.message||'No saved exam assignments are available. Connect once to prepare this section for offline use.');
+      }finally{setLoading(false);}
+    })();
+    requestRef.current=task;
+    try{await task;}finally{requestRef.current=null;}
   };
 
-  useEffect(()=>{void load()},[]);
+  useEffect(()=>{
+    void load();
+    const onOnline=()=>{void load();};
+    window.addEventListener('online',onOnline);
+    return()=>window.removeEventListener('online',onOnline);
+  },[]);
 
   const counts=useMemo(()=>({
     upcoming:assignments.filter(a=>assignmentStatus(a)==='upcoming').length,
