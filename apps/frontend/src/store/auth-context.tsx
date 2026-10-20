@@ -239,7 +239,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!localStorage.getItem('loginSessionId')) localStorage.setItem('loginSessionId', newLoginSessionId());
         const verified = normalizeUser(data.data?.user, data.data?.profile);
         setUser(verified);
-        await saveVerifiedTeacherIdentity(verified).then(refreshOfflinePinValidity).catch(() => {
+        // Do not block the authenticated app shell on best-effort offline metadata.
+        // IndexedDB/policy storage can be slow or unavailable (e.g. a full device),
+        // but online navigation must continue as soon as /auth/me is verified.
+        void saveVerifiedTeacherIdentity(verified).then(refreshOfflinePinValidity).catch(() => {
           // Online login remains usable if policy lookup is unavailable;
           // offline unlock stays disabled until it can be verified.
         });
