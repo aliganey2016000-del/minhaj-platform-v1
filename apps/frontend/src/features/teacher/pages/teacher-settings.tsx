@@ -8,6 +8,7 @@ import { refreshOfflinePinValidity } from '../../../lib/offline-teacher-pin';
 import { cacheTeacherExamPeriods, cacheTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
+import { saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guuldoon-offline';
 
 export function TeacherSettings() {
   const { i18n } = useTranslation();
@@ -160,7 +161,36 @@ export function TeacherSettings() {
           ready++;
         } catch { recordFailure(); }
       }
-      setOfflinePreparationStatus('Preparation finished: ' + ready + ' items saved; ' + failed + ' could not be downloaded. Keep this device signed in and retry failures while online.');
+      setOfflinePreparationStatus('Preparing Guulgaar courses, student performance, challenges and leaderboards…');
+      // Cache read-only Guulgaar data separately for this teacher account. These snapshots
+      // let the teacher view previously downloaded information without making network calls.
+      try {
+        const { data } = await api.get('/courses/global', { timeout: 15000 });
+        await saveTeacherGuulgaarSnapshot(String(user.id), 'courses', { courses: data.data || [], grade: data.meta?.grade ?? null });
+        ready++;
+      } catch { recordFailure(); }
+      try {
+        const { data } = await api.get('/guuldoon/performance', { params: { page: 1 }, timeout: 15000 });
+        await saveTeacherGuulgaarSnapshot(String(user.id), 'performance-page-1', { rows: data.data || [], hasNext: !!data.meta?.hasNextPage });
+        ready++;
+      } catch { recordFailure(); }
+      try {
+        const { data } = await api.get('/guuldoon-challenges', { timeout: 15000 });
+        await saveTeacherGuulgaarSnapshot(String(user.id), 'challenges', data.data || []);
+        ready++;
+      } catch { recordFailure(); }
+      for (const grade of ['8', '12']) {
+        for (const period of ['week', 'month', 'all']) {
+          for (const board of ['students', 'schools']) {
+            try {
+              const { data } = await api.get('/guuldoon-leaderboard/' + board, { params: { grade, period }, timeout: 15000 });
+              await saveTeacherGuulgaarSnapshot(String(user.id), `leaderboard-${board}-${grade}-${period}`, data.data);
+              ready++;
+            } catch { recordFailure(); }
+          }
+        }
+      }
+            setOfflinePreparationStatus('Preparation finished: ' + ready + ' items saved; ' + failed + ' could not be downloaded. Keep this device signed in and retry failures while online.');
       setMessage('Offline preparation completed. Review the status below before disconnecting.');
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || 'Offline preparation failed. Please reconnect and retry.');
@@ -296,7 +326,7 @@ export function TeacherSettings() {
           </form>
           <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
             <h3 className="font-bold text-[var(--color-text-primary)]">Prepare Everything for Offline Use</h3>
-            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">One button prepares the app shell, timetable, student attendance rosters for the approved offline period, published exam periods, exam attendance and result-entry rosters on this device.</p>
+            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">One button prepares the app shell, timetable, attendance and exam rosters, result entry, plus Guulgaar courses, student performance, challenges and leaderboard snapshots for offline viewing on this device.</p>
             <button type="button" onClick={() => void prepareEverythingOffline()} disabled={!navigator.onLine || preparingAllOffline || !pinReady} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
               {preparingAllOffline ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
               {preparingAllOffline ? 'Preparing everything…' : 'Prepare Everything Offline'}
