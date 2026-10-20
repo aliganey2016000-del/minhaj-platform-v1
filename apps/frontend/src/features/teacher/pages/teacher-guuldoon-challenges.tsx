@@ -74,7 +74,7 @@ export function TeacherGuuldoonChallenges() {
         void saveTeacherGuulgaarSnapshot(userId, 'challenges', data.data as Row[]);
       })
       .catch((err) => {
-        if (!rows) setError(err.response?.data?.message || 'Tartannada lama soo rari karin. Connect online once to prepare offline data.');
+        setError(err.response?.data?.message || 'Tartannada lama soo rari karin. Connect online once to prepare offline data.');
       });
   }, [user?.id]);
   useEffect(() => { load(); }, [load]);
