@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, CalendarDays, FileText } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { getCachedTeacherExamPeriods, getCachedTeacherExamWorkspace } from '../../../lib/teacher-offline-exams';
 import { ExamPaperEditor } from '../../admin/components/exam-paper-editor';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
@@ -14,8 +15,45 @@ export function TeacherExamPaper() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const requestRef = useRef<Promise<void> | null>(null);
+
+  const load = async () => {
+    if (!examId || requestRef.current) return requestRef.current || undefined;
+    const task = (async () => {
+      setError('');
+      let hasCachedExam = false;
+      try {
+        const [snapshot, workspace] = await Promise.all([
+          getCachedTeacherExamPeriods<{ exams?: Exam[] }>().catch(() => undefined),
+          getCachedTeacherExamWorkspace<{ exams?: Exam[] }>(new URLSearchParams(window.location.search).get('period') || '').catch(() => undefined),
+        ]);
+        const cachedExam = [...(snapshot?.exams || []), ...(workspace?.exams || [])].find((item) => item._id === examId);
+        if (cachedExam) {
+          hasCachedExam = true;
+          setExam(cachedExam);
+          setLoading(false);
+        }
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          if (!hasCachedExam) setError('This exam has not been downloaded to this device. Connect once and open its exam period to prepare offline access.');
+          return;
+        }
+        const { data } = await api.get(`/exams/${examId}`);
+        setExam(data.data);
+      } catch (err: any) {
+        if (!hasCachedExam) setError(err?.response?.data?.message || 'This exam is not saved on this device. Connect to download it for offline access.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+    requestRef.current = task;
+    try { await task; } finally { requestRef.current = null; }
+  };
+
   useEffect(() => {
-    api.get(`/exams/${examId}`).then(({ data }) => setExam(data.data)).catch((err) => setError(err.response?.data?.message || 'Failed to load exam')).finally(() => setLoading(false));
+    void load();
+    const onOnline = () => { void load(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
   }, [examId]);
 
   if (loading) return <div className="flex min-h-screen items-center justify-center"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-emerald-600" /></div>;
