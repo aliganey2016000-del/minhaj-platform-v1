@@ -241,6 +241,7 @@ interface ManualEntryRoster {
   organization: string;
   courseClass: string;
   passingScore: number;
+  resultsSubmitted?: boolean;
   students: ManualEntryRosterStudent[];
 }
 
@@ -386,6 +387,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
   const [fieldErrors, setFieldErrors] = useState<Record<string, Partial<Record<ManualEntrySlot, string>>>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [submittingResults, setSubmittingResults] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [usingOfflineData, setUsingOfflineData] = useState(false);
@@ -1215,30 +1217,13 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
                 {showExamAttendance && <> · Present {examAttendanceSummary.present} · Absent {examAttendanceSummary.absent}</>}
               </p>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowImport(true)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
-                >
-                  <UploadCloud className="h-4 w-4" strokeWidth={2} />
-                  Bulk Import
+                <button type="button" onClick={handleSubmit} disabled={saving || hasFieldErrors || !!roster.resultsSubmitted} className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-5 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] disabled:opacity-50">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Saving...' : 'Save'}
                 </button>
-                <button
-                  type="button"
-                  onClick={exportRoster}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] transition-colors"
-                >
-                  <Download className="h-4 w-4" strokeWidth={2} />
-                  Export
+                <button type="button" onClick={async () => { if (!selectedCourseId || roster.resultsSubmitted) return; if (!window.confirm('Submit and lock these results? An administrator must unlock them before further edits.')) return; setSubmittingResults(true); try { await handleSubmit(); if (error) return; await api.post(`/gradebook/${selectedCourseId}/manual-entry-roster/submit`); setRoster({ ...roster, resultsSubmitted: true }); setMessage('Results submitted and locked. Ask an administrator to unlock editing.'); } catch (e: any) { setError(e?.response?.data?.message || 'Could not submit results.'); } finally { setSubmittingResults(false); } }} disabled={saving || submittingResults || hasFieldErrors || !!roster.resultsSubmitted} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+                  {submittingResults ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{submittingResults ? 'Submitting...' : roster.resultsSubmitted ? 'Submitted · Locked' : 'Submit Results'}
                 </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={saving || hasFieldErrors}
-                  title={hasFieldErrors ? 'Fix the highlighted scores before saving' : undefined}
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors shadow-md"
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {saving ? 'Saving...' : 'Save All'}
-                </button>
+              </div>
               </div>
             </div>
           </div>
