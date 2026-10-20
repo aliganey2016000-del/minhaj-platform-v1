@@ -92,14 +92,27 @@ export function TeacherSidebar({ visibility, offlineOnly = false }: { visibility
     }
     return visible(pathKey(item.path)) ? item : null;
   }).filter(Boolean) as NavEntry[] })).filter((s) => s.items.length);
-  // Keep the same teacher sidebar design, but PIN-only sessions expose
-  // exactly the two locally prepared teaching routes. Never expose other
-  // teacher pages or imply their APIs are usable without online RBAC.
+  // PIN-only sessions may use locally prepared exam pages as well as
+  // attendance and schedule. Keep the offline surface explicitly allowlisted;
+  // do not show unrelated teacher pages merely because a cached key is absent.
+  const offlineAllowedPaths = new Set([
+    '/teacher/attendance',
+    '/teacher/schedule',
+    '/teacher/exams',
+    '/teacher/exam-attendance',
+    '/teacher/results/enter',
+  ]);
+  const offlineAllowedGroupChildren = new Set([
+    '/teacher/exams',
+    '/teacher/results/enter',
+  ]);
   const filtered = offlineOnly ? allFiltered.map(section => ({
     ...section,
-    items: section.items.filter(item =>
-      !isGroup(item) && (item.path === '/teacher/attendance' || item.path === '/teacher/schedule'),
-    ),
+    items: section.items.map(item => {
+      if (!isGroup(item)) return offlineAllowedPaths.has(item.path) ? item : null;
+      const children = item.children.filter(child => offlineAllowedGroupChildren.has(child.path));
+      return children.length ? { ...item, children } : null;
+    }).filter(Boolean) as NavEntry[],
   })).filter(section => section.items.length) : allFiltered;
 
   useEffect(() => {
