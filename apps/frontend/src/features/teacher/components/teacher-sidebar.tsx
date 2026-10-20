@@ -8,7 +8,7 @@ interface NavLeaf { path: string; label: string; icon: string; }
 interface NavGroup { label: string; icon: string; key: string; children: NavLeaf[]; }
 type NavEntry = NavLeaf | NavGroup;
 const isGroup = (x: NavEntry): x is NavGroup => 'children' in x;
-const pathKey = (path: string) => path.replace(/^\//, '');
+const pathKey = (path: string) => path.split('#')[0].replace(/^\//, '');
 
 const navSections: { title: string; items: NavEntry[] }[] = [
   { title: 'Guulgaar', items: [
@@ -48,7 +48,10 @@ const navSections: { title: string; items: NavEntry[] }[] = [
   { title: 'Content', items: [{ path: '/teacher/forum', label: 'Forum', icon: '💬' }] },
   { title: 'Account', items: [
     { path: '/teacher/profile', label: 'Profile', icon: '👤' },
-    { path: '/teacher/settings', label: 'Settings', icon: '⚙️' },
+    { key: 'group:teacher-settings', label: 'Settings', icon: '⚙️', children: [
+      { path: '/teacher/settings', label: 'General Settings', icon: '⚙️' },
+      { path: '/teacher/settings#offline-access', label: 'Offline Access & PIN', icon: '🔐' },
+    ] },
   ] },
 ];
 
@@ -79,11 +82,11 @@ export function TeacherSidebar({ visibility, offlineOnly = false }: { visibility
   const activePath = leafPaths
     .filter((path) =>
       (path === '/teacher/exams' && isExamOperationsRoute)
-      || location.pathname === path
-      || (path !== '/teacher' && location.pathname.startsWith(`${path}/`))
+      || location.pathname === path.split('#')[0]
+      || (path.split('#')[0] !== '/teacher' && location.pathname.startsWith(`${path.split('#')[0]}/`))
     )
     .sort((a, b) => b.length - a.length)[0];
-  const isActive = (path: string) => activePath === path;
+  const isActive = (path: string) => activePath === path || (path.includes('#') && location.pathname === path.split('#')[0] && location.hash === path.slice(path.indexOf('#')));
   const allFiltered = navSections.filter(section => section.title !== 'Guulgaar' || visible('group:guuldoon')).map((section) => ({ ...section, items: section.items.map((item) => {
     if (isGroup(item)) {
       if (!visible(item.key)) return null;
