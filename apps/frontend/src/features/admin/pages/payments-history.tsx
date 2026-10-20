@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { Download, Search, RotateCcw, CalendarDays, CircleDollarSign, ReceiptText } from 'lucide-react';
+import { Download, Search, RotateCcw, CalendarDays, CircleDollarSign, ReceiptText, MoreVertical, X } from 'lucide-react';
 import api from '../../../lib/axios';
 import { downloadReceipt, hasReceipt } from '../../../lib/receipts';
 
@@ -51,6 +51,43 @@ function money(value: number, currency = 'USD') {
   }
 }
 
+function RefundModal({ payment, onClose, onDone }: { payment: PaymentRecord; onClose: () => void; onDone: () => void }) {
+  const refundable = Math.max(0, Number(payment.amount || 0) - Number(payment.refundedAmount || 0));
+  const [amount, setAmount] = useState(String(refundable));
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async () => {
+    const refundAmount = Number(amount);
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0 || refundAmount > refundable) { setError('Enter a valid amount within the refundable balance.'); return; }
+    if (!reason.trim()) { setError('A refund reason is required.'); return; }
+    setLoading(true); setError('');
+    try {
+      await api.post('/refunds', { paymentId: payment._id, amount: refundAmount, reason: reason.trim() });
+      onDone();
+    } catch (err: any) { setError(err.response?.data?.message || 'Failed to issue refund'); }
+    finally { setLoading(false); }
+  };
+  const control = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm text-[var(--color-text-primary)] outline-none focus:ring-2 focus:ring-primary-500/30';
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-labelledby="refund-payment-title" className="w-full max-w-md rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-2xl sm:p-6" onClick={(event) => event.stopPropagation()}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div><h2 id="refund-payment-title" className="text-lg font-bold text-[var(--color-text-primary)]">Refund payment</h2><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{payment.student?.profile?.firstName} {payment.student?.profile?.lastName}</p></div>
+          <button type="button" onClick={onClose} disabled={loading} aria-label="Close refund dialog" className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)]"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm dark:border-rose-900/50 dark:bg-rose-950/20"><p className="text-xs text-rose-700 dark:text-rose-300">Maximum refundable</p><p className="mt-1 text-lg font-bold text-rose-800 dark:text-rose-200">{money(refundable, payment.currency || 'USD')}</p></div>
+        <div className="space-y-3">
+          <label className="block text-xs font-semibold text-[var(--color-text-primary)]">Refund amount<input className={control + ' mt-1'} type="number" min="0.01" max={refundable} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+          <label className="block text-xs font-semibold text-[var(--color-text-primary)]">Reason for refund<textarea className={control + ' mt-1'} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this payment is being refunded." /></label>
+          {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
+          <div className="flex gap-2 pt-1"><button type="button" onClick={onClose} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-semibold text-[var(--color-text-secondary)] disabled:opacity-50">Cancel</button><button type="button" onClick={submit} disabled={loading || refundable <= 0} className="flex-1 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50">{loading ? 'Processing...' : 'Confirm refund'}</button></div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function dateRange(preset: string): { from?: string; to?: string } {
   const now = new Date();
   const format = (date: Date) => date.toISOString().slice(0, 10);
@@ -73,6 +110,8 @@ export function PaymentsHistory() {
   const [customTo, setCustomTo] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [openActionId, setOpenActionId] = useState<string | null>(null);
+  const [refundPayment, setRefundPayment] = useState<PaymentRecord | null>(null);
 
   const fetchPayments = useCallback(async () => {
     setLoading(true);
@@ -161,11 +200,12 @@ export function PaymentsHistory() {
                     <th className="px-5 py-3 text-center font-semibold">Status</th>
                     <th className="hidden px-5 py-3 text-left font-semibold lg:table-cell">Date</th>
                     <th className="px-5 py-3 text-center font-semibold">Receipt</th>
+                    <th className="px-5 py-3 text-center font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {payments.length === 0 ? (
-                    <tr><td colSpan={8} className="py-16 text-center text-[var(--color-text-tertiary)]"><p className="mb-1 text-lg">No payments found</p><p className="text-xs">Try another filter or search term.</p></td></tr>
+                    <tr><td colSpan={9} className="py-16 text-center text-[var(--color-text-tertiary)]"><p className="mb-1 text-lg">No payments found</p><p className="text-xs">Try another filter or search term.</p></td></tr>
                   ) : payments.map((p) => {
                     const currency = p.currency || 'USD';
                     return (
@@ -194,6 +234,16 @@ export function PaymentsHistory() {
                         <td className="px-5 py-5 text-center">
                           {hasReceipt(p.status) && <button type="button" onClick={() => downloadReceipt(p._id)} title="Download official receipt" className="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 px-2.5 py-1.5 text-xs font-semibold text-primary-600 transition-colors hover:bg-primary-50 dark:border-primary-900/50 dark:hover:bg-primary-950/30"><Download className="h-3.5 w-3.5" strokeWidth={1.75} /><span className="hidden xl:inline">Receipt</span></button>}
                         </td>
+                        <td className="px-3 py-5 text-center">
+                          <div className="relative inline-block">
+                            <button type="button" aria-label="Payment actions" aria-haspopup="menu" aria-expanded={openActionId === p._id} onClick={() => setOpenActionId((current) => current === p._id ? null : p._id)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-secondary)] focus:outline-none focus:ring-2 focus:ring-primary-500/30"><MoreVertical className="h-4 w-4" /></button>
+                            {openActionId === p._id && <div role="menu" className="absolute right-0 z-30 mt-1 min-w-44 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 text-left shadow-xl">
+                              {p.status !== 'pending' && Math.max(0, Number(p.amount || 0) - Number(p.refundedAmount || 0)) > 0
+                                ? <button type="button" role="menuitem" onClick={() => { setRefundPayment(p); setOpenActionId(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"><RotateCcw className="h-4 w-4" /> Refund payment</button>
+                                : <span className="block px-3 py-2.5 text-xs text-[var(--color-text-tertiary)]">No actions available</span>}
+                            </div>}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -204,6 +254,7 @@ export function PaymentsHistory() {
           </div>
         )}
       </div>
+      {refundPayment && <RefundModal payment={refundPayment} onClose={() => setRefundPayment(null)} onDone={async () => { setRefundPayment(null); await fetchPayments(); }} />}
     </div>
   );
 }
