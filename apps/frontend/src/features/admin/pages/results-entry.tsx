@@ -1224,7 +1224,6 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
                   {submittingResults ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{submittingResults ? 'Submitting...' : roster.resultsSubmitted ? 'Submitted · Locked' : 'Submit Results'}
                 </button>
               </div>
-              </div>
             </div>
           </div>
           </>
