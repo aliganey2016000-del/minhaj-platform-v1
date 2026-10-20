@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   CheckCircle2,
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { cacheTeacherExamPeriods, getCachedTeacherExamPeriods } from '../../../lib/teacher-offline-exams';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
 interface Exam {
@@ -39,13 +40,41 @@ export function TeacherExamPapers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const requestRef = useRef<Promise<void> | null>(null);
+
   const load = async () => {
-    setLoading(true); setError('');
-    try { const { data } = await api.get('/exams', { params: { limit: 200 } }); setExams(data.data || []); }
-    catch (err: any) { setError(err.response?.data?.message || 'Failed to load exam papers'); }
-    finally { setLoading(false); }
+    if (requestRef.current) return requestRef.current;
+    const task = (async () => {
+      setError('');
+      let hasCachedData = false;
+      try {
+        const cached = await getCachedTeacherExamPeriods<{ exams?: Exam[] }>().catch(() => undefined);
+        if (cached && Array.isArray(cached.exams)) {
+          hasCachedData = true;
+          setExams(cached.exams);
+          setLoading(false);
+        }
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          if (!hasCachedData) setError('No saved exam papers are available. Connect once and open Exam Periods to prepare offline data.');
+          return;
+        }
+        const { data } = await api.get('/exams', { params: { limit: 200 } });
+        const nextExams: Exam[] = data.data || [];
+        setExams(nextExams);
+        await cacheTeacherExamPeriods({ ...(cached || {}), exams: nextExams, cachedAt: Date.now() }).catch(() => undefined);
+      } catch (err: any) {
+        if (!hasCachedData) setError(err?.response?.data?.message || 'No saved exam papers are available. Connect once and open Exam Periods to prepare offline data.');
+      } finally { setLoading(false); }
+    })();
+    requestRef.current = task;
+    try { await task; } finally { requestRef.current = null; }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    const onOnline = () => { void load(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
 
   const counts = useMemo(() => {
     const value = (status: string) => exams.filter(e => (e.paperStatus || 'not started') === status).length;
