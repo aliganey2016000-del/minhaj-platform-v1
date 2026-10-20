@@ -19,7 +19,7 @@ import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-sta
 import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, getCachedTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { prepareTeacherOfflineAppShell, saveVerifiedTeacherIdentity, offlineAttendanceOwner, cacheOfflineTeacherSidebar } from '../../../lib/teacher-offline-attendance';
 
-type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
+type WorkspaceTab = 'schedule' | 'attendance' | 'results';
 
 interface ExamPeriod {
   _id: string;
@@ -156,7 +156,6 @@ const scheduleCardTones = [
 
 const tabs: { key: WorkspaceTab; label: string; shortLabel: string; icon: typeof CalendarDays }[] = [
   { key: 'schedule', label: 'Schedule', shortLabel: 'Schedule', icon: CalendarDays },
-  { key: 'invigilation', label: 'Invigilation Rooms', shortLabel: 'Rooms', icon: Building2 },
   { key: 'attendance', label: 'Attendance', shortLabel: 'Attendance', icon: ClipboardCheck },
   { key: 'results', label: 'Result Entry', shortLabel: 'Results', icon: ClipboardEdit },
 ];
@@ -171,7 +170,6 @@ export function TeacherExamPeriodWorkspace() {
   const [periods, setPeriods] = useState<ExamPeriod[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [invigilationStatus, setInvigilationStatus] = useState<DutyStatus>('upcoming');
   const [attendanceStatus, setAttendanceStatus] = useState<DutyStatus>('upcoming');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -341,17 +339,6 @@ export function TeacherExamPeriodWorkspace() {
     [assignments],
   );
 
-  const invigilationCounts = useMemo(() => ({
-    upcoming: sortedAssignments.filter((assignment) => dutyStatus(assignment) === 'upcoming').length,
-    ongoing: sortedAssignments.filter((assignment) => dutyStatus(assignment) === 'ongoing').length,
-    completed: sortedAssignments.filter((assignment) => dutyStatus(assignment) === 'completed').length,
-  }), [sortedAssignments]);
-
-  const filteredInvigilationAssignments = useMemo(
-    () => sortedAssignments.filter((assignment) => dutyStatus(assignment) === invigilationStatus),
-    [sortedAssignments, invigilationStatus],
-  );
-
   const attendanceCounts = useMemo(() => ({
     upcoming: sortedAssignments.filter((assignment) => dutyStatus(assignment) === 'upcoming').length,
     ongoing: sortedAssignments.filter((assignment) => dutyStatus(assignment) === 'ongoing').length,
@@ -517,112 +504,6 @@ export function TeacherExamPeriodWorkspace() {
                       </table>
                     </div>
                   </>
-                )}
-              </section>
-            ) : period && activeTab === 'invigilation' ? (
-              <section className="space-y-3">
-                <h2 className="text-xl font-black text-[var(--color-text-primary)]">My Invigilation Rooms</h2>
-
-                <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-sm">
-                  <nav className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--color-surface-secondary)] p-1" aria-label="Invigilation room status">
-                    {([
-                      ['upcoming', 'Upcoming'],
-                      ['ongoing', 'Ongoing'],
-                      ['completed', 'Completed'],
-                    ] as Array<[DutyStatus, string]>).map(([key, label]) => {
-                      const selected = invigilationStatus === key;
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setInvigilationStatus(key)}
-                          className={`flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-black transition sm:text-sm ${selected ? 'bg-emerald-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-primary)]'}`}
-                        >
-                          <span className="truncate">{label}</span>
-                          <span className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-black ${selected ? 'bg-white/20 text-white' : 'bg-[var(--color-surface-primary)] text-[var(--color-text-tertiary)]'}`}>
-                            {invigilationCounts[key]}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </nav>
-                </div>
-
-                {sortedAssignments.length === 0 ? emptyState('No invigilation rooms assigned', 'When administration assigns you a room, it will appear here.', Building2) : filteredInvigilationAssignments.length === 0 ? (
-                  emptyState(
-                    `No ${invigilationStatus} rooms`,
-                    invigilationStatus === 'upcoming'
-                      ? 'You do not have another assigned room waiting to start.'
-                      : invigilationStatus === 'ongoing'
-                        ? 'You do not have an exam room in progress right now.'
-                        : 'No completed invigilation rooms yet.',
-                    Building2,
-                  )
-                ) : (
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {filteredInvigilationAssignments.map((assignment) => {
-                      const status = dutyStatus(assignment);
-                      const classBreakdown = assignment.classBreakdown || [];
-                      return (
-                        <article key={assignment._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3.5 shadow-sm sm:p-4">
-                          <div className="flex items-start justify-between gap-2.5">
-                            <div className="flex min-w-0 items-center gap-2.5">
-                              <span className="shrink-0 rounded-xl bg-emerald-50 p-2.5 text-emerald-600 dark:bg-emerald-950/30">
-                                <Building2 className="h-5 w-5" />
-                              </span>
-                              <div className="min-w-0">
-                                <h3 className="truncate text-base font-black text-[var(--color-text-primary)]">{assignment.room?.name || 'Exam Room'}</h3>
-                                <p className="truncate text-xs text-[var(--color-text-tertiary)]">{assignment.room?.building || 'Main Campus'}</p>
-                              </div>
-                            </div>
-                            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black capitalize ${dutyTone[status]}`}>{status}</span>
-                          </div>
-
-                          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-[var(--color-text-secondary)]">
-                            <p className="col-span-2 flex min-w-0 items-center gap-2">
-                              <CalendarDays className="h-4 w-4 shrink-0 text-[var(--color-text-tertiary)]" />
-                              <span className="truncate">{formatDate(assignment.examDate, true)}</span>
-                            </p>
-                            <p className="flex min-w-0 items-center gap-2">
-                              <Clock3 className="h-4 w-4 shrink-0 text-[var(--color-text-tertiary)]" />
-                              <span className="truncate">{assignment.startTime}–{assignment.endTime}</span>
-                            </p>
-                            <p className="flex min-w-0 items-center gap-2">
-                              <Users className="h-4 w-4 shrink-0 text-[var(--color-text-tertiary)]" />
-                              <span className="truncate">{assignment.studentCount || 0} students</span>
-                            </p>
-                          </div>
-
-                          <div className="mt-3 border-t border-[var(--color-border-subtle)] pt-3">
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <span className="text-[10px] font-black uppercase tracking-wide text-[var(--color-text-tertiary)]">Classes in this room</span>
-                              <span className="text-[10px] font-bold text-[var(--color-text-tertiary)]">{classBreakdown.length} {classBreakdown.length === 1 ? 'class' : 'classes'}</span>
-                            </div>
-                            {classBreakdown.length ? (
-                              <div className="space-y-1.5">
-                                {classBreakdown.map((item, index) => (
-                                  <div
-                                    key={`${item.classId || item.className || 'class'}-${item.subject || index}`}
-                                    className="flex items-center justify-between gap-3 rounded-lg bg-[var(--color-surface-secondary)] px-2.5 py-2"
-                                  >
-                                    <div className="min-w-0">
-                                      <p className="truncate text-xs font-black text-[var(--color-text-primary)]">{item.className || 'Class'}</p>
-                                      <p className="truncate text-[10px] text-[var(--color-text-tertiary)]">{item.subject || 'Exam'}</p>
-                                    </div>
-                                    <span className="shrink-0 rounded-full bg-[var(--color-surface-primary)] px-2 py-1 text-[10px] font-black text-[var(--color-text-secondary)]">
-                                      {item.students || 0} students
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-[var(--color-text-tertiary)]">No class allocation found for this room.</p>
-                            )}
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
                 )}
               </section>
             ) : period && activeTab === 'attendance' ? (
