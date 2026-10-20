@@ -3,8 +3,8 @@ import { useAuth } from '../../../store/auth-context';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, BookOpen, Crown, GraduationCap, Search } from 'lucide-react';
 import api from '../../../lib/axios';
+import { getOfflineData, saveOfflineData } from '../../../lib/offline-store';
 import CoursesManage from '../../admin/pages/courses-manage';
-import { getTeacherGuulgaarSnapshot, saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guulgaar-offline';
 
 type GlobalCourse = {
   _id: string;
@@ -39,44 +39,42 @@ export function GlobalCoursesPage() {
   useEffect(() => {
     if (user?.role === 'admin') return;
     let cancelled = false;
-    const userId = user?.id || '';
-    // Render the last account-scoped snapshot immediately while offline; refresh it when connected.
-    if (userId) {
-      void getTeacherGuulgaarSnapshot<{ courses: GlobalCourse[]; grade: number | null }>(userId, 'courses')
-        .then((snapshot) => {
+    const snapshotKey = user?.role === 'teacher' && user.id
+      ? `guulgaar:teacher:${user.id}:${user.organizationId || 'no-org'}:courses`
+      : '';
+
+    // Restore the teacher's last successful course list immediately, then refresh online.
+    if (snapshotKey) {
+      void getOfflineData<{ courses: GlobalCourse[]; grade: number | null }>(snapshotKey)
+        .then(snapshot => {
           if (!cancelled && snapshot) {
-            setCourses(snapshot.value.courses || []);
-            setGrade(snapshot.value.grade ?? null);
+            setCourses(snapshot.courses || []);
+            setGrade(snapshot.grade ?? null);
             setLoading(false);
-            setError('');
           }
-        });
-    }
-    if (!navigator.onLine) {
-      setLoading(false);
-      return () => { cancelled = true; };
+        }).catch(() => { /* IndexedDB may be unavailable */ });
     }
 
     api.get('/courses/global')
       .then(({ data }) => {
         if (!cancelled) {
-          setCourses(data.data || []);
-          setGrade(data.meta?.grade ?? null);
-          if (userId) void saveTeacherGuulgaarSnapshot(userId, 'courses', { courses: data.data || [], grade: data.meta?.grade ?? null });
+          const nextCourses = data.data || [];
+          const nextGrade = data.meta?.grade ?? null;
+          setCourses(nextCourses);
+          setGrade(nextGrade);
           setError('');
+          if (snapshotKey) void saveOfflineData(snapshotKey, { courses: nextCourses, grade: nextGrade }).catch(() => {});
         }
       })
       .catch(() => {
-        if (!cancelled) setError(navigator.onLine ? 'Unable to load global courses. Please try again.' : 'No saved Guulgaar courses on this device yet. Connect online and open this page first.');
+        if (!cancelled) setError('Unable to load global courses. Showing the last saved snapshot when available.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.role, user?.id]);
+    return () => { cancelled = true; };
+  }, [user?.role, user?.id, user?.organizationId]);
 
   useEffect(() => {
     if (user?.role !== 'student') return;
