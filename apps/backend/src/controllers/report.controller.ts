@@ -8,30 +8,42 @@ import ApiResponse from '../utils/api-response';
 import { applyOrgFilter } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { notifyUsers } from '../utils/notify';
+import { castObjectIdFilter } from '../utils/cast-object-id-filter';
+import { dateOnlyLabelInTimezone, todaySchoolDateOnly } from '../utils/school-date';
 
+// Date filters use the school day (Africa/Mogadishu, UTC+3), not server UTC.
 function parseRange(req: Request): { from: Date; to: Date } {
-  const now = new Date();
-  const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
-  const from = req.query.from ? new Date(req.query.from as string) : defaultFrom;
-  const to = req.query.to ? new Date(req.query.to as string) : now;
-  if (isNaN(from.getTime()) || isNaN(to.getTime())) throw new BadRequestError('Invalid from/to date');
-  if (from > to) throw new BadRequestError('from date cannot be after to date');
-  to.setHours(23, 59, 59, 999);
-  return { from, to };
+  const today = dateOnlyLabelInTimezone(new Date());
+  const fromText = String(req.query.from || `${today.slice(0, 7)}-01`);
+  const toText = String(req.query.to || today);
+  const valid = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && !Number.isNaN(new Date(`${value}T12:00:00+03:00`).getTime())
+    && dateOnlyLabelInTimezone(new Date(`${value}T12:00:00+03:00`)) === value;
+  if (!valid(fromText) || !valid(toText) || fromText > toText) throw new BadRequestError('Choose a valid from/to date range');
+  return {
+    from: new Date(`${fromText}T00:00:00.000+03:00`),
+    to: new Date(`${toText}T23:59:59.999+03:00`),
+  };
 }
 
-function dayKey(d: Date): string { return d.toISOString().slice(0, 10); }
+function dayKey(date: Date): string { return dateOnlyLabelInTimezone(date); }
 
 async function invoiceIdsForPeriod(req: Request, period: unknown): Promise<unknown[] | undefined> {
   if (!period || !String(period).trim()) return undefined;
   return Invoice.find(applyOrgFilter(req, { period: String(period).trim() }, 'school')).distinct('_id');
 }
 
+/** Valid school-scoped billing periods for a real dropdown (no guessed semester labels). */
+export const getBillingPeriods = async (req: Request, res: Response): Promise<Response> => {
+  const values = await Invoice.distinct('period', applyOrgFilter(req, { status: { $ne: 'void' } }, 'school'));
+  return ApiResponse.success(res, values.filter((v): v is string => typeof v === 'string' && Boolean(v.trim())).sort());
+};
+
 export const getCollectionReport = async (req: Request, res: Response): Promise<Response> => {
   const { from, to } = parseRange(req);
   const invoiceIds = await invoiceIdsForPeriod(req, req.query.period);
   const paymentFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
-  const refundFilter = applyOrgFilter(req, { createdAt: { $gte: from, $lte: to }, status: 'completed' }, 'school');
+  const refundFilter = applyOrgFilter(req, { createdAt: { $gte: from, $lte: to }, status: 'completed', ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
 
   const [payments, refunds] = await Promise.all([
     Payment.find(paymentFilter).select('amount discount method type createdAt').lean(),
@@ -59,8 +71,32 @@ export const getCollectionReport = async (req: Request, res: Response): Promise<
     byDay.set(key, (byDay.get(key) || 0) - (r.amount || 0));
   }
 
-  const totalCollected = Math.max(0, grossCollected - totalRefunded);
+  // Receivables are a current snapshot. The date range applies to collections,
+  // while period (if selected) applies to both collections and outstanding invoices.
+  const outstandingFilter = applyOrgFilter(req, {
+    status: { $ne: 'void' },
+    ...(req.query.period ? { period: String(req.query.period).trim() } : {}),
+  }, 'school');
+  const dueExpr = { $max: [0, { $subtract: [
+    { $ifNull: ['$amount', 0] },
+    { $add: [{ $ifNull: ['$discount', 0] }, { $ifNull: ['$amountPaid', 0] }] },
+  ] }] };
+  const [outstandingSummary] = await Invoice.aggregate([
+    { $match: castObjectIdFilter(outstandingFilter, ['school']) },
+    { $project: { due: dueExpr, dueDate: 1 } },
+    { $group: {
+      _id: null,
+      totalOutstanding: { $sum: '$due' },
+      overdueOutstanding: { $sum: { $cond: [{ $lt: ['$dueDate', todaySchoolDateOnly()] }, '$due', 0] } },
+      overdueCount: { $sum: { $cond: [{ $and: [{ $lt: ['$dueDate', todaySchoolDateOnly()] }, { $gt: ['$due', 0] }] }, 1, 0] } },
+    } },
+  ]);
+
+  const totalCollected = grossCollected - totalRefunded;
   return ApiResponse.success(res, {
+    totalOutstanding: outstandingSummary?.totalOutstanding || 0,
+    overdueOutstanding: outstandingSummary?.overdueOutstanding || 0,
+    overdueCount: outstandingSummary?.overdueCount || 0,
     from: from.toISOString(),
     to: to.toISOString(),
     totalCollected,
@@ -79,7 +115,7 @@ export const getCashierReconciliation = async (req: Request, res: Response): Pro
   const { from, to } = parseRange(req);
   const invoiceIds = await invoiceIdsForPeriod(req, req.query.period);
   const paymentFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
-  const refundFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to } }, 'school');
+  const refundFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
 
   const [payments, refunds] = await Promise.all([
     Payment.find(paymentFilter).select('amount discount method recordedBy createdAt').populate('recordedBy', 'email').lean(),
@@ -121,18 +157,27 @@ export const getCashierReconciliation = async (req: Request, res: Response): Pro
 };
 
 export const getOverdueInvoices = async (req: Request, res: Response): Promise<Response> => {
-  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
+  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: todaySchoolDateOnly() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
   const invoices = await Invoice.find(filter)
     .populate({ path: 'student', select: 'studentId', populate: { path: 'profile', select: 'firstName lastName' } })
     .populate('school', 'name')
     .sort({ dueDate: 1 })
-    .lean({ virtuals: true });
-  return ApiResponse.success(res, invoices);
+    .lean();
+  // amountDue is a Mongoose virtual and is absent from plain lean documents.
+  // Compute it explicitly, so the overdue table and summary never show $0
+  // for an unpaid invoice when lean virtuals are not installed.
+  const openInvoices = invoices.map((inv) => ({
+    ...inv,
+    amountDue: Math.max(0, inv.amount - (inv.discount || 0) - (inv.amountPaid || 0)),
+  })).filter((inv) => inv.amountDue > 0);
+  return ApiResponse.success(res, openInvoices);
 };
 
 export const sendOverdueReminders = async (req: Request, res: Response): Promise<Response> => {
-  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() } }, 'school');
-  const invoices = await Invoice.find(filter).populate({ path: 'student', select: 'studentId user parent' }).lean();
+  const period = String(req.body?.period || '').trim();
+  const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: todaySchoolDateOnly() }, ...(period ? { period } : {}) }, 'school');
+  const invoices = (await Invoice.find(filter).populate({ path: 'student', select: 'studentId user parent' }).lean())
+    .filter((inv) => Math.max(0, inv.amount - (inv.discount || 0) - (inv.amountPaid || 0)) > 0);
   if (invoices.length === 0) return ApiResponse.success(res, { remindersSent: 0 }, 'No overdue invoices found');
 
   const parentIds = invoices.map((inv: any) => inv.student?.parent).filter(Boolean);
@@ -167,17 +212,17 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
     const { from, to } = parseRange(req);
     const invoiceIds = await invoiceIdsForPeriod(req, req.query.period);
     const filter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
-    const refundFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to } }, 'school');
+    const refundFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
     const [payments, refunds] = await Promise.all([
       Payment.find(filter).select('amount discount method type createdAt').sort({ createdAt: 1 }).lean(),
       Refund.find(refundFilter).select('amount createdAt').sort({ createdAt: 1 }).lean(),
     ]);
     const headers = ['Date', 'Method', 'Type', 'Amount', 'Discount', 'Net Payment', 'Refunded', 'Net Cash'];
     const rows = payments.map((p) => [
-      new Date(p.createdAt).toISOString().slice(0, 10), p.method, p.type, p.amount, p.discount || 0,
+      dayKey(new Date(p.createdAt)), p.method, p.type, p.amount, p.discount || 0,
       Math.max(0, (p.amount || 0) - (p.discount || 0)), 0, Math.max(0, (p.amount || 0) - (p.discount || 0)),
     ]);
-    for (const r of refunds) rows.push([new Date(r.createdAt).toISOString().slice(0, 10), 'refund', 'refund', 0, 0, 0, r.amount || 0, -(r.amount || 0)]);
+    for (const r of refunds) rows.push([dayKey(new Date(r.createdAt)), 'refund', 'refund', 0, 0, 0, r.amount || 0, -(r.amount || 0)]);
     const buffer = buildXlsxBuffer(headers, rows, 'Collection Report');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=collection-report-${dayKey(from)}-to-${dayKey(to)}.xlsx`);
@@ -186,7 +231,7 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
   }
 
   if (type === 'overdue') {
-    const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: new Date() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
+    const filter = applyOrgFilter(req, { status: { $in: ['pending', 'partial'] }, dueDate: { $lt: todaySchoolDateOnly() }, ...(req.query.period ? { period: String(req.query.period).trim() } : {}) }, 'school');
     const invoices = await Invoice.find(filter)
       .populate({ path: 'student', select: 'studentId', populate: { path: 'profile', select: 'firstName lastName' } })
       .sort({ dueDate: 1 }).lean({ virtuals: true });
@@ -194,7 +239,7 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
     const rows = invoices.map((inv: any) => [
       inv.student?.profile ? `${inv.student.profile.firstName} ${inv.student.profile.lastName}` : '',
       inv.student?.studentId || '', inv.title, inv.period, inv.amount, inv.discount || 0, inv.amountPaid || 0,
-      Math.max(0, inv.amount - (inv.discount || 0) - (inv.amountPaid || 0)), new Date(inv.dueDate).toISOString().slice(0, 10),
+      Math.max(0, inv.amount - (inv.discount || 0) - (inv.amountPaid || 0)), dayKey(new Date(inv.dueDate)),
     ]);
     const buffer = buildXlsxBuffer(headers, rows, 'Overdue Invoices');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -207,11 +252,19 @@ export const exportReport = async (req: Request, res: Response): Promise<void> =
     const { from, to } = parseRange(req);
     const invoiceIds = await invoiceIdsForPeriod(req, req.query.period);
     const filter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
-    const payments = await Payment.find(filter).select('amount discount method recordedBy createdAt').populate('recordedBy', 'email').sort({ createdAt: 1 }).lean();
+    const refundsFilter = applyOrgFilter(req, { status: 'completed', createdAt: { $gte: from, $lte: to }, ...(invoiceIds ? { invoice: { $in: invoiceIds } } : {}) }, 'school');
+    const [payments, refunds] = await Promise.all([
+      Payment.find(filter).select('amount discount method recordedBy createdAt').populate('recordedBy', 'email').sort({ createdAt: 1 }).lean(),
+      Refund.find(refundsFilter).select('amount processedBy createdAt').populate('processedBy', 'email').sort({ createdAt: 1 }).lean(),
+    ]);
     const headers = ['Date', 'Cashier', 'Method', 'Amount', 'Discount', 'Net'];
-    const rows = payments.map((p) => [
-      new Date(p.createdAt).toISOString().slice(0, 10), (p.recordedBy as any)?.email || 'Unknown', p.method,
+    const rows: (string | number)[][] = payments.map((p) => [
+      dayKey(new Date(p.createdAt)), (p.recordedBy as any)?.email || 'Unknown', p.method,
       p.amount, p.discount || 0, Math.max(0, (p.amount || 0) - (p.discount || 0)),
+    ]);
+    for (const refund of refunds) rows.push([
+      dayKey(new Date(refund.createdAt)), (refund.processedBy as any)?.email || 'Unknown', 'refund',
+      -refund.amount, 0, -refund.amount,
     ]);
     const buffer = buildXlsxBuffer(headers, rows, 'Cashier Reconciliation');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
