@@ -6,12 +6,18 @@ import {
   CalendarDays,
   ClipboardCheck,
   ClipboardEdit,
+  CloudDownload,
   Clock3,
   GraduationCap,
   Users,
 } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
+import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
+import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
+import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, getCachedTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
+import { prepareTeacherOfflineAppShell, saveVerifiedTeacherIdentity, offlineAttendanceOwner, cacheOfflineTeacherSidebar } from '../../../lib/teacher-offline-attendance';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
 
@@ -157,6 +163,7 @@ const tabs: { key: WorkspaceTab; label: string; shortLabel: string; icon: typeof
 
 export function TeacherExamPeriodWorkspace() {
   const { periodId = '' } = useParams();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab') as WorkspaceTab | null;
   const activeTab: WorkspaceTab = tabs.some((item) => item.key === requestedTab) ? requestedTab! : 'schedule';
@@ -167,6 +174,9 @@ export function TeacherExamPeriodWorkspace() {
   const [invigilationStatus, setInvigilationStatus] = useState<DutyStatus>('upcoming');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [usingOfflineData, setUsingOfflineData] = useState(false);
+  const [preparingOffline, setPreparingOffline] = useState(false);
+  const [offlinePrepMessage, setOfflinePrepMessage] = useState('');
 
   const load = async () => {
     if (!periodId) return;
@@ -178,17 +188,142 @@ export function TeacherExamPeriodWorkspace() {
         api.get('/exams', { params: { period: periodId, limit: 200 } }),
         api.get('/exams/invigilators/my'),
       ]);
-      setPeriods(periodResponse.data?.data || []);
-      setExams(examResponse.data?.data || []);
-      setAssignments((assignmentResponse.data?.data || []).filter((assignment: Assignment) => assignmentPeriodId(assignment) === periodId));
+      const nextPeriods = periodResponse.data?.data || [];
+      const nextExams = examResponse.data?.data || [];
+      const nextAssignments = (assignmentResponse.data?.data || []).filter((assignment: Assignment) => assignmentPeriodId(assignment) === periodId);
+      setPeriods(nextPeriods);
+      setExams(nextExams);
+      setAssignments(nextAssignments);
+      setUsingOfflineData(false);
+      const cachedExamSnapshot = await getCachedTeacherExamPeriods<{ exams?: Exam[] }>().catch(() => undefined);
+      const mergedExams = [
+        ...(cachedExamSnapshot?.exams || []).filter((cachedExam) => !nextExams.some((exam: Exam) => exam._id === cachedExam._id)),
+        ...nextExams,
+      ];
+      await Promise.all([
+        cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() }),
+        // Preserve assignments from other exam periods when this period is
+        // opened; otherwise offline period cards would show misleading zero counts.
+        cacheTeacherExamPeriods({
+          periods: nextPeriods.filter((item: ExamPeriod) => item.status === 'published'),
+          exams: mergedExams,
+          cachedAt: Date.now(),
+        }),
+      ]).catch(() => undefined);
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Could not load this exam workspace.');
+      const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
+      if (cached) {
+        setPeriods(cached.periods || []);
+        setExams(cached.exams || []);
+        setAssignments(cached.assignments || []);
+        setUsingOfflineData(true);
+        setError('');
+      } else {
+        setError(err?.response?.data?.message || 'Could not load this exam workspace. Connect to the internet once to download it for offline use.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => { void load(); }, [periodId]);
+
+  const prepareOffline = async () => {
+    if (!navigator.onLine) {
+      setOfflinePrepMessage('Connect to the internet before preparing this exam period for offline use.');
+      return;
+    }
+    setPreparingOffline(true);
+    setOfflinePrepMessage('');
+    let prepared = 0;
+    let failed = 0;
+    const resultCourseIds = new Set<string>(exams.map((exam) => exam.course?._id).filter((id): id is string => Boolean(id)));
+
+    // Reuse the established teacher offline identity and PIN policy. Cache the
+    // same server-authoritative sidebar permissions so the offline route guard
+    // can distinguish allowed exam pages from disabled pages without a network call.
+    try {
+      if (!user || user.role !== 'teacher' || !user.organizationId) {
+        throw new Error('A verified teacher account is required to prepare offline access.');
+      }
+      await saveVerifiedTeacherIdentity(user);
+      const owner = offlineAttendanceOwner(user);
+      if (!owner || !isOfflinePinReady()) {
+        throw new Error('Set up your six-digit Offline PIN in Teacher Settings and prepare offline access again.');
+      }
+      const { data: sidebarData } = await api.get('/sidebar-settings/mine', {
+        params: { portal: 'teacher' }, timeout: 15000,
+      });
+      const sidebar: Record<string, boolean> = {};
+      (sidebarData.data?.items || []).forEach((item: { key: string; visible: boolean }) => {
+        sidebar[item.key] = item.visible;
+      });
+      if (sidebar['group:teacher-exams'] === false || sidebar['teacher/exams'] === false) {
+        throw new Error('Your school has disabled the Teacher Exam Workspace.');
+      }
+      await cacheOfflineTeacherSidebar(owner, sidebar);
+      prepared++;
+    } catch (accessError: any) {
+      setOfflinePrepMessage(`Offline access setup failed: ${accessError?.message || 'Could not verify your teacher access.'}`);
+      setPreparingOffline(false);
+      return;
+    }
+
+    try {
+      // Cache the verified app shell so this exam URL can reopen after a cold
+      // launch while offline, not only while the current SPA remains open.
+      try { await prepareTeacherOfflineAppShell(); prepared++; } catch { failed++; }
+
+      // Force-load every exam workspace page while online so the service
+      // worker can cache their lazy-loaded JS/CSS chunks for offline navigation.
+      try {
+        await Promise.all([
+          import('./teacher-exam-attendance-roster'),
+          import('./teacher-invigilation-attendance-roster'),
+          import('../../admin/pages/results-entry'),
+        ]);
+        prepared++;
+      } catch { failed++; }
+
+      try {
+        const { data } = await api.get('/gradebook-courses');
+        const resultCourses = Array.isArray(data.data) ? data.data : [];
+        await cacheTeacherResultCourses(resultCourses);
+        resultCourses.forEach((course: { _id?: string }) => { if (course._id) resultCourseIds.add(String(course._id)); });
+        prepared++;
+      } catch { failed++; }
+
+      for (const exam of exams) {
+        try {
+          const { data } = await api.get(`/exams/${exam._id}/attendance`);
+          await cacheTeacherExamAttendance(exam._id, { ...(data.data || {}), cachedAt: Date.now() });
+          prepared++;
+        } catch { failed++; }
+      }
+
+      for (const assignment of assignments) {
+        try {
+          const { data } = await api.get(`/exams/invigilators/${assignment._id}/roster`);
+          await cacheTeacherInvigilationRoster(assignment._id, { ...(data.data || {}), cachedAt: Date.now() });
+          prepared++;
+        } catch { failed++; }
+      }
+
+      // Prepare result-entry rosters for every course available in the
+      // teacher's gradebook list, not only courses that have a scheduled paper.
+      for (const courseId of resultCourseIds) {
+        try {
+          const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
+          await cacheTeacherResultRoster(courseId, data.data);
+          prepared++;
+        } catch { failed++; }
+      }
+
+      setOfflinePrepMessage(`Offline preparation finished: ${prepared} item(s) prepared; ${failed} item(s) could not be prepared. Keep this device signed in and sync pending changes before logging out.`);
+    } finally {
+      setPreparingOffline(false);
+    }
+  };
 
   const period = useMemo(
     () => periods.find((item) => item._id === periodId && item.status === 'published'),
@@ -245,8 +380,9 @@ export function TeacherExamPeriodWorkspace() {
             Exam Periods
           </Link>
 
-          <div className="min-w-0">
-            <h1 className="truncate text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-3xl">
               {period?.name || (loading ? 'Loading exam…' : 'Exam Workspace')}
             </h1>
             {period && (
@@ -254,12 +390,26 @@ export function TeacherExamPeriodWorkspace() {
                 {period.academicYear}{period.term ? ` · ${period.term}` : ''} · {formatRange(period)}
               </p>
             )}
+            </div>
+            {period && <button type="button" onClick={() => void prepareOffline()} disabled={preparingOffline || loading || !navigator.onLine} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
+              <CloudDownload className={`h-4 w-4 ${preparingOffline ? 'animate-pulse' : ''}`} />
+              {preparingOffline ? 'Preparing…' : 'Prepare for offline'}
+            </button>}
           </div>
         </header>
 
         {error && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
             {error}
+          </div>
+        )}
+
+        <TeacherExamOfflineStatus />
+        {offlinePrepMessage && <p role="status" className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 text-sm text-[var(--color-text-secondary)]">{offlinePrepMessage}</p>}
+
+        {usingOfflineData && (
+          <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            Offline mode: showing the last exam schedule and assignments saved on this device. Pending changes will sync when internet returns.
           </div>
         )}
 

@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
+import { cacheTeacherInvigilationRoster, getCachedTeacherInvigilationRoster, queueTeacherInvigilationAttendance } from '../../../lib/teacher-offline-exams';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
 type Status = 'present' | 'absent';
@@ -58,6 +60,7 @@ export function TeacherInvigilationAttendanceRoster(){
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
+  const [usingOfflineData,setUsingOfflineData]=useState(false);
 
   const load=async()=>{
     if(!assignmentId)return;
@@ -77,8 +80,28 @@ export function TeacherInvigilationAttendanceRoster(){
       });
       setStatuses(nextStatuses);
       setNotes(nextNotes);
+      setUsingOfflineData(false);
+      await cacheTeacherInvigilationRoster(assignmentId, { assignment: payload.assignment||null, roster: nextRows, cachedAt: Date.now() }).catch(() => undefined);
     }catch(err:any){
-      setError(err.response?.data?.message||'Failed to load room attendance list.');
+      const cached=assignmentId?await getCachedTeacherInvigilationRoster<{assignment?:Assignment|null;roster?:RosterRow[]}>(assignmentId).catch(()=>undefined):undefined;
+      if(cached){
+        const nextRows=cached.roster||[];
+        setAssignment(cached.assignment||null);
+        setRows(nextRows);
+        const nextStatuses:Record<string,Status|undefined>={};
+        const nextNotes:Record<string,string>={};
+        nextRows.forEach(row=>{
+          const previous=row.attendance?.status;
+          nextStatuses[row.student._id]=previous==='present'?'present':previous?'absent':undefined;
+          nextNotes[row.student._id]=row.attendance?.notes||'';
+        });
+        setStatuses(nextStatuses);
+        setNotes(nextNotes);
+        setUsingOfflineData(true);
+        setError('');
+      }else{
+        setError(err.response?.data?.message||'No saved room roster is available. Connect once while online to prepare this room for offline use.');
+      }
     }finally{
       setLoading(false);
     }
@@ -112,17 +135,35 @@ export function TeacherInvigilationAttendanceRoster(){
       .filter(row=>statuses[row.student._id])
       .map(row=>({
         student:row.student._id,
-        status:statuses[row.student._id],
+        status:statuses[row.student._id] as Status,
         notes:notes[row.student._id]||'',
       }));
     if(!records.length){setError('Mark at least one student before saving.');return}
     setSaving(true);setError('');setMessage('');
+    const saveLocally=async()=>{
+      await queueTeacherInvigilationAttendance(assignmentId || '',records);
+      const updatedRows=rows.map(row=>{
+        const record=records.find(item=>item.student===row.student._id);
+        return record?{...row,attendance:{...(row.attendance||{}),status:record.status,notes:record.notes||''}}:row;
+      });
+      setRows(updatedRows);
+      await cacheTeacherInvigilationRoster(assignmentId || '',{assignment,roster:updatedRows,cachedAt:Date.now()});
+      setUsingOfflineData(true);
+      setMessage(`Saved on this device for ${records.length} students. It will sync automatically when internet returns.`);
+    };
     try{
+      if(!navigator.onLine){await saveLocally();return}
       const {data}=await api.post(`/exams/invigilators/${assignmentId}/attendance`,{records});
       setMessage(data.message||`Attendance saved for ${records.length} students.`);
       await load();
     }catch(err:any){
-      setError(err.response?.data?.message||'Failed to save room attendance.');
+      const status=err?.response?.status;
+      const temporary=!err?.response||status===408||status===429||status>=500;
+      if(temporary){
+        try{await saveLocally()}catch(queueError:any){setError(queueError?.message||'Could not save room attendance offline.')}
+      }else{
+        setError(err.response?.data?.message||'Failed to save room attendance.');
+      }
     }finally{
       setSaving(false);
     }
@@ -158,8 +199,10 @@ export function TeacherInvigilationAttendanceRoster(){
         </div>
       </div>
 
+      <TeacherExamOfflineStatus />
       {error&&<div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-600 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
       {message&&<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">{message}</div>}
+      {usingOfflineData&&<div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Offline mode: room roster is saved on this device. Attendance will sync when internet returns.</div>}
 
       <div className="sticky top-2 z-20 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)]/95 p-3 shadow-lg backdrop-blur sm:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

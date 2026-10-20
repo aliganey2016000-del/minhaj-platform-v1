@@ -11,10 +11,16 @@ const script=ts.transpileModule(source,{compilerOptions:{
 }}).outputText;
 const effects=[];
 const calls=[];
+const states=[];
+let stateCursor=0;
 const jsx=(type,props)=>({type,props:props||{}});
 let route='/teacher/attendance',offlineOnly=true;
 const mockReact={
-  useState:initial=>[initial,()=>{}],
+  useState:initial=>{
+    const index=stateCursor++;
+    if(!(index in states))states[index]=initial;
+    return [states[index],value=>{states[index]=typeof value==='function'?value(states[index]):value;}];
+  },
   useCallback:fn=>fn,
   useEffect:fn=>{effects.push(fn);},
 };
@@ -34,14 +40,32 @@ const context={exports:{},window:{location:{}},
     })};
     if(path.endsWith('/teacher-sidebar-access'))return {
       firstAllowedTeacherRoute:()=>'/teacher/attendance',
-      isTeacherRouteAllowed:(path,rights)=>
-        (path==='/teacher/attendance' && rights['teacher/attendance']!==false) ||
-        (path==='/teacher/schedule' && rights['teacher/schedule']!==false),
+      isTeacherRouteAllowed:(path,rights)=>{
+        if(path==='/teacher/attendance')return rights['teacher/attendance']!==false;
+        if(path==='/teacher/schedule')return rights['teacher/schedule']!==false;
+        if(path==='/teacher/exams'||path.startsWith('/teacher/exams/periods/'))
+          return rights['group:teacher-exams']!==false&&rights['teacher/exams']!==false;
+        if(path==='/teacher/exam-attendance'||path.startsWith('/teacher/exam-attendance/'))
+          return rights['group:teacher-exams']!==false&&rights['teacher/exam-attendance']!==false;
+        if(path.startsWith('/teacher/exams/')&&path.endsWith('/attendance'))
+          return rights['group:teacher-exams']!==false&&rights['teacher/exam-attendance']!==false;
+        if(path==='/teacher/results/enter')
+          return rights['group:gradebook']!==false&&rights['teacher/results/enter']!==false;
+        return false;
+      },
     };
     if(path.endsWith('/teacher-offline-attendance'))return {
       offlineAttendanceOwner:()=> 'balcad.schoolapp.so:school-a:teacher-a:session-a',
-      getOfflineTeacherSidebar:async()=>({'teacher/attendance':true,'teacher/schedule':true}),
+      getOfflineTeacherSidebar:async()=>({
+        'teacher/attendance':true,'teacher/schedule':true,
+        'group:teacher-exams':true,'teacher/exams':true,'teacher/exam-attendance':true,
+        'teacher/exam-papers':true,'teacher/exam-incidents':true,
+        'group:gradebook':true,'teacher/results/enter':true,
+      }),
       getOfflineTeachingSchedule:async()=>({schedules:[],periods:[]}),
+    };
+    if(path.endsWith('/teacher-offline-exams'))return {
+      getCachedTeacherExamPeriods:async()=>({periods:[{_id:'period-a',status:'published'}]}),
     };
     if(path.endsWith('/teacher-sidebar'))return {TeacherSidebar:'TeacherSidebar'};
     if(path.endsWith('/dashboard-header'))return {DashboardHeader:'DashboardHeader'};
@@ -54,15 +78,29 @@ const flatten=value=>{
   if(!value||typeof value!=='object')return [];
   return [value,...flatten(value.props?.children)];
 };
-let tree=context.exports.TeacherLayout();
-for(const effect of effects.splice(0))effect();
+const wait=()=>new Promise(resolve=>setTimeout(resolve,0));
+async function renderSettled(){
+  stateCursor=0;effects.length=0;
+  let tree=context.exports.TeacherLayout();
+  for(const effect of effects.splice(0))effect();
+  await wait();
+  stateCursor=0;
+  tree=context.exports.TeacherLayout();
+  return tree;
+}
+let tree=await renderSettled();
 assert.equal(calls.length,0,'Offline PIN session must not fetch sidebar settings');
 assert.ok(flatten(tree).some(n=>n.type==='Outlet'),'Offline attendance must mount cached attendance');
 assert.ok(flatten(tree).some(n=>n.type==='TeacherSidebar'),'Offline portal must display teacher navigation');
 route='/teacher/exams';
-tree=context.exports.TeacherLayout();
-for(const effect of effects.splice(0))effect();
+tree=await renderSettled();
+assert.ok(flatten(tree).some(n=>n.type==='Outlet'),'Prepared exam workspace must open with offline PIN and cached permissions');
+route='/teacher/results/enter';
+tree=await renderSettled();
+assert.ok(flatten(tree).some(n=>n.type==='Outlet'),'Cached result entry must open offline when gradebook permission is enabled');
+route='/teacher/exams/exam-a/paper';
+tree=await renderSettled();
 assert.ok(flatten(tree).some(n=>n.type==='Navigate'&&n.props.to==='/teacher/attendance'),
-  'PIN-only session must not open exams, gradebook, dashboard or other routes');
+  'Confidential exam papers must remain blocked in offline PIN mode');
 assert.equal(calls.length,0,'Offline account must never request teacher-wide API');
-console.log('PASS: offline PIN bypasses failing sidebar access guard but blocks unrelated teacher routes');
+console.log('PASS: offline PIN permits prepared exam workspace and cached result entry, blocks confidential papers and makes no API calls');

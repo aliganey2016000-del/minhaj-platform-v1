@@ -43,6 +43,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ClipboardEdit, Save, Loader2, AlertTriangle, CheckCircle2, UploadCloud, GraduationCap, Users, Clock, SlidersHorizontal, ArrowRight, BookOpen, Download } from 'lucide-react';
 import api from '../../../lib/axios';
+import { TeacherExamOfflineStatus } from '../../teacher/components/teacher-exam-offline-status';
+import { cacheTeacherResultCourses, getCachedTeacherResultCourses, cacheTeacherResultRoster, getCachedTeacherResultRoster, queueTeacherExamResult } from '../../../lib/teacher-offline-exams';
 import { BackButton } from '../../shared/components/back-button';
 import { SearchableSelect, type SearchableSelectOption } from '../../shared/components/searchable-select';
 import { BulkImportResultsModal } from './components/bulk-import-results-modal';
@@ -319,6 +321,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [usingOfflineData, setUsingOfflineData] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<Set<ManualEntrySlot>>(loadHiddenColumns);
   const [activeSummaryTab, setActiveSummaryTab] = useState<SummaryTab | null>(null);
@@ -341,8 +344,15 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
     (async () => {
       try {
         const { data } = await api.get('/gradebook-courses');
-        setCourses(data.data || []);
-      } catch { /* course list stays empty; the empty-state below handles it */ }
+        const nextCourses = data.data || [];
+        setCourses(nextCourses);
+        if (backFallback.startsWith('/teacher')) await cacheTeacherResultCourses(nextCourses).catch(() => undefined);
+      } catch {
+        if (backFallback.startsWith('/teacher')) {
+          const cachedCourses = await getCachedTeacherResultCourses<CourseBrief[]>().catch(() => undefined);
+          if (cachedCourses) { setCourses(cachedCourses); setUsingOfflineData(true); }
+        }
+      }
     })();
     loadSummary();
   }, []);
@@ -417,8 +427,22 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
-      const r: ManualEntryRoster = data.data;
+      let r: ManualEntryRoster;
+      try {
+        const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
+        r = data.data;
+        if (backFallback.startsWith('/teacher')) {
+          await cacheTeacherResultRoster(courseId, r).catch(() => undefined);
+          setUsingOfflineData(false);
+        }
+      } catch (loadError: any) {
+        const cachedRoster = backFallback.startsWith('/teacher')
+          ? await getCachedTeacherResultRoster<ManualEntryRoster>(courseId).catch(() => undefined)
+          : undefined;
+        if (!cachedRoster) throw loadError;
+        r = cachedRoster;
+        setUsingOfflineData(true);
+      }
       setRoster(r);
 
       const attendanceMap: Record<string, ExamAttendanceStatus> = {};
@@ -501,10 +525,36 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
       setErrorKeys((prev) => { if (!prev.has(key)) return prev; const next = new Set(prev); next.delete(key); return next; });
       try {
         const score = pointsToPercent(points, weight);
-        await api.post(`/gradebook/${courseId}/manual-entry-roster/bulk`, { entries: [{ studentId, slot, score }] });
+        if (backFallback.startsWith('/teacher') && !navigator.onLine) {
+          await queueTeacherExamResult(courseId, studentId, slot, score);
+          const updatedRoster = roster ? { ...roster, students: roster.students.map((student) =>
+            student.studentId === studentId ? { ...student, scores: { ...student.scores, [slot]: score } } : student) } : null;
+          if (updatedRoster) await cacheTeacherResultRoster(courseId, updatedRoster);
+          setUsingOfflineData(true);
+          setMessage('Score saved on this device. It will sync automatically when internet returns.');
+        } else {
+          await api.post(`/gradebook/${courseId}/manual-entry-roster/bulk`, { entries: [{ studentId, slot, score }] });
+        }
         setSavedKeys((prev) => new Set(prev).add(key));
-      } catch {
-        setErrorKeys((prev) => new Set(prev).add(key));
+      } catch (saveError: any) {
+        const status = saveError?.response?.status;
+        const temporary = !saveError?.response || status === 408 || status === 429 || status >= 500;
+        if (backFallback.startsWith('/teacher') && temporary) {
+          try {
+            const score = pointsToPercent(points, weight);
+            await queueTeacherExamResult(courseId, studentId, slot, score);
+            const updatedRoster = roster ? { ...roster, students: roster.students.map((student) =>
+              student.studentId === studentId ? { ...student, scores: { ...student.scores, [slot]: score } } : student) } : null;
+            if (updatedRoster) await cacheTeacherResultRoster(courseId, updatedRoster);
+            setUsingOfflineData(true);
+            setMessage('Connection interrupted. Score saved on this device and queued for sync.');
+            setSavedKeys((prev) => new Set(prev).add(key));
+          } catch {
+            setErrorKeys((prev) => new Set(prev).add(key));
+          }
+        } else {
+          setErrorKeys((prev) => new Set(prev).add(key));
+        }
       } finally {
         setSavingKeys((prev) => { const next = new Set(prev); next.delete(key); return next; });
       }
@@ -577,8 +627,8 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
     setSaving(true);
     setError('');
     setMessage('');
+    const entries: { studentId: string; slot: ManualEntrySlot; score: number }[] = [];
     try {
-      const entries: { studentId: string; slot: ManualEntrySlot; score: number }[] = [];
       roster.students.forEach((s) => {
         MANUAL_ENTRY_SLOTS.forEach(({ slot }) => {
           const cat = roster.slots[slot];
@@ -595,13 +645,47 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
         return;
       }
 
-      const { data } = await api.post(`/gradebook/${selectedCourseId}/manual-entry-roster/bulk`, { entries });
-      const saved = data.data?.saved ?? entries.length;
-      setMessage(`Saved ${saved} score${saved === 1 ? '' : 's'}.`);
-      setSavedKeys(new Set(entries.map((en) => `${en.studentId}_${en.slot}`)));
-      loadSummary();
+      if (backFallback.startsWith('/teacher') && !navigator.onLine) {
+        await Promise.all(entries.map((entry) => queueTeacherExamResult(selectedCourseId, entry.studentId, entry.slot, entry.score)));
+        await cacheTeacherResultRoster(selectedCourseId, {
+          ...roster,
+          students: roster.students.map((student) => ({
+            ...student,
+            scores: { ...student.scores, ...Object.fromEntries(entries.filter((entry) => entry.studentId === student.studentId).map((entry) => [entry.slot, entry.score])) },
+          })),
+        });
+        setUsingOfflineData(true);
+        setMessage(`Saved ${entries.length} score(s) on this device. They will sync automatically when internet returns.`);
+        setSavedKeys(new Set(entries.map((en) => `${en.studentId}_${en.slot}`)));
+      } else {
+        const { data } = await api.post(`/gradebook/${selectedCourseId}/manual-entry-roster/bulk`, { entries });
+        const saved = data.data?.saved ?? entries.length;
+        setMessage(`Saved ${saved} score${saved === 1 ? '' : 's'}.`);
+        setSavedKeys(new Set(entries.map((en) => `${en.studentId}_${en.slot}`)));
+        loadSummary();
+      }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save results');
+      const status = err?.response?.status;
+      const temporary = !err?.response || status === 408 || status === 429 || status >= 500;
+      if (backFallback.startsWith('/teacher') && temporary && selectedCourseId) {
+        try {
+          await Promise.all(entries.map((entry) => queueTeacherExamResult(selectedCourseId, entry.studentId, entry.slot, entry.score)));
+          await cacheTeacherResultRoster(selectedCourseId, {
+            ...roster,
+            students: roster.students.map((student) => ({
+              ...student,
+              scores: { ...student.scores, ...Object.fromEntries(entries.filter((entry) => entry.studentId === student.studentId).map((entry) => [entry.slot, entry.score])) },
+            })),
+          });
+          setUsingOfflineData(true);
+          setMessage('Connection interrupted. Results are saved on this device and queued for sync.');
+          setSavedKeys(new Set(entries.map((en) => `${en.studentId}_${en.slot}`)));
+        } catch (queueError: any) {
+          setError(queueError?.message || 'Failed to save results offline.');
+        }
+      } else {
+        setError(err.response?.data?.message || 'Failed to save results');
+      }
     } finally {
       setSaving(false);
     }
@@ -790,6 +874,8 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
 
         {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-600">{error}</div>}
         {message && <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/30 p-4 text-sm text-green-700 dark:text-green-400">{message}</div>}
+        {backFallback.startsWith('/teacher') && <TeacherExamOfflineStatus />}
+        {usingOfflineData && backFallback.startsWith('/teacher') && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">Offline mode: roster and scores are saved on this device. Pending scores sync automatically when internet returns.</div>}
 
         {loading && (
           <div className="flex justify-center py-16">
