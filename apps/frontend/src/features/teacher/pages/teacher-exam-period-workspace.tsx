@@ -16,7 +16,7 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
-import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, getCachedTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
+import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, getCachedTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationAssignments, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { prepareTeacherOfflineAppShell, saveVerifiedTeacherIdentity, offlineAttendanceOwner, cacheOfflineTeacherSidebar } from '../../../lib/teacher-offline-attendance';
 
 type WorkspaceTab = 'schedule' | 'invigilation' | 'attendance' | 'results';
@@ -226,6 +226,7 @@ export function TeacherExamPeriodWorkspace() {
             exams: mergedExams,
             cachedAt: Date.now(),
           }),
+          cacheTeacherInvigilationAssignments(assignmentResponse.data?.data || []),
         ]).catch(() => undefined);
       } catch (err: any) {
         if (!hasCachedData) setError(err?.response?.data?.message || 'Could not load this exam workspace. Connect to the internet once to download it for offline use.');
