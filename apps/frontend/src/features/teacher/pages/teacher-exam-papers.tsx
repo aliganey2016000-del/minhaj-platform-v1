@@ -61,7 +61,7 @@ export function TeacherExamPapers() {
         const { data } = await api.get('/exams', { params: { limit: 200 } });
         const nextExams: Exam[] = data.data || [];
         setExams(nextExams);
-        await cacheTeacherExamPeriods({ ...(cached || {}), exams: nextExams, cachedAt: Date.now() }).catch(() => undefined);
+        if (cached) await cacheTeacherExamPeriods({ ...cached, exams: nextExams, cachedAt: Date.now() }).catch(() => undefined);
       } catch (err: any) {
         if (!hasCachedData) setError(err?.response?.data?.message || 'No saved exam papers are available. Connect once and open Exam Periods to prepare offline data.');
       } finally { setLoading(false); }
