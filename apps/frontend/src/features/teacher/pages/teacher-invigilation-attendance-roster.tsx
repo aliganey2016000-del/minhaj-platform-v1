@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Building2,
@@ -61,8 +61,10 @@ export function TeacherInvigilationAttendanceRoster(){
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
   const [usingOfflineData,setUsingOfflineData]=useState(false);
+  const draftReady = useRef(false);
 
   const load=async()=>{
+    draftReady.current = false;
     if(!assignmentId)return;
     setLoading(true);setError('');
     try{
@@ -81,6 +83,7 @@ export function TeacherInvigilationAttendanceRoster(){
       setStatuses(nextStatuses);
       setNotes(nextNotes);
       setUsingOfflineData(false);
+      draftReady.current = true;
       await cacheTeacherInvigilationRoster(assignmentId, { assignment: payload.assignment||null, roster: nextRows, cachedAt: Date.now() }).catch(() => undefined);
     }catch(err:any){
       const cached=assignmentId?await getCachedTeacherInvigilationRoster<{assignment?:Assignment|null;roster?:RosterRow[]}>(assignmentId).catch(()=>undefined):undefined;
@@ -98,6 +101,7 @@ export function TeacherInvigilationAttendanceRoster(){
         setStatuses(nextStatuses);
         setNotes(nextNotes);
         setUsingOfflineData(true);
+        draftReady.current = true;
         setError('');
       }else{
         setError(err.response?.data?.message||'No saved room roster is available. Connect once while online to prepare this room for offline use.');
@@ -108,6 +112,30 @@ export function TeacherInvigilationAttendanceRoster(){
   };
 
   useEffect(()=>{void load()},[assignmentId]);
+
+  // Persist each change to IndexedDB immediately, not only when Save is pressed.
+  // This protects marks from reloads, accidental navigation, and network loss.
+  useEffect(() => {
+    if (!draftReady.current || !assignmentId) return;
+    const updatedRows = rows.map((row) => {
+      const studentId = row.student._id;
+      const status = statuses[studentId];
+      if (!status && !(notes[studentId] || '').trim()) return row;
+      return {
+        ...row,
+        attendance: {
+          ...(row.attendance || {}),
+          ...(status ? { status } : {}),
+          notes: notes[studentId] || '',
+        },
+      };
+    });
+    void cacheTeacherInvigilationRoster(assignmentId, {
+      assignment, roster: updatedRows, cachedAt: Date.now(),
+    }).catch(() => {
+      setError('Could not save the latest attendance draft on this device. Keep this page open and try again.');
+    });
+  }, [assignmentId, assignment, rows, statuses, notes]);
 
   const counts=useMemo(()=>({
     present:Object.values(statuses).filter(v=>v==='present').length,

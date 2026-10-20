@@ -26,8 +26,21 @@ export function TeacherExamOfflineStatus() {
     };
     const onOffline = () => setOnline(false);
     const onQueueChanged = () => { void refresh(); };
+    const onResume = () => {
+      refreshAuth();
+      if (navigator.onLine && typeof localStorage !== 'undefined' && localStorage.getItem('accessToken')) {
+        void flushTeacherExamQueue().finally(() => { void refresh(); });
+      } else {
+        void refresh();
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') onResume();
+    };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    window.addEventListener('focus', onResume);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('storage', refreshAuth);
     window.addEventListener('sahal-offline-access-updated', refreshAuth);
     window.addEventListener('sahal-teacher-exam-queue-updated', onQueueChanged);
@@ -39,6 +52,8 @@ export function TeacherExamOfflineStatus() {
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      window.removeEventListener('focus', onResume);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('storage', refreshAuth);
       window.removeEventListener('sahal-offline-access-updated', refreshAuth);
       window.removeEventListener('sahal-teacher-exam-queue-updated', onQueueChanged);
