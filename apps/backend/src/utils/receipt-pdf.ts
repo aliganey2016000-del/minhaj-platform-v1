@@ -1,10 +1,7 @@
 /**
- * Official payment receipt PDF — server-generated so parents/students/admins
- * always get an identical, downloadable document regardless of browser
- * (the old approach was window.print() on generated HTML, which isn't a
- * real file and can't be reliably emailed/archived).
+ * Official, color A5 payment receipt PDF.
+ * A5 is exactly half an A4 sheet, suitable for compact receipt printing.
  */
-
 import PDFDocument from 'pdfkit';
 
 export interface ReceiptData {
@@ -31,100 +28,140 @@ const METHOD_LABELS: Record<string, string> = {
   online: 'Online Payment',
 };
 
+const NAVY = '#102A56';
+const BLUE = '#1976D2';
+const GREEN = '#079669';
+const PALE_BLUE = '#EFF6FF';
+const PALE_GREEN = '#ECFDF5';
+const MUTED = '#64748B';
+const INK = '#172554';
+const BORDER = '#D8E3F0';
+
 export function buildReceiptPdf(data: ReceiptData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const doc = new PDFDocument({ size: 'A5', margin: 28, compress: true });
     const chunks: Buffer[] = [];
-    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
+    const pageWidth = doc.page.width;
+    const pageHeight = doc.page.height;
+    const left = 28;
+    const right = pageWidth - 28;
+    const width = right - left;
     const net = Math.max(0, data.amount - (data.discount || 0));
+    const formatMoney = (amount: number) => `$${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const method = METHOD_LABELS[data.method] || data.method || '—';
+    const date = data.paidAt.toLocaleString();
 
-    // Renders a description (left, wrapping within its own column) and an
-    // amount (right, single line) on the SAME row, using one explicit y for
-    // both — doc.y after the first .text() call depends on how many lines
-    // it wrapped to, so it can't be used to position the second call.
-    const row = (label: string, value: string, opts: { color?: string; size?: number } = {}) => {
-      const rowY = doc.y;
-      doc.fontSize(opts.size || 11).fillColor(opts.color || '#1e293b');
-      doc.text(label, 50, rowY, { width: 380 });
-      const afterLabelY = doc.y;
-      doc.text(value, 450, rowY, { width: 95, align: 'right' });
-      doc.y = Math.max(afterLabelY, doc.y);
-      doc.x = 50;
-    };
+    // Branded header with a strong contrast that remains legible in print.
+    doc.rect(0, 0, pageWidth, 105).fill(NAVY);
+    doc.rect(0, 101, pageWidth, 4).fill(GREEN);
 
-    // ── Header ──
-    const headerTop = doc.y;
     let logoRendered = false;
     if (data.logo?.length) {
       try {
-        doc.image(data.logo, 50, headerTop, { fit: [54, 54], align: 'center', valign: 'center' });
+        doc.image(data.logo, left, 19, { fit: [42, 42] });
         logoRendered = true;
       } catch {
-        // PDFKit supports PNG/JPEG. Unsupported image formats simply fall
-        // back to the organization name without breaking receipt download.
+        // Unsupported logo formats should not prevent a receipt from being generated.
       }
     }
-    const headerTextX = logoRendered ? 118 : 50;
-    const headerTextWidth = logoRendered ? 427 : 495;
-    const headerAlign: 'left' | 'center' = logoRendered ? 'left' : 'center';
-    doc.fontSize(20).fillColor('#059669').text(data.schoolName, headerTextX, headerTop + 4, { width: headerTextWidth, align: headerAlign });
-    doc.fontSize(11).fillColor('#64748b').text('Official Payment Receipt', headerTextX, doc.y + 2, { width: headerTextWidth, align: headerAlign });
-    doc.y = Math.max(doc.y, headerTop + (logoRendered ? 62 : 42));
-    doc.moveDown(0.7);
 
-    doc.strokeColor('#10b981').lineWidth(1.5).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown(1);
+    const schoolX = logoRendered ? left + 52 : left;
+    const schoolWidth = width - (schoolX - left);
+    doc.font('Helvetica-Bold').fontSize(logoRendered ? 15 : 17).fillColor('#FFFFFF')
+      .text(data.schoolName || 'School', schoolX, 22, { width: schoolWidth, height: 40, ellipsis: true });
+    doc.font('Helvetica').fontSize(8).fillColor('#DCEAFE')
+      .text('FINANCE OFFICE  •  OFFICIAL PAYMENT RECORD', schoolX, 59, { width: schoolWidth });
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#FFFFFF')
+      .text('PAYMENT RECEIPT', left, 79, { width: width * 0.56 });
+    doc.font('Helvetica').fontSize(7).fillColor('#DCEAFE')
+      .text(`Receipt: ${data.receiptNumber}`, left + width * 0.56, 80, { width: width * 0.44, align: 'right', ellipsis: true });
 
+    let y = 120;
     if (data.refunded) {
-      doc.fontSize(13).fillColor('#dc2626').text('⚠ THIS PAYMENT HAS BEEN REFUNDED', { align: 'center' });
-      doc.moveDown(1);
+      doc.roundedRect(left, y, width, 25, 6).fill('#FEF2F2');
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#B91C1C')
+        .text('THIS PAYMENT HAS BEEN REFUNDED', left + 10, y + 8, { width: width - 20, align: 'center' });
+      y += 34;
+    } else {
+      doc.roundedRect(right - 62, y - 2, 62, 21, 10).fill(PALE_GREEN);
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(GREEN)
+        .text('✓  PAID', right - 62, y + 5, { width: 62, align: 'center' });
     }
 
-    // ── Metadata ──
-    doc.fontSize(10).fillColor('#1e293b');
-    doc.text(`Receipt No: ${data.receiptNumber}`);
-    doc.text(`Date & Time: ${data.paidAt.toLocaleString()}`);
-    doc.text(`Payment Method: ${METHOD_LABELS[data.method] || data.method}`);
-    doc.moveDown(0.5);
-    doc.text(`Student: ${data.studentName} (${data.studentCode})`);
-    if (data.invoiceTitle) {
-      doc.text(`Invoice: ${data.invoiceTitle}${data.invoicePeriod ? ` — ${data.invoicePeriod}` : ''}`);
-    }
-    doc.moveDown(1.5);
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('PAYMENT DETAILS', left, y + 3);
+    y += 22;
 
-    // ── Amount table ──
-    const tableTop = doc.y;
-    doc.fontSize(9).fillColor('#059669');
-    doc.text('DESCRIPTION', 50, tableTop);
-    doc.text('AMOUNT', 450, tableTop, { width: 95, align: 'right' });
-    doc.moveTo(50, doc.y + 4).lineTo(545, doc.y + 4).strokeColor('#a7f3d0').stroke();
-    doc.moveDown(1);
+    const gap = 8;
+    const cardWidth = (width - gap) / 2;
+    const detailCard = (x: number, top: number, label: string, value: string, tint = PALE_BLUE, valueColor = INK) => {
+      doc.roundedRect(x, top, cardWidth, 47, 7).fill(tint);
+      doc.font('Helvetica-Bold').fontSize(7).fillColor(label === 'Amount' ? GREEN : BLUE)
+        .text(label.toUpperCase(), x + 9, top + 8, { width: cardWidth - 18, ellipsis: true });
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(valueColor)
+        .text(value || '—', x + 9, top + 21, { width: cardWidth - 18, height: 22, ellipsis: true });
+    };
 
-    row(data.notes || data.invoiceTitle || 'Payment', `$${data.amount.toLocaleString()}`);
+    detailCard(left, y, 'Student', data.studentName);
+    detailCard(left + cardWidth + gap, y, 'Student ID', data.studentCode);
+    y += 55;
+    detailCard(left, y, 'Payment method', method);
+    detailCard(left + cardWidth + gap, y, 'Date & time', date);
+    y += 58;
+
+    // Invoice summary is a bordered panel, with wrapping for long invoice names.
+    doc.roundedRect(left, y, width, 59, 7).lineWidth(0.8).strokeColor(BORDER).stroke();
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(MUTED)
+      .text('INVOICE / DESCRIPTION', left + 10, y + 8, { width: width - 20 });
+    const invoiceLine = [data.invoiceTitle || 'Payment', data.invoicePeriod].filter(Boolean).join(' — ');
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(INK)
+      .text(invoiceLine, left + 10, y + 21, { width: width - 20, height: 27, ellipsis: true });
+    y += 68;
+
+    // Amount received panel is the visual focal point of the receipt.
+    doc.roundedRect(left, y, width, 61, 8).fill(PALE_GREEN);
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(GREEN)
+      .text(data.refunded ? 'TOTAL REFUNDED' : 'AMOUNT RECEIVED', left + 12, y + 11, { width: width * 0.55 });
+    doc.font('Helvetica').fontSize(7).fillColor('#477565')
+      .text('Against selected invoice', left + 12, y + 25, { width: width * 0.55 });
+    doc.font('Helvetica-Bold').fontSize(21).fillColor(data.refunded ? '#B91C1C' : GREEN)
+      .text(formatMoney(net), left + width * 0.52, y + 19, { width: width * 0.43, align: 'right', lineBreak: false });
+    y += 70;
 
     if (data.discount > 0) {
-      doc.moveDown(0.5);
-      row('Discount', `-$${data.discount.toLocaleString()}`, { color: '#d97706' });
+      doc.font('Helvetica').fontSize(8).fillColor('#B45309')
+        .text(`Discount applied: ${formatMoney(data.discount)}`, left, y, { width });
+      y += 14;
     }
 
-    doc.moveDown(0.5);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#10b981').lineWidth(1.5).stroke();
-    doc.moveDown(0.5);
+    if (data.notes?.trim()) {
+      doc.font('Helvetica-Bold').fontSize(7).fillColor(MUTED).text('NOTE', left, y, { width });
+      y += 10;
+      doc.font('Helvetica').fontSize(8).fillColor(INK)
+        .text(data.notes.trim(), left, y, { width, height: 27, ellipsis: true });
+      y += 31;
+    }
 
-    row(data.refunded ? 'Total Refunded' : 'Total Paid', `$${net.toLocaleString()}`, { color: '#059669', size: 13 });
-    doc.moveDown(2);
+    // Keep the receipt readable and the footer anchored within the A5 page.
+    const footerTop = pageHeight - 55;
+    if (y < footerTop - 35) {
+      doc.moveTo(left, y).lineTo(right, y).lineWidth(0.7).strokeColor(BORDER).stroke();
+      y += 10;
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(INK).text('Received by', left, y, { width });
+      doc.font('Helvetica').fontSize(7).fillColor(MUTED)
+        .text(data.confirmedByEmail || 'Finance Office / Authorized Collector', left, y + 12, { width: width * 0.62, ellipsis: true });
+      doc.font('Helvetica').fontSize(7).fillColor(MUTED)
+        .text(date, left + width * 0.62, y + 12, { width: width * 0.38, align: 'right', ellipsis: true });
+    }
 
-    // ── Footer ──
-    doc.fontSize(9).fillColor('#64748b');
-    doc.text(`Confirmed by: ${data.confirmedByEmail}`);
-    doc.moveDown(1);
-    doc.fontSize(8).fillColor('#94a3b8').text(
-      'This is a computer-generated receipt and does not require a physical signature.',
-      { align: 'center' }
-    );
+    doc.rect(0, footerTop, pageWidth, pageHeight - footerTop).fill(NAVY);
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#FFFFFF')
+      .text((data.schoolName || 'SCHOOL').toUpperCase(), left, footerTop + 12, { width, align: 'center', ellipsis: true });
+    doc.font('Helvetica').fontSize(7).fillColor('#DCEAFE')
+      .text('Computer-generated receipt • Please retain for your records', left, footerTop + 27, { width, align: 'center' });
 
     doc.end();
   });
