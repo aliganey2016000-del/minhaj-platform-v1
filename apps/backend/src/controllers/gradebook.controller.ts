@@ -392,7 +392,7 @@ export const bulkSetManualGrades = async (req: Request, res: Response): Promise<
   const courseForEntries = await loadCourseAndAssertAccess(req, courseId);
 
   const existingScheme = await GradingScheme.findOne({ course: courseId }).lean() as any;
-  if (req.user?.role === 'teacher' && existingScheme?.resultsSubmitted) throw new ForbiddenError('Results have been submitted and are locked. Ask an administrator to unlock them.');
+  if (existingScheme?.resultsSubmitted) throw new ForbiddenError('Results have been submitted and are locked. Ask an administrator to unlock them.');
   const { entries } = req.body as { entries?: { studentId: string; slot: ManualEntrySlot; score: number }[] };
   if (!Array.isArray(entries) || entries.length === 0) {
     throw new BadRequestError('At least one entry is required.');
