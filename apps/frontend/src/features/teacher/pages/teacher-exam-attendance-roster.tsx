@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Save, Search, Users, X } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
-import { cacheTeacherExamAttendance, getCachedTeacherExamAttendance, queueTeacherExamAttendance } from '../../../lib/teacher-offline-exams';
+import { cacheTeacherExamAttendance, getCachedTeacherExamAttendance, getTeacherExamQueue, queueTeacherExamAttendance } from '../../../lib/teacher-offline-exams';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
 type Status = 'present' | 'absent';
@@ -27,44 +27,73 @@ export function TeacherExamAttendanceRoster() {
   const [error, setError] = useState('');
   const [usingOfflineData, setUsingOfflineData] = useState(false);
 
-  const load = async () => {
-    setLoading(true); setError('');
-    try {
-      const { data } = await api.get(`/exams/${examId}/attendance`);
-      const payload = data.data || {};
-      const roster: RosterRow[] = payload.roster || [];
-      setExam(payload.exam || null);
-      setRows(roster);
-      const next: Record<string, Status | undefined> = {};
-      const nextNotes: Record<string, string> = {};
-      roster.forEach((r) => {
-        next[r.student._id] = r.attendance?.status === 'present' ? 'present' : r.attendance?.status ? 'absent' : undefined;
-        nextNotes[r.student._id] = r.attendance?.notes || '';
-      });
-      setStatuses(next); setNotes(nextNotes);
-      setUsingOfflineData(false);
-      await cacheTeacherExamAttendance(examId || '', { exam: payload.exam || null, roster, cachedAt: Date.now() }).catch(() => undefined);
-    } catch (err: any) {
-      const cached = examId ? await getCachedTeacherExamAttendance<{ exam?: Exam | null; roster?: RosterRow[] }>(examId).catch(() => undefined) : undefined;
-      if (cached) {
-        const roster = cached.roster || [];
-        setExam(cached.exam || null);
-        setRows(roster);
-        const next: Record<string, Status | undefined> = {};
-        const nextNotes: Record<string, string> = {};
-        roster.forEach((r) => {
-          next[r.student._id] = r.attendance?.status === 'present' ? 'present' : r.attendance?.status ? 'absent' : undefined;
-          nextNotes[r.student._id] = r.attendance?.notes || '';
-        });
-        setStatuses(next); setNotes(nextNotes);
-        setUsingOfflineData(true);
-        setError('');
-      } else {
-        setError(err.response?.data?.message || 'No saved exam roster is available. Connect once while online to prepare this exam for offline use.');
-      }
-    } finally { setLoading(false); }
+  const requestRef = useRef<Promise<void> | null>(null);
+
+  const applyRoster = (roster: RosterRow[]) => {
+    setRows(roster);
+    const next: Record<string, Status | undefined> = {};
+    const nextNotes: Record<string, string> = {};
+    roster.forEach((r) => {
+      next[r.student._id] = r.attendance?.status === 'present' ? 'present' : r.attendance?.status ? 'absent' : undefined;
+      nextNotes[r.student._id] = r.attendance?.notes || '';
+    });
+    setStatuses(next);
+    setNotes(nextNotes);
   };
-  useEffect(() => { void load(); }, [examId]);
+
+  const load = async () => {
+    if (!examId || requestRef.current) return requestRef.current || undefined;
+    const task = (async () => {
+      setError('');
+      let hasCachedData = false;
+      try {
+        const cached = await getCachedTeacherExamAttendance<{ exam?: Exam | null; roster?: RosterRow[] }>(examId).catch(() => undefined);
+        if (cached) {
+          hasCachedData = true;
+          setExam(cached.exam || null);
+          applyRoster(cached.roster || []);
+          setUsingOfflineData(typeof navigator !== 'undefined' && !navigator.onLine);
+          setLoading(false);
+        }
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          if (!hasCachedData) setError('No saved exam roster is available. Connect once while online to prepare this exam for offline use.');
+          return;
+        }
+
+        const { data } = await api.get(`/exams/${examId}/attendance`);
+        const payload = data.data || {};
+        let roster: RosterRow[] = payload.roster || [];
+
+        // Overlay durable, unsynced marks onto fresh server roster data before caching.
+        const pending = await getTeacherExamQueue().catch(() => []);
+        const queued = pending.find((item) => item.kind === 'attendance' && item.url === `/exams/${examId}/attendance` && item.status === 'pending');
+        const queuedRecords = Array.isArray(queued?.body.records) ? queued.body.records as Array<{ student: string; status: Status; notes?: string }> : [];
+        if (queuedRecords.length) {
+          const byStudent = new Map(queuedRecords.map((record) => [record.student, record]));
+          roster = roster.map((row) => {
+            const record = byStudent.get(row.student._id);
+            return record ? { ...row, attendance: { ...(row.attendance || {}), status: record.status, notes: record.notes || '' } } : row;
+          });
+        }
+
+        setExam(payload.exam || null);
+        applyRoster(roster);
+        setUsingOfflineData(queuedRecords.length > 0);
+        await cacheTeacherExamAttendance(examId, { exam: payload.exam || null, roster, cachedAt: Date.now() }).catch(() => undefined);
+      } catch (err: any) {
+        if (!hasCachedData) setError(err?.response?.data?.message || 'No saved exam roster is available. Connect once while online to prepare this exam for offline use.');
+      } finally { setLoading(false); }
+    })();
+    requestRef.current = task;
+    try { await task; } finally { requestRef.current = null; }
+  };
+
+  useEffect(() => {
+    void load();
+    const onOnline = () => { void load(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [examId]);
 
   const counts = useMemo(() => ({
     present:Object.values(statuses).filter(v=>v==='present').length,
