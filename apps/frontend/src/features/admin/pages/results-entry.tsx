@@ -162,6 +162,72 @@ function ColumnVisibilityMenu({ hidden, onToggle }: { hidden: Set<ManualEntrySlo
   );
 }
 
+/** A single responsive filter popover keeps course narrowing controls compact on phones and desktops. */
+function ResultsFilterMenu({
+  orgFilter, deptFilter, classFilter, selectedCourseId,
+  orgOptions, deptOptions, classOptions, courseOptions,
+  onOrgChange, onDeptChange, onClassChange, onCourseChange,
+}: {
+  orgFilter: string; deptFilter: string; classFilter: string; selectedCourseId: string;
+  orgOptions: SearchableSelectOption[]; deptOptions: SearchableSelectOption[];
+  classOptions: SearchableSelectOption[]; courseOptions: SearchableSelectOption[];
+  onOrgChange: (value: string) => void; onDeptChange: (value: string) => void;
+  onClassChange: (value: string) => void; onCourseChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const activeCount = [orgFilter, deptFilter, classFilter, selectedCourseId].filter(Boolean).length;
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  return (
+    <div className="relative min-w-0" ref={rootRef}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}
+        className="inline-flex min-h-10 w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-bold text-[var(--color-text-primary)] shadow-sm transition-colors hover:bg-[var(--color-surface-secondary)] focus:outline-none focus:ring-2 focus:ring-primary-500/30">
+        <SlidersHorizontal className="h-4 w-4 shrink-0" />
+        Filters
+        {activeCount > 0 && <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-600 px-1.5 text-[10px] font-black text-white">{activeCount}</span>}
+        <span className="text-xs text-[var(--color-text-tertiary)]">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 sm:left-auto sm:right-0 z-40 mt-2 w-full sm:w-[min(92vw,25rem)] rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-xl">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-[var(--color-text-primary)]">Filter results</p>
+              <p className="text-xs text-[var(--color-text-tertiary)]">Choose a department, class, or course.</p>
+            </div>
+            {activeCount > 0 && <button type="button" onClick={() => { onOrgChange(''); onDeptChange(''); onClassChange(''); onCourseChange(''); }} className="shrink-0 text-xs font-semibold text-primary-600 hover:underline">Clear all</button>}
+          </div>
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Organization</label>
+              <SearchableSelect value={orgFilter} onChange={onOrgChange} options={orgOptions} placeholder="All organizations" searchPlaceholder="Search organizations..." />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Department</label>
+              <SearchableSelect value={deptFilter} onChange={onDeptChange} options={deptOptions} placeholder="All departments" searchPlaceholder="Search departments..." disabled={deptOptions.length === 0} />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class / Grade</label>
+              <SearchableSelect value={classFilter} onChange={onClassChange} options={classOptions} placeholder="All classes" searchPlaceholder="Search classes..." disabled={classOptions.length === 0} />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Course</label>
+              <SearchableSelect value={selectedCourseId} onChange={(value) => { onCourseChange(value); setOpen(false); }} options={courseOptions} placeholder="Choose a course..." searchPlaceholder="Search courses..." emptyMessage="No courses match these filters." />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ManualEntryRosterStudent {
   studentId: string;
   studentCode: string;
@@ -303,6 +369,7 @@ function SummaryBreakdownPanel({ tab, courses, onClose, onSelectCourse }: {
 }
 
 export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }: ResultsEntryProps) {
+  const isTeacher = backFallback.startsWith('/teacher');
   const [searchParams] = useSearchParams();
   const requestedCourseId = searchParams.get('courseId') || '';
   const requestedExamId = searchParams.get('examId') || '';
@@ -815,7 +882,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
                 <p className="text-sm text-[var(--color-text-tertiary)] truncate">Record Mid Exam, Mid Activity, Final, and Final Activity scores for a course</p>
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            {!isTeacher && <div className="flex shrink-0 items-center gap-2">
               <Link
                 to="/admin/exams/grading-rules"
                 className="inline-flex items-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2 text-xs font-bold text-[var(--color-text-secondary)] shadow-sm hover:bg-[var(--color-surface-secondary)]"
@@ -824,28 +891,22 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
                 Grading Rules
               </Link>
               <ColumnVisibilityMenu hidden={hiddenColumns} onToggle={toggleColumn} />
-            </div>
+            </div>}
           </div>
         </div>}
 
-        {!embedded && <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1.5 block">Organization</label>
-              <SearchableSelect value={orgFilter} onChange={handleOrgChange} options={orgOptions} placeholder="All organizations" searchPlaceholder="Search organizations..." />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1.5 block">Department</label>
-              <SearchableSelect value={deptFilter} onChange={handleDeptChange} options={deptOptions} placeholder="All departments" searchPlaceholder="Search departments..." disabled={deptOptions.length === 0} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1.5 block">Class / Grade</label>
-              <SearchableSelect value={classFilter} onChange={handleClassChange} options={classOptions} placeholder="All classes" searchPlaceholder="Search classes..." disabled={classOptions.length === 0} />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1.5 block">Course</label>
-              <SearchableSelect value={selectedCourseId} onChange={loadCourse} options={courseOptions} placeholder="Choose a course..." searchPlaceholder="Search courses..." emptyMessage="No courses match these filters." />
-            </div>
+        {!embedded && <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 sm:p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <ResultsFilterMenu
+              orgFilter={orgFilter} deptFilter={deptFilter} classFilter={classFilter} selectedCourseId={selectedCourseId}
+              orgOptions={orgOptions} deptOptions={deptOptions} classOptions={classOptions} courseOptions={courseOptions}
+              onOrgChange={handleOrgChange} onDeptChange={handleDeptChange} onClassChange={handleClassChange} onCourseChange={loadCourse}
+            />
+            {(orgFilter || deptFilter || classFilter) && (
+              <p className="min-w-0 text-xs text-[var(--color-text-tertiary)] truncate">
+                {[orgOptions.find((option) => option.value === orgFilter)?.label, deptOptions.find((option) => option.value === deptFilter)?.label, classOptions.find((option) => option.value === classFilter)?.label].filter(Boolean).join(' · ')}
+              </p>
+            )}
           </div>
           {roster && (
             <p className="text-xs text-[var(--color-text-tertiary)]">
@@ -859,7 +920,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
           )}
         </div>}
 
-        {embedded && selectedCourseId && (
+        {embedded && selectedCourseId && !isTeacher && (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Link
               to="/admin/exams/grading-rules"
