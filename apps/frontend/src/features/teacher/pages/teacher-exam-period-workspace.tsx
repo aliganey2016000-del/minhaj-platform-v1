@@ -275,14 +275,45 @@ export function TeacherExamPeriodWorkspace() {
 
       // Force-load every exam workspace page while online so the service
       // worker can cache their lazy-loaded JS/CSS chunks for offline navigation.
-      try {
-        await Promise.all([
-          import('./teacher-exam-attendance-roster'),
-          import('./teacher-invigilation-attendance-roster'),
-          import('../../admin/pages/results-entry'),
-        ]);
-        prepared++;
-      } catch { failed++; }
+      // Prepare the teacher portal's route bundles while online. This downloads
+      // lazy JS/CSS chunks now so already-supported teacher pages can reopen
+      // without a network request, without putting every route into the initial
+      // application bundle. Feature data still uses each page's own offline cache.
+      const teacherRouteBundles = [
+        () => import('./teacher-dashboard'),
+        () => import('./teacher-courses'),
+        () => import('./teacher-quizzes'),
+        () => import('./teacher-lessons'),
+        () => import('./teacher-gradebook'),
+        () => import('./teacher-students'),
+        () => import('./teacher-analytics'),
+        () => import('./teacher-schedule'),
+        () => import('./teacher-course-builder'),
+        () => import('./teacher-assignments'),
+        () => import('../components/teacher-smart-attendance'),
+        () => import('./teacher-attendance'),
+        () => import('./teacher-school-attendance'),
+        () => import('./teacher-take-attendance'),
+        () => import('./teacher-school-attendance-roster'),
+        () => import('./teacher-assignment-review'),
+        () => import('./teacher-settings'),
+        () => import('./teacher-gamification'),
+        () => import('./teacher-exams'),
+        () => import('./teacher-exam-period-workspace'),
+        () => import('./teacher-exam-attendance'),
+        () => import('./teacher-invigilation-attendance-roster'),
+        () => import('./teacher-exam-attendance-roster'),
+        () => import('./teacher-exam-papers'),
+        () => import('./teacher-exam-paper'),
+        () => import('./teacher-exam-incidents'),
+        () => import('../../admin/pages/results-entry'),
+        () => import('../../admin/pages/profile-manage'),
+        () => import('../../admin/pages/student-activity'),
+      ];
+      const bundleResults = await Promise.allSettled(teacherRouteBundles.map((loadBundle) => loadBundle()));
+      const failedBundles = bundleResults.filter((result) => result.status === 'rejected').length;
+      prepared += bundleResults.length - failedBundles;
+      failed += failedBundles;
 
       try {
         const { data } = await api.get('/gradebook-courses');
