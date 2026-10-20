@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Languages, Moon, Sun, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Languages, Moon, Sun, LockKeyhole, ShieldCheck, CloudDownload, Loader2 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { clearOfflinePin, isOfflinePinReady, setupOfflinePin } from '../../../lib/offline-teacher-pin';
-import { verifiedOfflineTeacherIdentity } from '../../../lib/teacher-offline-attendance';
+import { verifiedOfflineTeacherIdentity, saveVerifiedTeacherIdentity, offlineAttendanceOwner, prepareTeacherOfflineAppShell, cacheOfflineTeacherSidebar, cacheOfflineTeachingSchedule, cacheAttendanceSessions, cacheAttendanceRoster, preparedAttendanceDates } from '../../../lib/teacher-offline-attendance';
+import { useAuth } from '../../../store/auth-context';
+import { isOfflinePinReady, refreshOfflinePinValidity } from '../../../lib/offline-teacher-pin';
+import { cacheTeacherExamPeriods, cacheTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
 import { useTheme } from '../../../store/theme-context';
@@ -11,6 +14,7 @@ export function TeacherSettings() {
   const { i18n } = useTranslation();
   const location = useLocation();
   const { theme, setTheme } = useTheme();
+  const { user } = useAuth();
   const [language, setLanguage] = useState(i18n.language || 'en');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -21,6 +25,8 @@ export function TeacherSettings() {
   const [pinSaving, setPinSaving] = useState(false);
   const [policyDays, setPolicyDays] = useState(verifiedOfflineTeacherIdentity()?.maxOfflineDays ?? 7);
   const [showOfflineAccess, setShowOfflineAccess] = useState(location.hash === '#offline-access');
+  const [preparingAllOffline, setPreparingAllOffline] = useState(false);
+  const [offlinePreparationStatus, setOfflinePreparationStatus] = useState('');
   useEffect(() => {
     if (location.hash === '#offline-access') {
       setShowOfflineAccess(true);
@@ -34,6 +40,119 @@ export function TeacherSettings() {
     }).catch(() => {}).finally(() => { if (active) setPinReady(isOfflinePinReady()); });
     return () => { active = false; };
   }, []);
+
+  const prepareEverythingOffline = async () => {
+    if (!navigator.onLine || preparingAllOffline) return;
+    if (!user || user.role !== 'teacher' || !user.organizationId) {
+      setError('Sign in online with your teacher account before preparing offline access.');
+      return;
+    }
+    if (!isOfflinePinReady()) {
+      setError('Create your six-digit Offline PIN first, then prepare this device.');
+      return;
+    }
+    setError('');
+    setMessage('');
+    setPreparingAllOffline(true);
+    let ready = 0;
+    let failed = 0;
+    const recordFailure = () => { failed += 1; };
+    try {
+      await saveVerifiedTeacherIdentity(user);
+      refreshOfflinePinValidity();
+      const owner = offlineAttendanceOwner(user);
+      if (!owner) throw new Error('Could not verify the offline teacher identity.');
+      setOfflinePreparationStatus('Preparing offline access and app files…');
+      await prepareTeacherOfflineAppShell();
+      ready++;
+      await Promise.all([
+        import('./teacher-school-attendance-roster'),
+        import('./teacher-schedule'),
+        import('./teacher-exam-attendance-roster'),
+        import('./teacher-invigilation-attendance-roster'),
+        import('../../admin/pages/results-entry'),
+      ]);
+      ready++;
+      const { data: sidebarData } = await api.get('/sidebar-settings/mine', { params: { portal: 'teacher' }, timeout: 15000 });
+      const sidebar: Record<string, boolean> = {};
+      (sidebarData.data?.items || []).forEach((item: {key:string;visible:boolean}) => { sidebar[item.key] = item.visible; });
+      await cacheOfflineTeacherSidebar(owner, sidebar);
+
+      setOfflinePreparationStatus('Downloading timetable and student attendance rosters…');
+      const { data: scheduleData } = await api.get('/class-schedules/my-teaching', { timeout: 15000 });
+      const scheduleRows = Array.isArray(scheduleData.data) ? scheduleData.data : [];
+      let lessonPeriods: Array<{label?: string; startTime:string; endTime:string; isBreak?:boolean}> = [];
+      try {
+        const { data } = await api.get('/class-schedules/school/period-settings', { timeout: 15000 });
+        lessonPeriods = data.data?.periods || [];
+      } catch { recordFailure(); }
+      await cacheOfflineTeachingSchedule(owner, { schedules: scheduleRows, periods: lessonPeriods, preparedAt: Date.now() });
+      const { data: policyData } = await api.get('/attendance/offline-policy', { timeout: 15000 });
+      const days = Number(policyData.data?.maxOfflineDays || 7); void days;
+      const grant = (await import('../../../lib/teacher-offline-attendance')).getOfflineAttendanceAccessWindow();
+      if (!grant) throw new Error('Offline access period could not be verified by the school.');
+      const targetDates = preparedAttendanceDates(grant, new Date().toISOString().slice(0,10));
+      for (const targetDate of targetDates) {
+        try {
+          const { data } = await api.get('/attendance/school/sessions', { params: { date: targetDate }, timeout: 15000 });
+          const day = data.data;
+          const sessions = Array.isArray(day?.sessions) ? day.sessions : [];
+          await cacheAttendanceSessions(owner, targetDate, { sessions, calendarDay: day?.calendarDay || null });
+          for (const session of sessions) {
+            try {
+              const roster = await api.get('/attendance/school/session/' + session._id, { params: { date: targetDate }, timeout: 15000 });
+              await cacheAttendanceRoster(owner, targetDate, session._id, roster.data.data);
+              ready++;
+            } catch { recordFailure(); }
+          }
+          ready++;
+        } catch { recordFailure(); }
+      }
+
+      setOfflinePreparationStatus('Downloading published exam periods, exam attendance, invigilation and results…');
+      const [periodResponse, examResponse, courseResponse] = await Promise.all([
+        api.get('/exams/periods', { timeout: 15000 }),
+        api.get('/exams', { params: { limit: 200 }, timeout: 15000 }),
+        api.get('/gradebook-courses', { timeout: 15000 }),
+      ]);
+      const periods = (periodResponse.data?.data || []).filter((period: any) => period.status === 'published');
+      const exams = examResponse.data?.data || [];
+      const courses = courseResponse.data?.data || [];
+      await cacheTeacherExamPeriods({ periods, exams, cachedAt: Date.now() });
+      await cacheTeacherResultCourses(courses);
+      ready += 2;
+      const courseIds = new Set<string>(courses.map((course: any) => String(course._id)).filter(Boolean));
+      for (const exam of exams) {
+        if (exam.course?._id) courseIds.add(String(exam.course._id));
+        try {
+          const { data } = await api.get('/exams/' + exam._id + '/attendance', { timeout: 15000 });
+          await cacheTeacherExamAttendance(exam._id, { ...(data.data || {}), cachedAt: Date.now() });
+          ready++;
+        } catch { recordFailure(); }
+      }
+      for (const period of periods) {
+        try {
+          const { data } = await api.get('/exams/periods/' + period._id + '/teacher-workspace', { timeout: 15000 });
+          await cacheTeacherExamWorkspace(period._id, data.data);
+          ready++;
+        } catch { recordFailure(); }
+      }
+      for (const courseId of courseIds) {
+        try {
+          const { data } = await api.get('/gradebook/' + courseId + '/manual-entry-roster', { timeout: 15000 });
+          await cacheTeacherResultRoster(courseId, data.data);
+          ready++;
+        } catch { recordFailure(); }
+      }
+      setOfflinePreparationStatus('Preparation finished: ' + ready + ' items saved; ' + failed + ' could not be downloaded. Keep this device signed in and retry failures while online.');
+      setMessage('Offline preparation completed. Review the status below before disconnecting.');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Offline preparation failed. Please reconnect and retry.');
+      setOfflinePreparationStatus('Preparation did not finish. Some data may have been saved; retry while online.');
+    } finally {
+      setPreparingAllOffline(false);
+    }
+  };
 
   const savePin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -160,11 +279,15 @@ export function TeacherSettings() {
             </div>
           </form>
           <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-            <h3 className="font-bold text-[var(--color-text-primary)]">Prepare Exam Portal for Offline Use</h3>
-            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">After setting your PIN, open Exam Periods and select “Prepare for offline” on each published period you need. Keep this device signed in until preparation finishes.</p>
-            <Link to="/teacher/exams" className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white">
-              <ShieldCheck className="h-4 w-4" /> Open Exam Periods
-            </Link>
+            <h3 className="font-bold text-[var(--color-text-primary)]">Prepare Everything for Offline Use</h3>
+            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">One button prepares the app shell, timetable, student attendance rosters for the approved offline period, published exam periods, exam attendance and result-entry rosters on this device.</p>
+            <button type="button" onClick={() => void prepareEverythingOffline()} disabled={!navigator.onLine || preparingAllOffline || !pinReady} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+              {preparingAllOffline ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudDownload className="h-4 w-4" />}
+              {preparingAllOffline ? 'Preparing everything…' : 'Prepare Everything Offline'}
+            </button>
+            {!navigator.onLine && <p className="mt-2 text-xs text-amber-700">Connect to the internet before preparing.</p>}
+            {!pinReady && <p className="mt-2 text-xs text-amber-700">Set up the six-digit Offline PIN first.</p>}
+            {offlinePreparationStatus && <p role="status" className="mt-3 rounded-lg bg-white/80 p-3 text-sm font-medium text-[var(--color-text-primary)] dark:bg-black/10">{offlinePreparationStatus}</p>}
           </div>
           </>}
         </section>
