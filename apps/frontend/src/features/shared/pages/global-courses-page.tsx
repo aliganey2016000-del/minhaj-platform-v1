@@ -3,6 +3,7 @@ import { useAuth } from '../../../store/auth-context';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, BookOpen, Crown, GraduationCap, Search } from 'lucide-react';
 import api from '../../../lib/axios';
+import { getOfflineData, saveOfflineData } from '../../../lib/offline-store';
 import CoursesManage from '../../admin/pages/courses-manage';
 
 type GlobalCourse = {
@@ -38,25 +39,42 @@ export function GlobalCoursesPage() {
   useEffect(() => {
     if (user?.role === 'admin') return;
     let cancelled = false;
+    const snapshotKey = user?.role === 'teacher' && user.id
+      ? `guulgaar:teacher:${user.id}:${user.organizationId || 'no-org'}:courses`
+      : '';
+
+    // Restore the teacher's last successful course list immediately, then refresh online.
+    if (snapshotKey) {
+      void getOfflineData<{ courses: GlobalCourse[]; grade: number | null }>(snapshotKey)
+        .then(snapshot => {
+          if (!cancelled && snapshot) {
+            setCourses(snapshot.courses || []);
+            setGrade(snapshot.grade ?? null);
+            setLoading(false);
+          }
+        }).catch(() => { /* IndexedDB may be unavailable */ });
+    }
 
     api.get('/courses/global')
       .then(({ data }) => {
         if (!cancelled) {
-          setCourses(data.data || []);
-          setGrade(data.meta?.grade ?? null);
+          const nextCourses = data.data || [];
+          const nextGrade = data.meta?.grade ?? null;
+          setCourses(nextCourses);
+          setGrade(nextGrade);
+          setError('');
+          if (snapshotKey) void saveOfflineData(snapshotKey, { courses: nextCourses, grade: nextGrade }).catch(() => {});
         }
       })
       .catch(() => {
-        if (!cancelled) setError('Unable to load global courses. Please try again.');
+        if (!cancelled) setError('Unable to load global courses. Showing the last saved snapshot when available.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.role]);
+    return () => { cancelled = true; };
+  }, [user?.role, user?.id, user?.organizationId]);
 
   useEffect(() => {
     if (user?.role !== 'student') return;
