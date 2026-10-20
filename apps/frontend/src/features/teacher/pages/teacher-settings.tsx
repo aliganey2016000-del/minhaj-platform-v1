@@ -286,9 +286,6 @@ export function TeacherSettings() {
               </button>
               {pinReady && <button type="button" onClick={() => { clearOfflinePin(); setPinReady(false); setMessage('Offline PIN disabled on this device.'); }}
                 className="min-h-11 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 dark:text-red-300">Disable PIN</button>}
-              <Link to="/teacher/attendance" className="inline-flex min-h-11 items-center rounded-xl border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                Go to Attendance
-              </Link>
             </div>
           </form>
           <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
