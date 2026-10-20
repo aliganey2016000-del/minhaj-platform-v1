@@ -8,7 +8,7 @@ import { refreshOfflinePinValidity } from '../../../lib/offline-teacher-pin';
 import { cacheTeacherExamPeriods, cacheTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
-import { saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guuldoon-offline';
+import { saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guulgaar-offline';
 
 export function TeacherSettings() {
   const { i18n } = useTranslation();
