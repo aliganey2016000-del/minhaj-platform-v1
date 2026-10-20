@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Languages, Moon, Sun, LockKeyhole, ShieldCheck, CloudDownload, Loader2 } from 'lucide-react';
+import { CheckCircle2, Languages, LockKeyhole, ShieldCheck, CloudDownload, Loader2 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { clearOfflinePin, isOfflinePinReady, setupOfflinePin } from '../../../lib/offline-teacher-pin';
 import { verifiedOfflineTeacherIdentity, saveVerifiedTeacherIdentity, offlineAttendanceOwner, prepareTeacherOfflineAppShell, cacheOfflineTeacherSidebar, cacheOfflineTeachingSchedule, cacheAttendanceSessions, cacheAttendanceRoster, preparedAttendanceDates } from '../../../lib/teacher-offline-attendance';
@@ -8,12 +8,10 @@ import { refreshOfflinePinValidity } from '../../../lib/offline-teacher-pin';
 import { cacheTeacherExamPeriods, cacheTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
-import { useTheme } from '../../../store/theme-context';
 
 export function TeacherSettings() {
   const { i18n } = useTranslation();
   const location = useLocation();
-  const { theme, setTheme } = useTheme();
   const { user } = useAuth();
   const [language, setLanguage] = useState(i18n.language || 'en');
   const [saving, setSaving] = useState(false);
@@ -234,15 +232,6 @@ export function TeacherSettings() {
           </select>
         </section>
 
-        <section className="border-b border-[var(--color-border-subtle)] p-5 sm:p-6">
-          <div className="mb-4 flex items-center gap-3">
-            <span className="rounded-xl bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/40">{theme === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}</span>
-            <div><h2 className="font-bold">Appearance</h2><p className="text-xs text-[var(--color-text-tertiary)]">Theme is saved on this device.</p></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {(['light', 'dark'] as const).map((option) => <button key={option} type="button" aria-pressed={theme === option} onClick={() => setTheme(option)} className={`rounded-xl border px-4 py-3 text-sm font-bold capitalize transition ${theme === option ? 'border-emerald-600 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'border-[var(--color-border-default)] hover:bg-[var(--color-surface-secondary)]'}`}>{option}</button>)}
-          </div>
-        </section>
         <section className="p-5 sm:p-6" id="offline-access">
           <button type="button" onClick={() => setShowOfflineAccess((current) => !current)} aria-expanded={showOfflineAccess} className="mb-4 flex w-full items-center gap-3 text-left">
             <span className="rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40"><ShieldCheck className="h-5 w-5" /></span>
