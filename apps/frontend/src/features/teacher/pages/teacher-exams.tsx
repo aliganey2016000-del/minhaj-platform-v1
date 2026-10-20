@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpenCheck,
   CalendarClock,
@@ -52,36 +52,58 @@ export function TeacherExams() {
   const [error, setError] = useState('');
   const [usingOfflineData, setUsingOfflineData] = useState(false);
 
+  const requestRef = useRef<Promise<void> | null>(null);
+
   const load = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [periodResponse, examResponse] = await Promise.all([
-        api.get('/exams/periods'),
-        api.get('/exams', { params: { limit: 200 } }),
-      ]);
-      const publishedPeriods = (periodResponse.data?.data || []).filter((period: ExamPeriod) => period.status === 'published');
-      const nextExams = examResponse.data?.data || [];
-      setPeriods(publishedPeriods);
-      setExams(nextExams);
-      setUsingOfflineData(false);
-      await cacheTeacherExamPeriods({ periods: publishedPeriods, exams: nextExams, cachedAt: Date.now() }).catch(() => undefined);
-    } catch (err: any) {
-      const cached = await getCachedTeacherExamPeriods<{ periods?: ExamPeriod[]; exams?: TeacherExam[]; cachedAt?: number }>().catch(() => undefined);
-      if (cached) {
-        setPeriods((cached.periods || []).filter((period) => period.status === 'published'));
-        setExams(cached.exams || []);
-        setUsingOfflineData(true);
-        setError('');
-      } else {
-        setError(err?.response?.data?.message || 'No saved exam periods are available. Connect once and open this page to prepare the exam portal for offline use.');
+    if (requestRef.current) return requestRef.current;
+    const task = (async () => {
+      setError('');
+      let hasCachedData = false;
+      try {
+        // Render the device snapshot first; never wait for the network to reveal saved exams.
+        const cached = await getCachedTeacherExamPeriods<{ periods?: ExamPeriod[]; exams?: TeacherExam[]; cachedAt?: number }>().catch(() => undefined);
+        if (cached) {
+          hasCachedData = true;
+          setPeriods((cached.periods || []).filter((period) => period.status === 'published'));
+          setExams(cached.exams || []);
+          setUsingOfflineData(typeof navigator !== 'undefined' && !navigator.onLine);
+          setLoading(false);
+        }
+
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          if (!hasCachedData) setError('No saved exam periods are available. Connect once and open this page to prepare the exam portal for offline use.');
+          return;
+        }
+
+        // Refresh in the background when online. Cached content remains visible during the request.
+        const [periodResponse, examResponse] = await Promise.all([
+          api.get('/exams/periods'),
+          api.get('/exams', { params: { limit: 200 } }),
+        ]);
+        const publishedPeriods = (periodResponse.data?.data || []).filter((period: ExamPeriod) => period.status === 'published');
+        const nextExams = examResponse.data?.data || [];
+        setPeriods(publishedPeriods);
+        setExams(nextExams);
+        setUsingOfflineData(false);
+        await cacheTeacherExamPeriods({ periods: publishedPeriods, exams: nextExams, cachedAt: Date.now() }).catch(() => undefined);
+      } catch (err: any) {
+        if (!hasCachedData) {
+          setError(err?.response?.data?.message || 'No saved exam periods are available. Connect once and open this page to prepare the exam portal for offline use.');
+        }
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
+    })();
+    requestRef.current = task;
+    try { await task; } finally { requestRef.current = null; }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    const onOnline = () => { void load(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
 
   const paperCountByPeriod = useMemo(() => {
     const counts = new Map<string, number>();
