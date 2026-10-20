@@ -89,7 +89,18 @@ export function teacherSidebarKeysAllowed(keys: string[], visibility: TeacherSid
   return keys.every((key) => visibility[key] !== false);
 }
 
-export function isTeacherRouteAllowed(pathname: string, visibility: TeacherSidebarVisibility): boolean {
+export function isTeacherRouteAllowed(
+  pathname: string,
+  visibility: TeacherSidebarVisibility,
+  options: { examResultEntry?: boolean } = {},
+): boolean {
+  // Opening marks entry from a scheduled exam is part of the Exam Workspace
+  // workflow. It must use exam permissions, not the separate Gradebook menu
+  // visibility, otherwise the layout redirects teachers to their schedule.
+  if (starts(pathname, '/teacher/results/enter') && options.examResultEntry) {
+    return teacherSidebarKeysAllowed(['group:teacher-exams', 'teacher/exams'], visibility);
+  }
+
   const keys = requiredTeacherSidebarKeys(pathname);
   // Fail closed for an unmapped /teacher route so newly-added pages cannot
   // accidentally bypass the tenant's Teacher Sidebar configuration.
