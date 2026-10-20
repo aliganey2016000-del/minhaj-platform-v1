@@ -22,7 +22,7 @@ import {
 
 export function TeacherLayout() {
   const { pathname, search } = useLocation();
-  const examResultEntry = pathname === '/teacher/results/enter' && Boolean(new URLSearchParams(search).get('examId'));
+  const examResultEntry = pathname === '/teacher/results/enter' && /(?:\?|&)examId=[^&]+/.test(search);
   const navigate = useNavigate();
   const { user, logout, lockOfflineSession } = useAuth();
   const offlineOnly = user?.offlineOnly === true;
