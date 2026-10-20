@@ -48,6 +48,7 @@ interface Exam {
   resultsSubmitted?: boolean;
   resultsStatus?: 'pending' | 'submitted';
   submittedAt?: string | null;
+  courseId?: string | { _id?: string };
   course?: {
     _id?: string;
     title?: { en?: string };
@@ -377,7 +378,7 @@ export function TeacherExamPeriodWorkspace() {
     const loadResultCompletion = async () => {
       const next: Record<string, boolean> = {};
       await Promise.all(sortedExams.map(async (exam) => {
-        const courseId = exam.course?._id;
+        const courseId = exam.course?._id || (typeof exam.courseId === 'string' ? exam.courseId : exam.courseId?._id);
         if (!courseId) { next[exam._id] = false; return; }
         // Prefer an explicit server submission state when the API provides one.
         if (exam.resultsStatus === 'submitted' || exam.resultsSubmitted === true || exam.submittedAt) {
@@ -735,7 +736,7 @@ export function TeacherExamPeriodWorkspace() {
                 {sortedExams.length === 0 ? emptyState('No courses available for results', 'Your assigned scheduled courses for this exam period will appear here.', GraduationCap) : sortedExams.filter((exam) => (resultStatus === 'submitted') === Boolean(resultCompletion[exam._id])).length === 0 ? emptyState(resultStatus === 'pending' ? 'No pending results' : 'No submitted results', resultStatus === 'pending' ? 'All available results appear complete.' : 'Results will appear here when all required score fields are filled.', GraduationCap) : (
                   <div className="grid gap-4 md:grid-cols-2">
                     {sortedExams.filter((exam) => (resultStatus === 'submitted') === Boolean(resultCompletion[exam._id])).map((exam) => {
-                      const courseId = exam.course?._id || '';
+                      const courseId = exam.course?._id || (typeof exam.courseId === 'string' ? exam.courseId : exam.courseId?._id) || '';
                       return (
                         <article key={exam._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-sm sm:p-5">
                           <div className="flex items-start gap-3">
