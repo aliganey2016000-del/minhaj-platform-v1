@@ -47,6 +47,16 @@ export async function getCachedTeacherExamPeriods<T = any>(): Promise<T | undefi
   return key ? getOfflineData<T>(key) : undefined;
 }
 
+export async function cacheTeacherExamIncidents(value: unknown): Promise<void> {
+  const key = scopedKey('incidents');
+  if (key) await saveOfflineData(key, value);
+}
+
+export async function getCachedTeacherExamIncidents<T = any>(): Promise<T | undefined> {
+  const key = scopedKey('incidents');
+  return key ? getOfflineData<T>(key) : undefined;
+}
+
 export async function cacheTeacherExamPaper(examId: string, value: unknown): Promise<void> {
   const key = scopedKey('paper:' + examId);
   if (key) await saveOfflineData(key, value);
