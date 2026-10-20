@@ -105,7 +105,7 @@ export function PaymentsRecordInvoice() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('cash');
+  const [method, setMethod] = useState('mobile_money');
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
