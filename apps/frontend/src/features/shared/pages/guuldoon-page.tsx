@@ -7,7 +7,7 @@ import { GuuldoonDevicePolicy } from '../../admin/components/guuldoon-device-pol
 import { GlobalSubscriptions } from '../components/global-subscriptions';
 import { GlobalCoursesPage } from './global-courses-page';
 import { GuuldoonMyProgress } from '../../student/pages/guuldoon-my-progress';
-import { getTeacherGuulgaarSnapshot, saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guuldoon-offline';
+import { getTeacherGuulgaarSnapshot, saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guulgaar-offline';
 
 type Page = 'overview' | 'courses' | 'performance' | 'subscriptions' | 'devices' | 'settings';
 const allowedPages: Record<string, Page[]> = {
@@ -68,7 +68,7 @@ function Overview() {
   const [data, setData] = useState<Record<string, number> | null>(null);
   const [error, setError] = useState('');
   useEffect(() => { let live = true; api.get('/guuldoon/overview').then(({ data }) => { if (live) setData(data.data); }).catch(() => { if (live) setError('Unable to load overview.'); }); return () => { live = false; }; }, []);
-  if (error && rows.length === 0) return <p role="alert">{error}</p>;
+  if (error) return <p role="alert">{error}</p>;
   if (!data) return <p>Loading overview...</p>;
   return <><section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[['Published Courses', 'publishedCourses'], ['Active Subscribers', 'activeSubscribers'], ['Verified Payments (USD)', 'verifiedPaymentsUsd'], ['Pending Payments', 'pendingPayments']].map(([label, key]) => <article key={key} className="rounded-2xl border bg-[var(--color-surface-primary)] p-5"><p className="text-sm">{label}</p><p className="mt-3 text-3xl font-bold">{key === 'verifiedPaymentsUsd' ? '$' : ''}{data[key]}</p></article>)}</section><p className="text-xs text-[var(--color-text-tertiary)]">Verified payments show gross receipts, including payments for subsequently revoked subscriptions.</p></>;
 }
