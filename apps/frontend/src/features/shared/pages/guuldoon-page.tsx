@@ -90,6 +90,7 @@ function PerformancePanel({ showStudents, ownerKey }: { showStudents: boolean; o
           restoredSnapshot = true;
           setRows(snapshot.rows || []);
           setHasNext(!!snapshot.hasNext);
+          setError('');
           setLoading(false);
         }
       }).catch(() => { /* IndexedDB may be unavailable */ });
