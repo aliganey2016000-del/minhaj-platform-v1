@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, BookOpen, Crown, GraduationCap, Search } from 'lucide-react';
 import api from '../../../lib/axios';
 import CoursesManage from '../../admin/pages/courses-manage';
+import { getTeacherGuulgaarSnapshot, saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guulgaar-offline';
 
 type GlobalCourse = {
   _id: string;
@@ -38,16 +39,35 @@ export function GlobalCoursesPage() {
   useEffect(() => {
     if (user?.role === 'admin') return;
     let cancelled = false;
+    const userId = user?.id || '';
+    // Render the last account-scoped snapshot immediately while offline; refresh it when connected.
+    if (userId) {
+      void getTeacherGuulgaarSnapshot<{ courses: GlobalCourse[]; grade: number | null }>(userId, 'courses')
+        .then((snapshot) => {
+          if (!cancelled && snapshot) {
+            setCourses(snapshot.value.courses || []);
+            setGrade(snapshot.value.grade ?? null);
+            setLoading(false);
+            setError('');
+          }
+        });
+    }
+    if (!navigator.onLine) {
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
 
     api.get('/courses/global')
       .then(({ data }) => {
         if (!cancelled) {
           setCourses(data.data || []);
           setGrade(data.meta?.grade ?? null);
+          if (userId) void saveTeacherGuulgaarSnapshot(userId, 'courses', { courses: data.data || [], grade: data.meta?.grade ?? null });
+          setError('');
         }
       })
       .catch(() => {
-        if (!cancelled) setError('Unable to load global courses. Please try again.');
+        if (!cancelled) setError(navigator.onLine ? 'Unable to load global courses. Please try again.' : 'No saved Guulgaar courses on this device yet. Connect online and open this page first.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -56,7 +76,7 @@ export function GlobalCoursesPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.role]);
+  }, [user?.role, user?.id]);
 
   useEffect(() => {
     if (user?.role !== 'student') return;
