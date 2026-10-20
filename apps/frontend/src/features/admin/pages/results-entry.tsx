@@ -844,7 +844,7 @@ export function ResultsEntry({ backFallback = '/admin/exams', embedded = false }
             value={value}
             onChange={(e) => handleEntryChange(s.studentId, slot, sanitizeNumericInput(e.target.value))}
             onKeyDown={opts?.onKeyDown}
-            disabled={!active}
+            disabled={!active || !!roster?.resultsSubmitted}
             className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono font-bold text-[var(--color-text-primary)] focus:outline-none focus:ring-2 disabled:opacity-30 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${
               fieldError
                 ? 'border-red-400 bg-[var(--color-surface-primary)] focus:ring-red-500/30'
