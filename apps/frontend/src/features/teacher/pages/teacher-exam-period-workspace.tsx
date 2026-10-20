@@ -600,6 +600,7 @@ export function TeacherExamPeriodWorkspace() {
                                 <p className="mt-0.5 text-base font-black text-red-700 dark:text-red-300">{assignment.absentCount || 0}</p>
                               </div>
                             </div>
+                            </div>
                             <div className="mt-4 border-t border-[var(--color-border-default)] pt-4 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
                               <div className="flex items-center justify-between gap-2">
                                 <h4 className="text-xs font-black uppercase tracking-wide text-[var(--color-text-primary)]">Classes in this room</h4>
