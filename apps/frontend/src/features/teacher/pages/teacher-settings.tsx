@@ -4,7 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { clearOfflinePin, isOfflinePinReady, setupOfflinePin } from '../../../lib/offline-teacher-pin';
 import { verifiedOfflineTeacherIdentity, saveVerifiedTeacherIdentity, offlineAttendanceOwner, prepareTeacherOfflineAppShell, cacheOfflineTeacherSidebar, cacheOfflineTeachingSchedule, cacheAttendanceSessions, cacheAttendanceRoster, preparedAttendanceDates } from '../../../lib/teacher-offline-attendance';
 import { useAuth } from '../../../store/auth-context';
-import { isOfflinePinReady, refreshOfflinePinValidity } from '../../../lib/offline-teacher-pin';
+import { refreshOfflinePinValidity } from '../../../lib/offline-teacher-pin';
 import { cacheTeacherExamPeriods, cacheTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
