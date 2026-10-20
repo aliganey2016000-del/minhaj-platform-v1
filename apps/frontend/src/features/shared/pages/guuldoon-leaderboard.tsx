@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
+import { getTeacherGuulgaarSnapshot, saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guulgaar-offline';
 
 type Period = 'week' | 'month' | 'all';
 type StudentRow = { rank: number; name: string; school: string | null; points: number; streak: number; isMe: boolean };
@@ -108,15 +109,34 @@ export function GuuldoonLeaderboard() {
   const load = useCallback(() => {
     let live = true;
     setLoading(true);
+    setError('');
     const params = { grade, period };
+    const section = `leaderboard-${view}-${grade}-${period}`;
+    const userId = user?.id || '';
+    void getTeacherGuulgaarSnapshot<StudentBoard | SchoolBoard>(userId, section).then((snapshot) => {
+      if (!live || !snapshot) return;
+      if (view === 'students') setStudents(snapshot.value as StudentBoard);
+      else setSchools(snapshot.value as SchoolBoard);
+      setLoading(false);
+    });
+    if (!navigator.onLine) {
+      setLoading(false);
+      return () => { live = false; };
+    }
     const request = view === 'students'
-      ? api.get('/guuldoon-leaderboard/students', { params }).then(({ data }) => { if (live) setStudents(data.data as StudentBoard); })
-      : api.get('/guuldoon-leaderboard/schools', { params }).then(({ data }) => { if (live) setSchools(data.data as SchoolBoard); });
+      ? api.get('/guuldoon-leaderboard/students', { params }).then(({ data }) => {
+          if (live) setStudents(data.data as StudentBoard);
+          void saveTeacherGuulgaarSnapshot(userId, section, data.data as StudentBoard);
+        })
+      : api.get('/guuldoon-leaderboard/schools', { params }).then(({ data }) => {
+          if (live) setSchools(data.data as SchoolBoard);
+          void saveTeacherGuulgaarSnapshot(userId, section, data.data as SchoolBoard);
+        });
     request.then(() => { if (live) setError(''); })
       .catch((err: unknown) => { if (live) setError(errorText(err, 'Ma soo raran karo tartanka.')); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [view, grade, period]);
+  }, [view, grade, period, user?.id]);
   useEffect(() => load(), [load]);
 
   const toggleName = async (showName: boolean) => {

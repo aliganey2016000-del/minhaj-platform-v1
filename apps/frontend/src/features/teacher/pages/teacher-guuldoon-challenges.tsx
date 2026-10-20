@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { CalendarClock, Check, ChevronRight, GraduationCap, Loader2, Plus, School, Trophy, Users, X } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
+import { getTeacherGuulgaarSnapshot, saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guulgaar-offline';
 import { GuuldoonQuestionPicker } from '../components/guuldoon-question-picker';
 
 type Chapter = { id: string; number: number; title: string; understand: number; past: number };
@@ -36,6 +38,7 @@ function Ring({ value, tone }: { value: number; tone: string }) {
 
 /** Teacher / Super Admin: challenges list and the form to open a new one. */
 export function TeacherGuuldoonChallenges() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const base = useLocation().pathname.startsWith('/admin') ? '/admin' : '/teacher';
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -56,8 +59,24 @@ export function TeacherGuuldoonChallenges() {
   const [count, setCount] = useState<{ questions: number; tooMany: boolean; max: number } | null>(null);
 
   const load = useCallback(() => {
-    api.get('/guuldoon-challenges').then(({ data }) => setRows(data.data as Row[])).catch((err) => setError(err.response?.data?.message || 'Tartannada lama soo rari karin.'));
-  }, []);
+    const userId = user?.id || '';
+    void getTeacherGuulgaarSnapshot<Row[]>(userId, 'challenges').then((snapshot) => {
+      if (snapshot) setRows(snapshot.value);
+    });
+    if (!navigator.onLine) {
+      setRows((current) => current ?? []);
+      return;
+    }
+    api.get('/guuldoon-challenges')
+      .then(({ data }) => {
+        setRows(data.data as Row[]);
+        setError('');
+        void saveTeacherGuulgaarSnapshot(userId, 'challenges', data.data as Row[]);
+      })
+      .catch((err) => {
+        setError(err.response?.data?.message || 'Tartannada lama soo rari karin. Connect online once to prepare offline data.');
+      });
+  }, [user?.id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!open || options) return;
