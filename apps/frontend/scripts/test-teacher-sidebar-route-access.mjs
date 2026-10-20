@@ -57,6 +57,22 @@ try {
   assert(!isTeacherRouteAllowed('/teacher/gradebook/review', { 'group:gradebook': false }), 'disabled Gradebook group blocks review queue');
   assert(!isTeacherRouteAllowed('/teacher/courses/abc/gradebook', { 'teacher/gradebook': false }), 'disabled Submissions blocks course gradebook');
   assert(!isTeacherRouteAllowed('/teacher/results/enter', { 'teacher/results/enter': false }), 'disabled Result Entry blocks direct result entry');
+  assert(
+    isTeacherRouteAllowed('/teacher/results/enter', {
+      'group:gradebook': false,
+      'teacher/results/enter': false,
+      'group:teacher-exams': true,
+      'teacher/exams': true,
+    }, { examResultEntry: true }),
+    'exam-linked marks entry remains available when Gradebook menu is hidden',
+  );
+  assert(
+    !isTeacherRouteAllowed('/teacher/results/enter', {
+      'group:teacher-exams': false,
+      'teacher/exams': true,
+    }, { examResultEntry: true }),
+    'exam-linked marks entry remains blocked when Exam Workspace is disabled',
+  );
 
   assert(requiredTeacherSidebarKeys('/teacher/new-unmapped-page') === null, 'unknown teacher route is not silently mapped');
   assert(!isTeacherRouteAllowed('/teacher/new-unmapped-page', {}), 'unknown teacher route fails closed');

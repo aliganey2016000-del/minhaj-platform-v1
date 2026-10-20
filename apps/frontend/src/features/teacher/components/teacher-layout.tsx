@@ -21,7 +21,8 @@ import {
 } from './teacher-sidebar-access';
 
 export function TeacherLayout() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const examResultEntry = pathname === '/teacher/results/enter' && /(?:\?|&)examId=[^&]+/.test(search);
   const navigate = useNavigate();
   const { user, logout, lockOfflineSession } = useAuth();
   const offlineOnly = user?.offlineOnly === true;
@@ -136,8 +137,8 @@ export function TeacherLayout() {
       pathname === '/teacher/exam-attendance' ||
       /^\/teacher\/exam-attendance\/[^/]+\/?$/.test(pathname) ||
       pathname === '/teacher/results/enter';
-    if ((!offlineExamRoute && !isTeacherRouteAllowed(pathname, offlineVisibility)) ||
-        (offlineExamRoute && (!offlineExamReady || !isTeacherRouteAllowed(pathname, offlineVisibility)))) {
+    if ((!offlineExamRoute && !isTeacherRouteAllowed(pathname, offlineVisibility, { examResultEntry })) ||
+        (offlineExamRoute && (!offlineExamReady || !isTeacherRouteAllowed(pathname, offlineVisibility, { examResultEntry })))) {
       return <Navigate to="/teacher/attendance" replace />;
     }
     return (
@@ -184,7 +185,7 @@ export function TeacherLayout() {
   }
 
   const effectiveVisibility = visibility!;
-  if (!isTeacherRouteAllowed(pathname, effectiveVisibility)) {
+  if (!isTeacherRouteAllowed(pathname, effectiveVisibility, { examResultEntry })) {
     const fallback = firstAllowedTeacherRoute(effectiveVisibility);
     if (fallback && fallback !== pathname) {
       return <Navigate to={fallback} replace state={{ accessDisabled: true, from: pathname }} />;
