@@ -88,25 +88,24 @@ export function PaymentReceipt({ data, onClose }: { data: PaymentReceiptData; on
   return (
     <div className="receipt-overlay fixed inset-0 z-[100] overflow-y-auto bg-slate-950/70 p-2 sm:p-4 print:static print:bg-white print:p-0">
       <style>{`
-        @page { size: A4 portrait; margin: 0; }
+        @page { size: A5 portrait; margin: 5mm; }
         @media print {
-          html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+          html, body { width: auto !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important; background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           body * { visibility: hidden !important; }
           .receipt-overlay, .receipt-overlay * { visibility: visible !important; }
-          .receipt-overlay { position: absolute !important; inset: 0 !important; overflow: visible !important; background: #fff !important; padding: 0 !important; }
+          .receipt-overlay { position: static !important; inset: auto !important; overflow: visible !important; background: #fff !important; padding: 0 !important; }
           .receipt-no-print { display: none !important; }
-          .receipt-paper { width: 148mm !important; max-width: 148mm !important; min-height: 105mm !important; margin: 0 !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
-          .receipt-content { padding: 7mm !important; }
-          .receipt-footer { padding: 3mm 7mm !important; }
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
+          .receipt-paper { box-sizing: border-box !important; width: 138mm !important; max-width: 138mm !important; min-height: 0 !important; margin: 0 auto !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; overflow: visible !important; }
+          .receipt-content { padding: 4mm 5mm !important; }
+          .receipt-footer { padding: 2.5mm 5mm !important; background: #0f172a !important; color: #fff !important; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
       `}</style>
 
       <div className="receipt-no-print mx-auto mb-3 flex max-w-[760px] items-center justify-between gap-3 rounded-xl border border-white/10 bg-white p-3 shadow-xl">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-          <div><p className="text-sm font-bold text-slate-900">Payment recorded successfully</p><p className="text-xs text-slate-500">Compact receipt — designed for half-A4 printing.</p></div>
+          <div><p className="text-sm font-bold text-slate-900">Payment recorded successfully</p><p className="text-xs text-slate-500">Compact A5 receipt — A5 is half the size of A4.</p></div>
         </div>
         <div className="flex items-center gap-1.5">
           <button onClick={printReceipt} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Printer className="h-4 w-4" /> Print</button>
