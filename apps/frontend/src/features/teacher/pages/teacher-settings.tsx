@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Languages, Moon, Sun, LockKeyhole, ShieldCheck } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { clearOfflinePin, isOfflinePinReady, setupOfflinePin } from '../../../lib/offline-teacher-pin';
 import { verifiedOfflineTeacherIdentity } from '../../../lib/teacher-offline-attendance';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +9,7 @@ import { useTheme } from '../../../store/theme-context';
 
 export function TeacherSettings() {
   const { i18n } = useTranslation();
+  const location = useLocation();
   const { theme, setTheme } = useTheme();
   const [language, setLanguage] = useState(i18n.language || 'en');
   const [saving, setSaving] = useState(false);
@@ -19,6 +20,13 @@ export function TeacherSettings() {
   const [pinReady, setPinReady] = useState(isOfflinePinReady);
   const [pinSaving, setPinSaving] = useState(false);
   const [policyDays, setPolicyDays] = useState(verifiedOfflineTeacherIdentity()?.maxOfflineDays ?? 7);
+  const [showOfflineAccess, setShowOfflineAccess] = useState(location.hash === '#offline-access');
+  useEffect(() => {
+    if (location.hash === '#offline-access') {
+      setShowOfflineAccess(true);
+      document.getElementById('offline-access')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [location.hash]);
   useEffect(() => {
     let active = true;
     api.get('/attendance/offline-policy', { timeout: 15000 }).then(({ data }) => {
@@ -36,7 +44,7 @@ export function TeacherSettings() {
       await setupOfflinePin(pin);
       setPinReady(isOfflinePinReady());
       setPin(''); setConfirmPin('');
-      setMessage('Offline PIN saved on this device. Now go to Student Attendance and tap Prepare Offline to download your class rosters.');
+      setMessage('Offline PIN saved on this device. Use Prepare Exam Portal for Offline Use below to prepare exam data.');
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Could not set up offline access.');
     } finally { setPinSaving(false); }
@@ -101,6 +109,15 @@ export function TeacherSettings() {
           </div>
         </section>
         <section className="p-5 sm:p-6" id="offline-access">
+          <button type="button" onClick={() => setShowOfflineAccess((current) => !current)} aria-expanded={showOfflineAccess} className="mb-4 flex w-full items-center gap-3 text-left">
+            <span className="rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40"><ShieldCheck className="h-5 w-5" /></span>
+            <span className="flex-1">
+              <span className="block font-bold">Offline Access & PIN</span>
+              <span className="block text-xs text-[var(--color-text-tertiary)]">Set your offline PIN and prepare exam data on this device.</span>
+            </span>
+            <span aria-hidden="true" className="text-[var(--color-text-tertiary)]">{showOfflineAccess ? '⌃' : '⌄'}</span>
+          </button>
+          {showOfflineAccess && <>
           <div className="mb-4 flex items-center gap-3">
             <span className="rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40"><ShieldCheck className="h-5 w-5" /></span>
             <div>
@@ -142,6 +159,14 @@ export function TeacherSettings() {
               </Link>
             </div>
           </form>
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+            <h3 className="font-bold text-[var(--color-text-primary)]">Prepare Exam Portal for Offline Use</h3>
+            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">After setting your PIN, open Exam Periods and select “Prepare for offline” on each published period you need. Keep this device signed in until preparation finishes.</p>
+            <Link to="/teacher/exams" className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white">
+              <ShieldCheck className="h-4 w-4" /> Open Exam Periods
+            </Link>
+          </div>
+          </>}
         </section>
       </div>
     </main>
