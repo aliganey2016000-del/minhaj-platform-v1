@@ -550,16 +550,18 @@ export function TeacherExamPeriodWorkspace() {
                     ClipboardCheck,
                   )
                 ) : (
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="grid gap-4 xl:grid-cols-2">
                     {filteredAttendanceAssignments.map((assignment) => {
                       const status = dutyStatus(assignment);
+                      const classBreakdown = assignment.classBreakdown || [];
                       return (
                         <Link
                           key={assignment._id}
                           to={`/teacher/exam-attendance/${assignment._id}`}
                           className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400"
                         >
-                          <div className="p-4 sm:p-5">
+                          <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.85fr)]">
+                            <div className="min-w-0">
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex min-w-0 items-start gap-3">
                                 <span className="rounded-xl bg-emerald-50 p-3 text-emerald-600 dark:bg-emerald-950/30">
@@ -597,6 +599,33 @@ export function TeacherExamPeriodWorkspace() {
                                 <p className="text-[10px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">Absent</p>
                                 <p className="mt-0.5 text-base font-black text-red-700 dark:text-red-300">{assignment.absentCount || 0}</p>
                               </div>
+                            </div>
+                            <div className="mt-4 border-t border-[var(--color-border-default)] pt-4 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <h4 className="text-xs font-black uppercase tracking-wide text-[var(--color-text-primary)]">Classes in this room</h4>
+                                <span className="shrink-0 rounded-full bg-[var(--color-surface-secondary)] px-2 py-1 text-[10px] font-bold text-[var(--color-text-secondary)]">
+                                  {classBreakdown.length} {classBreakdown.length === 1 ? 'class' : 'classes'}
+                                </span>
+                              </div>
+                              {classBreakdown.length > 0 ? (
+                                <div className="mt-3 space-y-2">
+                                  {classBreakdown.map((classItem, index) => (
+                                    <div key={`${classItem.classId || classItem.className || 'class'}-${classItem.subject || index}`} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--color-surface-secondary)] px-3 py-2.5">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-bold text-[var(--color-text-primary)]">{classItem.className || 'Class'}</p>
+                                        {classItem.subject ? <p className="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{classItem.subject}</p> : null}
+                                      </div>
+                                      <span className="shrink-0 text-sm font-black tabular-nums text-[var(--color-text-primary)]">{classItem.students} <span className="text-xs font-medium text-[var(--color-text-tertiary)]">students</span></span>
+                                    </div>
+                                  ))}
+                                  <div className="flex items-center justify-between border-t border-[var(--color-border-default)] pt-2 text-xs">
+                                    <span className="font-bold text-[var(--color-text-secondary)]">Total students</span>
+                                    <span className="font-black tabular-nums text-[var(--color-text-primary)]">{classBreakdown.reduce((total, classItem) => total + (classItem.students || 0), 0)}</span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="mt-3 rounded-xl border border-dashed border-[var(--color-border-default)] px-3 py-4 text-xs text-[var(--color-text-tertiary)]">No class allocation details are available for this room.</p>
+                              )}
                             </div>
                           </div>
                         </Link>
