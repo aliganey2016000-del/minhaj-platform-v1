@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { getOfflineData, saveOfflineData } from '../../../lib/offline-store';
 import { useAuth } from '../../../store/auth-context';
 import { GuuldoonDevice } from '../components/guuldoon-device';
 import { GuuldoonDevicePolicy } from '../../admin/components/guuldoon-device-policy';
@@ -58,7 +59,7 @@ export function GuuldoonPage({ page }: { page: Page }) {
     <header><p className="text-sm font-semibold text-primary-600">Guulgaar</p><h1 className="mt-1 text-2xl font-bold">{title}</h1><p className="mt-2 text-sm text-[var(--color-text-secondary)]">Diyaarinta Imtixaanka Shahaadiga · Grade 8 & 12</p></header>
     {page === 'subscriptions' && <GlobalSubscriptions />}
     {page === 'overview' && <Overview />}
-    {page === 'performance' && <PerformancePanel showStudents={role !== 'student'} />}
+    {page === 'performance' && <PerformancePanel showStudents={role !== 'student'} ownerKey={role === 'teacher' && user ? `guulgaar:teacher:${user.id}:${user.organizationId || 'no-org'}:performance` : ''} />}
     {page === 'devices' && (role === 'student' ? <GuuldoonDevice /> : <GuuldoonDevicePolicy />)}
     {page === 'settings' && <section className="rounded-2xl border bg-[var(--color-surface-primary)] p-6"><h2 className="text-lg font-semibold">Current subscription policy</h2><dl className="mt-4 grid gap-4 sm:grid-cols-2"><div><dt>Annual price</dt><dd className="font-semibold">$5 USD per student, per grade</dd></div><div><dt>Validity</dt><dd className="font-semibold">365 days from verified payment</dd></div><div><dt>Payment verification</dt><dd>Manual · Super Admin only</dd></div><div><dt>Device authorization</dt><dd>Account password · one verified browser</dd></div></dl><p className="mt-4 text-sm">Courses use the existing Course Builder. School fees and school access are managed separately.</p></section>}
   </main>;
@@ -71,13 +72,43 @@ function Overview() {
   if (!data) return <p>Loading overview...</p>;
   return <><section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[['Published Courses', 'publishedCourses'], ['Active Subscribers', 'activeSubscribers'], ['Verified Payments (USD)', 'verifiedPaymentsUsd'], ['Pending Payments', 'pendingPayments']].map(([label, key]) => <article key={key} className="rounded-2xl border bg-[var(--color-surface-primary)] p-5"><p className="text-sm">{label}</p><p className="mt-3 text-3xl font-bold">{key === 'verifiedPaymentsUsd' ? '$' : ''}{data[key]}</p></article>)}</section><p className="text-xs text-[var(--color-text-tertiary)]">Verified payments show gross receipts, including payments for subsequently revoked subscriptions.</p></>;
 }
-function PerformancePanel({ showStudents }: { showStudents: boolean }) {
+function PerformancePanel({ showStudents, ownerKey }: { showStudents: boolean; ownerKey: string }) {
   const [rows, setRows] = useState<Performance[]>([]);
   const [page, setPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  useEffect(() => { let live = true; setLoading(true); setError(''); api.get('/guuldoon/performance', { params: { page } }).then(({ data }) => { if (live) { setRows(data.data || []); setHasNext(data.meta?.hasNextPage || false); } }).catch(() => { if (live) setError('Unable to load performance.'); }).finally(() => { if (live) setLoading(false); }); return () => { live = false; }; }, [page]);
+  useEffect(() => {
+    let live = true;
+    let restoredSnapshot = false;
+    setLoading(true);
+    setError('');
+    const snapshotKey = ownerKey ? `${ownerKey}:page:${page}` : '';
+    if (snapshotKey) {
+      void getOfflineData<{ rows: Performance[]; hasNext: boolean }>(snapshotKey).then(snapshot => {
+        if (live && snapshot) {
+          restoredSnapshot = true;
+          setRows(snapshot.rows || []);
+          setHasNext(!!snapshot.hasNext);
+          setLoading(false);
+        }
+      }).catch(() => { /* IndexedDB may be unavailable */ });
+    }
+    api.get('/guuldoon/performance', { params: { page } })
+      .then(({ data }) => {
+        if (live) {
+          const nextRows = data.data || [];
+          const nextHasNext = !!data.meta?.hasNextPage;
+          setRows(nextRows);
+          setHasNext(nextHasNext);
+          setError('');
+          if (snapshotKey) void saveOfflineData(snapshotKey, { rows: nextRows, hasNext: nextHasNext }).catch(() => {});
+        }
+      })
+      .catch(() => { if (live && !restoredSnapshot) setError('Unable to load performance. No saved snapshot is available.'); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [page, ownerKey]);
   if (loading) return <p>Loading performance...</p>;
   if (error) return <p role="alert">{error}</p>;
   return <>{rows.length === 0 ? <section className="rounded-2xl border bg-[var(--color-surface-primary)] p-6"><h2 className="font-semibold">No Guulgaar learning records yet</h2><p className="mt-2 text-sm">Progress will appear after students begin Guulgaar lessons. School-course performance is tracked separately.</p></section> : <section className="space-y-3">{rows.map(row => <article key={row._id} className="rounded-xl border bg-[var(--color-surface-primary)] p-4">{showStudents && <p className="font-semibold">{row.student?.profile?.firstName} {row.student?.profile?.lastName} · {row.student?.studentId}</p>}<p>{row.course?.title?.en} · Grade {row.course?.globalGrade}</p><p className="mt-2 text-sm">Lessons: {row.completedLessons} · Quizzes: {row.completedQuizzes} · Assignments: {row.completedAssignments}</p><p className="mt-2 text-sm">{row.totalItems > 0 ? `${Math.min(100, Math.round((row.completedLessons + row.completedQuizzes + row.completedAssignments) / row.totalItems * 100))}% complete` : 'Completion total unavailable'}</p><p className="mt-2 text-sm">Status: {row.status === 'completed' ? 'Completed' : 'In progress'}</p></article>)}</section>}<div className="flex gap-3"><button disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page}</span><button disabled={!hasNext} onClick={() => setPage(page + 1)}>Next</button></div></>;
