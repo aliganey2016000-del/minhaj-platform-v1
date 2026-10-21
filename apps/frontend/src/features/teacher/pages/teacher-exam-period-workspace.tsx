@@ -16,7 +16,7 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
-import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, getCachedTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
+import { cacheTeacherResultCompletion, getCachedTeacherResultCompletion, getCachedTeacherResultRoster, cacheTeacherInvigilations, cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, getCachedTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { prepareTeacherOfflineAppShell, saveVerifiedTeacherIdentity, offlineAttendanceOwner, cacheOfflineTeacherSidebar } from '../../../lib/teacher-offline-attendance';
 
 type WorkspaceTab = 'schedule' | 'attendance' | 'results';
@@ -186,8 +186,17 @@ export function TeacherExamPeriodWorkspace() {
 
   const load = async () => {
     if (!periodId) return;
-    setLoading(true);
     setError('');
+    // Saved snapshot first, refreshed in the background (no spinner wait).
+    const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
+    if (cached) {
+      setPeriods(cached.periods || []);
+      setExams(cached.exams || []);
+      setAssignments(cached.assignments || []);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     try {
       const [periodResponse, examResponse, assignmentResponse] = await Promise.all([
         api.get('/exams/periods'),
@@ -207,6 +216,7 @@ export function TeacherExamPeriodWorkspace() {
         ...nextExams,
       ];
       await Promise.all([
+        cacheTeacherInvigilations(assignmentResponse.data?.data || []),
         cacheTeacherExamWorkspace(periodId, { periods: nextPeriods, exams: nextExams, assignments: nextAssignments, cachedAt: Date.now() }),
         // Preserve assignments from other exam periods when this period is
         // opened; otherwise offline period cards would show misleading zero counts.
@@ -217,11 +227,7 @@ export function TeacherExamPeriodWorkspace() {
         }),
       ]).catch(() => undefined);
     } catch (err: any) {
-      const cached = await getCachedTeacherExamWorkspace<{ periods?: ExamPeriod[]; exams?: Exam[]; assignments?: Assignment[] }>(periodId).catch(() => undefined);
       if (cached) {
-        setPeriods(cached.periods || []);
-        setExams(cached.exams || []);
-        setAssignments(cached.assignments || []);
         setUsingOfflineData(true);
         setError('');
       } else {
@@ -375,39 +381,66 @@ export function TeacherExamPeriodWorkspace() {
   useEffect(() => {
     let cancelled = false;
     if (activeTab !== 'results' || sortedExams.length === 0) return;
+    const isComplete = (roster: any) => {
+      // This app saves gradebook cells as they are entered. In the absence of
+      // a dedicated submit endpoint, treat a course as complete only when all
+      // configured score slots are filled for every student.
+      const requiredSlots = Object.entries(roster?.slots || {})
+        .filter(([, slot]) => Boolean(slot))
+        .map(([key]) => key);
+      return Boolean(roster?.students?.length && requiredSlots.length &&
+        roster.students.every((student: { scores?: Record<string, number | null> }) =>
+          requiredSlots.every((slot) => student.scores?.[slot] !== null && student.scores?.[slot] !== undefined)
+        ));
+    };
+    const courseIdOf = (exam: Exam) => exam.course?._id || (typeof exam.courseId === 'string' ? exam.courseId : exam.courseId?._id);
     const loadResultCompletion = async () => {
-      const next: Record<string, boolean> = {};
-      await Promise.all(sortedExams.map(async (exam) => {
-        const courseId = exam.course?._id || (typeof exam.courseId === 'string' ? exam.courseId : exam.courseId?._id);
+      // Instant: last known completion, then refine without blocking the tab.
+      const known = (periodId ? await getCachedTeacherResultCompletion(periodId).catch(() => undefined) : undefined) || {};
+      if (cancelled) return;
+      setResultCompletion((current) => ({ ...known, ...current }));
+      const next: Record<string, boolean> = { ...known };
+      const pending: Exam[] = [];
+      sortedExams.forEach((exam) => {
+        const courseId = courseIdOf(exam);
         if (!courseId) { next[exam._id] = false; return; }
         // Prefer an explicit server submission state when the API provides one.
-        if (exam.resultsStatus === 'submitted' || exam.resultsSubmitted === true || exam.submittedAt) {
-          next[exam._id] = true;
-          return;
+        if (exam.resultsStatus === 'submitted' || exam.resultsSubmitted === true || exam.submittedAt) { next[exam._id] = true; return; }
+        if (exam.resultsStatus === 'pending' || exam.resultsSubmitted === false) { next[exam._id] = false; return; }
+        pending.push(exam);
+      });
+      if (!cancelled) setResultCompletion({ ...next });
+      // One roster request per course (several exams can share a course),
+      // three at a time, applied as each one arrives.
+      const byCourse = new Map<string, Exam[]>();
+      pending.forEach((exam) => {
+        const courseId = courseIdOf(exam) as string;
+        byCourse.set(courseId, [...(byCourse.get(courseId) || []), exam]);
+      });
+      const queue = [...byCourse.entries()];
+      const worker = async () => {
+        for (let entry = queue.shift(); entry && !cancelled; entry = queue.shift()) {
+          const [courseId, courseExams] = entry;
+          let roster: any;
+          try {
+            if (navigator.onLine) {
+              const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`, { timeout: 15000 });
+              roster = data.data;
+              await cacheTeacherResultRoster(courseId, roster).catch(() => undefined);
+            } else {
+              roster = await getCachedTeacherResultRoster(courseId).catch(() => undefined);
+            }
+          } catch {
+            roster = await getCachedTeacherResultRoster(courseId).catch(() => undefined);
+          }
+          // If status cannot be checked, keep the last known value (pending
+          // by default) rather than claiming submission.
+          courseExams.forEach((exam) => { if (roster) next[exam._id] = isComplete(roster); else if (!(exam._id in next)) next[exam._id] = false; });
+          if (!cancelled) setResultCompletion({ ...next });
         }
-        if (exam.resultsStatus === 'pending' || exam.resultsSubmitted === false) {
-          next[exam._id] = false;
-          return;
-        }
-        // This app saves gradebook cells as they are entered. In the absence of
-        // a dedicated submit endpoint, treat a course as complete only when all
-        // configured score slots are filled for every student.
-        try {
-          const { data } = await api.get(`/gradebook/${courseId}/manual-entry-roster`);
-          const roster = data.data;
-          const requiredSlots = Object.entries(roster?.slots || {})
-            .filter(([, slot]) => Boolean(slot))
-            .map(([key]) => key);
-          next[exam._id] = Boolean(roster?.students?.length && requiredSlots.length &&
-            roster.students.every((student: { scores?: Record<string, number | null> }) =>
-              requiredSlots.every((slot) => student.scores?.[slot] !== null && student.scores?.[slot] !== undefined)
-            ));
-        } catch {
-          // If status cannot be checked, keep it pending rather than claiming submission.
-          next[exam._id] = false;
-        }
-      }));
-      if (!cancelled) setResultCompletion(next);
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      if (!cancelled && periodId) await cacheTeacherResultCompletion(periodId, next).catch(() => undefined);
     };
     void loadResultCompletion();
     return () => { cancelled = true; };

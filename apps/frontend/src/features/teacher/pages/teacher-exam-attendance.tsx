@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../../lib/axios';
+import { cacheTeacherInvigilations, getCachedTeacherInvigilations } from '../../../lib/teacher-offline-exams';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
 
 type Assignment = {
@@ -64,12 +65,16 @@ export function TeacherExamAttendance() {
   const [error,setError]=useState('');
 
   const load=async()=>{
-    setLoading(true);setError('');
+    setError('');
+    // Saved duties first, refreshed in the background.
+    const cached=await getCachedTeacherInvigilations<Assignment[]>().catch(()=>undefined);
+    if(cached){setAssignments(cached);setLoading(false);}else setLoading(true);
     try{
       const {data}=await api.get('/exams/invigilators/my');
       setAssignments(data.data||[]);
+      await cacheTeacherInvigilations(data.data||[]).catch(()=>undefined);
     }catch(err:any){
-      setError(err.response?.data?.message||'Failed to load invigilation duties');
+      if(!cached)setError(err.response?.data?.message||'Failed to load invigilation duties');
     }finally{
       setLoading(false);
     }

@@ -57,6 +57,26 @@ export async function getCachedTeacherExamWorkspace<T = any>(periodId: string): 
   return key ? getOfflineData<T>(key) : undefined;
 }
 
+export async function cacheTeacherInvigilations(value: unknown): Promise<void> {
+  const key = scopedKey('my-invigilations');
+  if (key) await saveOfflineData(key, value);
+}
+
+export async function getCachedTeacherInvigilations<T = any>(): Promise<T | undefined> {
+  const key = scopedKey('my-invigilations');
+  return key ? getOfflineData<T>(key) : undefined;
+}
+
+export async function cacheTeacherResultCompletion(periodId: string, value: Record<string, boolean>): Promise<void> {
+  const key = scopedKey('result-completion:' + periodId);
+  if (key) await saveOfflineData(key, value);
+}
+
+export async function getCachedTeacherResultCompletion(periodId: string): Promise<Record<string, boolean> | undefined> {
+  const key = scopedKey('result-completion:' + periodId);
+  return key ? getOfflineData<Record<string, boolean>>(key) : undefined;
+}
+
 export async function cacheTeacherExamAttendance(examId: string, value: unknown): Promise<void> {
   const key = scopedKey('attendance:' + examId);
   if (key) await saveOfflineData(key, value);

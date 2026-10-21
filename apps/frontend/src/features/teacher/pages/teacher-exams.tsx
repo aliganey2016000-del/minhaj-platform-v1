@@ -53,8 +53,17 @@ export function TeacherExams() {
   const [usingOfflineData, setUsingOfflineData] = useState(false);
 
   const load = async () => {
-    setLoading(true);
     setError('');
+    // Show the saved snapshot immediately and refresh it in the background,
+    // so opening this page never waits on a slow connection.
+    const cached = await getCachedTeacherExamPeriods<{ periods?: ExamPeriod[]; exams?: TeacherExam[]; cachedAt?: number }>().catch(() => undefined);
+    if (cached) {
+      setPeriods((cached.periods || []).filter((period) => period.status === 'published'));
+      setExams(cached.exams || []);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     try {
       const [periodResponse, examResponse] = await Promise.all([
         api.get('/exams/periods'),
@@ -67,10 +76,7 @@ export function TeacherExams() {
       setUsingOfflineData(false);
       await cacheTeacherExamPeriods({ periods: publishedPeriods, exams: nextExams, cachedAt: Date.now() }).catch(() => undefined);
     } catch (err: any) {
-      const cached = await getCachedTeacherExamPeriods<{ periods?: ExamPeriod[]; exams?: TeacherExam[]; cachedAt?: number }>().catch(() => undefined);
       if (cached) {
-        setPeriods((cached.periods || []).filter((period) => period.status === 'published'));
-        setExams(cached.exams || []);
         setUsingOfflineData(true);
         setError('');
       } else {

@@ -124,7 +124,9 @@ export function TenantProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const { data } = await api.get('/tenant/current');
+        // Short timeout, no replay: on a connection that is up but carries no
+        // data this must fail fast so the app can fall back to the offline login.
+        const { data } = await api.get('/tenant/current', { timeout: 8000, _networkRetries: 2 } as any);
         if (cancelled) return;
         const value = data.data || {};
         const resolved: TenantData = {

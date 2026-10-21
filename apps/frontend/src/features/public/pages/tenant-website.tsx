@@ -73,7 +73,7 @@ export function TenantWebsitePage() {
         setLoading(true);
         setError('');
         setUnreachable(false);
-        const { data } = await api.get('/website-management/public/current');
+        const { data } = await api.get('/website-management/public/current', { timeout: 8000, _networkRetries: 2 } as any);
         if (!cancelled) setPayload(data.data);
       } catch (err: any) {
         // No response at all: offline, or connected without real internet.

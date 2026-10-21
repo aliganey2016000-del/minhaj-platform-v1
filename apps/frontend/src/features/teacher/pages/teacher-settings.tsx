@@ -5,7 +5,7 @@ import { clearOfflinePin, isOfflinePinReady, setupOfflinePin } from '../../../li
 import { verifiedOfflineTeacherIdentity, saveVerifiedTeacherIdentity, offlineAttendanceOwner, prepareTeacherOfflineAppShell, cacheOfflineTeacherSidebar, cacheOfflineTeachingSchedule, cacheAttendanceSessions, cacheAttendanceRoster, preparedAttendanceDates } from '../../../lib/teacher-offline-attendance';
 import { useAuth } from '../../../store/auth-context';
 import { refreshOfflinePinValidity } from '../../../lib/offline-teacher-pin';
-import { cacheTeacherExamPeriods, cacheTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
+import { cacheTeacherInvigilations, cacheTeacherExamPeriods, cacheTeacherExamWorkspace, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
 import { saveTeacherGuulgaarSnapshot } from '../../../lib/teacher-guulgaar-offline';
@@ -150,6 +150,7 @@ export function TeacherSettings() {
       const assignmentResponse = await api.get('/exams/invigilators/my', { timeout: 15000 }).catch(() => null);
       const assignments = assignmentResponse?.data?.data || [];
       if (!assignmentResponse) recordFailure();
+      else await cacheTeacherInvigilations(assignments).catch(() => undefined);
       for (const period of periods) {
         try {
           const { data } = await api.get('/exams', { params: { period: period._id, limit: 200 }, timeout: 15000 });
