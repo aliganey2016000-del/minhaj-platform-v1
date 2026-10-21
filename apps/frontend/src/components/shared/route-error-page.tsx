@@ -22,6 +22,23 @@ export function isChunkLoadError(error: unknown): boolean {
   return /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS|Loading chunk .* failed|ChunkLoadError/i.test(message);
 }
 
+// Recovery wipes the offline caches and unregisters the service worker, which
+// is only safe when the network can actually deliver the replacement files.
+// Offline (or connected without real internet) a chunk failure just means the
+// file was never cached; wiping would destroy the offline app for good.
+async function serverIsReachable(): Promise<boolean> {
+  if (!navigator.onLine) return false;
+  try {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 5000);
+    const response = await fetch('/offline.html?ping=' + Date.now(), { cache: 'no-store', signal: controller.signal });
+    window.clearTimeout(timer);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function clearStaleRuntimeCaches(): Promise<void> {
   if (!('caches' in window)) return;
   await Promise.all(APP_RUNTIME_CACHES.map((name) => window.caches.delete(name)));
@@ -44,6 +61,7 @@ async function resetServiceWorkerForFreshNavigation(): Promise<void> {
  * retry passes force=true and always performs a clean retry.
  */
 export function reloadForNewBuild(force = false): boolean {
+  if (!navigator.onLine) return false;
   if (!force) {
     try {
       const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
@@ -54,10 +72,14 @@ export function reloadForNewBuild(force = false): boolean {
     }
   }
 
-  void Promise.allSettled([
-    clearStaleRuntimeCaches(),
-    resetServiceWorkerForFreshNavigation(),
-  ]).then(() => window.location.reload());
+  void serverIsReachable().then(async (reachable) => {
+    if (!reachable) return;
+    await Promise.allSettled([
+      clearStaleRuntimeCaches(),
+      resetServiceWorkerForFreshNavigation(),
+    ]);
+    window.location.reload();
+  });
 
   return true;
 }
@@ -66,7 +88,8 @@ export function RouteErrorPage() {
   const error = useRouteError();
   const chunkFailure = isChunkLoadError(error);
   const attemptedRecovery = useRef(false);
-  const [recovering, setRecovering] = useState(chunkFailure);
+  const [recovering, setRecovering] = useState(chunkFailure && navigator.onLine);
+  const offline = !navigator.onLine;
 
   useEffect(() => {
     if (!chunkFailure || attemptedRecovery.current) return;
@@ -96,6 +119,27 @@ export function RouteErrorPage() {
   }
 
   if (import.meta.env.DEV) console.error(error);
+
+  if (offline) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-primary)] px-4">
+        <div className="w-full max-w-md text-center">
+          <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">You are offline</h1>
+          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+            This page was not prepared for offline use. Open Sign In to use your prepared Offline PIN, or reconnect and try again.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <a
+              href="/auth/login"
+              className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              Open Sign In
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--color-surface-primary)] px-4">
