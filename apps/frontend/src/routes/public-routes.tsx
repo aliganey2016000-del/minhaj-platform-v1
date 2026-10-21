@@ -2,9 +2,10 @@
  * Public Routes Configuration
  */
 import { lazy, Suspense } from 'react';
-import { type RouteObject } from 'react-router-dom';
+import { Navigate, type RouteObject } from 'react-router-dom';
 import { PublicLayout } from '../components/layout/public-layout';
 import { useTenant } from '../store/tenant-context';
+import { useOnlineStatus } from '../features/shared/hooks/useOnlineStatus';
 import { isPlatformRootHostname } from '../lib/platform-domains';
 
 const LandingPage = lazy(() => import('../features/public/pages/landing').then((m) => ({ default: m.LandingPage })));
@@ -21,6 +22,12 @@ function HomePage() {
   const hostname = typeof window !== 'undefined' ? window.location.hostname.replace(/^www\./, '') : '';
   const CustomLanding = CUSTOM_DOMAIN_LANDING[hostname];
   const { isMainSite, isLoading, error } = useTenant();
+  const isOnline = useOnlineStatus();
+
+  // A public landing page can't load offline. Skip it and open the login
+  // screen, which offers the prepared Offline PIN unlock for teachers.
+  if (!isOnline) return <Navigate to="/auth/login" replace state={{ offline: true }} />;
+
   if (CustomLanding) return <CustomLanding />;
 
   // Every configured platform root (e.g. sahaledu.com and schoolapp.so) is

@@ -42,7 +42,7 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
-  const [offlineMode, setOfflineMode] = useState(!navigator.onLine);
+  const [offlineMode, setOfflineMode] = useState(!navigator.onLine || !!(location.state as { offline?: boolean } | null)?.offline);
   const [offlinePin, setOfflinePin] = useState('');
   const [pinBusy, setPinBusy] = useState(false);
   const [pinError, setPinError] = useState('');
