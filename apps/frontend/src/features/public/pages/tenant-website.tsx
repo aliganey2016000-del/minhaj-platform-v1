@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
 import { Construction, LogIn } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useTenant } from '../../../store/tenant-context';
@@ -51,10 +51,11 @@ function upsertCanonical(url: string) {
 
 export function TenantWebsitePage() {
   const { pageSlug = '', postSlug = '' } = useParams();
-  const { tenant, isLoading: tenantLoading, error: tenantError } = useTenant();
+  const { tenant, isLoading: tenantLoading, error: tenantError, unreachable: tenantUnreachable } = useTenant();
   const [payload, setPayload] = useState<PublicWebsitePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [unreachable, setUnreachable] = useState(false);
   const trackedRef = useRef('');
   const sessionId = useMemo(() => getWebsiteSessionId(), []);
 
@@ -71,9 +72,12 @@ export function TenantWebsitePage() {
       try {
         setLoading(true);
         setError('');
+        setUnreachable(false);
         const { data } = await api.get('/website-management/public/current');
         if (!cancelled) setPayload(data.data);
       } catch (err: any) {
+        // No response at all: offline, or connected without real internet.
+        if (!cancelled && !err.response) setUnreachable(true);
         if (!cancelled) setError(err.response?.data?.message || 'Unable to load this organization website.');
       } finally {
         if (!cancelled) setLoading(false);
@@ -140,6 +144,10 @@ export function TenantWebsitePage() {
 
   if (tenantLoading || loading) {
     return <div className="flex min-h-screen items-center justify-center bg-white"><div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-600" /></div>;
+  }
+
+  if (unreachable || (tenantError && tenantUnreachable)) {
+    return <Navigate to="/auth/login" replace state={{ offline: true }} />;
   }
 
   if (tenantError || error) {

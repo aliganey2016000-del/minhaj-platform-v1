@@ -36,6 +36,8 @@ interface TenantContextValue {
   isLoading: boolean;
   isMainSite: boolean;
   error: string | null;
+  /** True when /tenant/current got no response at all (offline / no real internet). */
+  unreachable: boolean;
   subdomain: string | null;
 }
 
@@ -72,6 +74,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unreachable, setUnreachable] = useState(false);
 
   const hostname = useMemo(
     () => typeof window === 'undefined' ? '' : window.location.hostname.toLowerCase(),
@@ -84,6 +87,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       setError(null);
+      setUnreachable(false);
       setIsLoading(true);
 
       // The platform root domain is always the Sahal marketing website.
@@ -143,6 +147,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
         // Never use a cached tenant after an explicit server rejection.
         if (!status && cached) { setTenant(cached); return; }
         setTenant(null);
+        setUnreachable(!err.response);
         setError(
           status === 404
             ? `Portal "${hostname}" not found. The organization does not exist or has been deactivated.`
@@ -161,6 +166,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     isLoading,
     isMainSite: tenant?.isMainSite === true,
     error,
+    unreachable,
     subdomain,
   };
 
