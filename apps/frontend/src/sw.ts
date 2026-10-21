@@ -113,7 +113,9 @@ registerRoute(
   new CacheFirst({
     cacheName: 'app-code-runtime',
     plugins: [
-      new ExpirationPlugin({ maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 * 30 }),
+      // Prepare Everything Offline downloads every teacher route chunk; the
+      // old 120-entry limit could evict the login/attendance chunks again.
+      new ExpirationPlugin({ maxEntries: 600, maxAgeSeconds: 60 * 60 * 24 * 60 }),
       new CacheableResponsePlugin({ statuses: [0, 200] }),
     ],
   })
@@ -147,7 +149,7 @@ registerRoute(
   new NavigationRoute(
     async (params) => {
       try {
-        return await new NetworkFirst({ cacheName: 'navigations' }).handle(params);
+        return await new NetworkFirst({ cacheName: 'navigations', networkTimeoutSeconds: 5 }).handle(params);
       } catch {
         // React Router navigates within a single SPA shell. A teacher can
         // open a *new* class/session URL while offline even though no

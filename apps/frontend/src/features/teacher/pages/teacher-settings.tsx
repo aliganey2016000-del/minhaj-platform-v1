@@ -67,10 +67,26 @@ export function TeacherSettings() {
       await prepareTeacherOfflineAppShell();
       ready++;
       await Promise.all([
+        // Every page and shell piece a prepared teacher can reach offline,
+        // including the Sign In page that hosts the Offline PIN unlock.
+        // The service worker caches each chunk as it is requested here.
+        import('../../auth/pages/login'),
+        import('../components/teacher-layout'),
+        import('../components/teacher-guard'),
+        import('../components/teacher-sidebar'),
+        import('./teacher-school-attendance'),
+        import('./teacher-attendance'),
         import('./teacher-school-attendance-roster'),
         import('./teacher-schedule'),
+        import('./teacher-exams'),
+        import('./teacher-exam-period-workspace'),
+        import('./teacher-exam-attendance'),
         import('./teacher-exam-attendance-roster'),
         import('./teacher-invigilation-attendance-roster'),
+        import('./teacher-guuldoon-challenges'),
+        import('./teacher-guuldoon-challenge'),
+        import('../../shared/pages/guuldoon-page'),
+        import('../../shared/pages/guuldoon-leaderboard'),
         import('../../admin/pages/results-entry'),
       ]);
       ready++;
