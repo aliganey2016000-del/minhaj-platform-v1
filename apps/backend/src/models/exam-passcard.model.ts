@@ -20,6 +20,6 @@ const examPassCardSchema = new Schema<IExamPassCard>({
   issuedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } });
 
-examPassCardSchema.index({ school: 1, examPeriod: 1, student: 1 }, { unique: true });
+examPassCardSchema.index({ school: 1, examPeriod: 1, student: 1 }, { unique: true, partialFilterExpression: { status: 'issued' } });
 
 export default mongoose.model<IExamPassCard>('ExamPassCard', examPassCardSchema);
