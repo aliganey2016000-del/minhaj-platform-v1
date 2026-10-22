@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto';
 import ExamPassCard from '../models/exam-passcard.model';
 import ExamPeriod from '../models/exam-period.model';
 import Student from '../models/student.model';
-import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
 
 function schoolIdFor(req: Request): string {
   const id = req.user?.role === 'org_admin'
