@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, BookOpen, CalendarDays, CreditCard, Download, IdCard, Plus, Printer, Search, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { BadgeCheck, CalendarDays, CreditCard, IdCard, Plus, Printer, Search, ShieldCheck, Trash2, Users } from 'lucide-react';
 import api from '../../../lib/axios';
 
 type Period = { _id: string; name: string; academicYear: string; term?: string; startDate?: string; endDate?: string; status: string };
