@@ -132,6 +132,7 @@ export const ADMIN_SIDEBAR_ITEMS: SidebarItemDef[] = [
   { key: 'admin/payments/balances/detail', label: 'Student Balance Detail', section: 'Payments' },
   { key: 'admin/payments/discounts', label: 'Discounts & Scholarships', section: 'Payments' },
   { key: 'admin/payments/history', label: 'Payment History', section: 'Payments' },
+  { key: 'admin/payments/passcards', label: 'PassCard Management', section: 'Payments' },
   { key: 'admin/payments/reports', label: 'Payment Reports', section: 'Payments' },
   { key: 'admin/payments?view=accounting', label: 'Accounting Center', section: 'Payments' },
 
