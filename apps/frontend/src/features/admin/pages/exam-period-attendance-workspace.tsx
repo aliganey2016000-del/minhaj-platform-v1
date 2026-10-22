@@ -34,6 +34,8 @@ export function ExamPeriodAttendanceWorkspace(){
   const [now,setNow]=useState(new Date());
   const [selected,setSelected]=useState<Item|null>(null);
   const [roster,setRoster]=useState<Roster[]>([]);
+  const [passCardStudentIds,setPassCardStudentIds]=useState<string[]>([]);
+  const [rosterTab,setRosterTab]=useState<'issued'|'missing'>('issued');
   const [marks,setMarks]=useState<Record<string,'present'|'absent'|''>>({});
   const [query,setQuery]=useState('');
   const [loading,setLoading]=useState(true);
@@ -51,6 +53,14 @@ export function ExamPeriodAttendanceWorkspace(){
     finally{setLoading(false)}
   };
   useEffect(()=>{void load()},[periodId]);
+  useEffect(()=>{
+    if(!periodId){setPassCardStudentIds([]);return}
+    let cancelled=false;
+    api.get('/passcards',{params:{periodId}}).then(r=>{
+      if(!cancelled)setPassCardStudentIds((r.data?.data||[]).map((card:any)=>String(card.student?._id||card.student)));
+    }).catch(()=>{if(!cancelled)setPassCardStudentIds([])});
+    return()=>{cancelled=true};
+  },[periodId]);
   useEffect(()=>{const a=window.setInterval(()=>setNow(new Date()),15000);const b=window.setInterval(()=>void load(),60000);return()=>{clearInterval(a);clearInterval(b)}},[periodId]);
 
   const items=useMemo<Item[]>(()=>ctx?.sessions.flatMap(s=>s.rooms.map(room=>({id:s.key+'::'+room._id,session:s,room,start:dt(s.examDate,s.startTime),end:dt(s.examDate,s.endTime)})))||[],[ctx]);
@@ -71,7 +81,7 @@ export function ExamPeriodAttendanceWorkspace(){
   const open=async(i:Item)=>{
     if(state(i)==='upcoming')return;
     if(!i.room.assignment?._id){setError('Assign an invigilator to '+i.room.name+' first.');return}
-    setSelected(i);setBusy(true);setError('');setMessage('');
+    setSelected(i);setRosterTab('issued');setBusy(true);setError('');setMessage('');
     try{
       const r=await api.get('/exams/invigilators/'+i.room.assignment._id+'/roster');
       const rows:Roster[]=r.data?.data?.roster||[];
@@ -99,6 +109,7 @@ export function ExamPeriodAttendanceWorkspace(){
   };
   const shown=roster.filter(r=>{const q=query.toLowerCase().trim();return!q||name(r).toLowerCase().includes(q)||r.student.studentId.toLowerCase().includes(q)||cls(r).toLowerCase().includes(q)});
   const marked=roster.filter(r=>marks[r.student._id]).length;
+  const rosterTabRows=shown.filter(r=>rosterTab==='issued'?passCardStudentIds.includes(r.student._id):!passCardStudentIds.includes(r.student._id));
   const fallback='/admin/exams/schedule?'+sp.toString();
 
   return <div className="p-4 pt-5 sm:p-6 lg:p-8"><div className="mx-auto max-w-screen-2xl space-y-5">
@@ -173,7 +184,11 @@ export function ExamPeriodAttendanceWorkspace(){
         <div className="border-b p-4"><h2 className="text-xl font-bold">{selected.room.name} Attendance</h2><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{day(selected.session.examDate)} · {selected.session.startTime}–{selected.session.endTime}</p></div>
         <div className="grid grid-cols-3 gap-2 border-b p-4"><div className="rounded-xl bg-slate-50 p-3 text-center"><b>{marked}</b><p className="text-xs">Marked</p></div><div className="rounded-xl bg-emerald-50 p-3 text-center text-emerald-700"><b>{roster.filter(r=>marks[r.student._id]==='present').length}</b><p className="text-xs">Present</p></div><div className="rounded-xl bg-red-50 p-3 text-center text-red-700"><b>{roster.filter(r=>marks[r.student._id]==='absent').length}</b><p className="text-xs">Absent</p></div></div>
         <div className="grid gap-2 border-b p-4 sm:grid-cols-[auto_auto_1fr]"><button onClick={()=>markAll('present')} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">All Present</button><button onClick={()=>markAll('absent')} className="rounded-xl border border-red-200 px-4 py-2 text-sm font-bold text-red-600">All Absent</button><div className="relative"><Search size={16} className="absolute left-3 top-3"/><input value={query} onChange={e=>setQuery(e.target.value)} className="w-full rounded-xl border px-9 py-2 text-sm" placeholder="Search student…"/></div></div>
-        <div className="divide-y">{busy?<div className="p-10 text-center">Loading…</div>:shown.map((r,n)=><div key={r.student._id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><b>{n+1}. {name(r)}</b><p className="text-xs text-[var(--color-text-tertiary)]">{r.student.studentId} · {cls(r)}</p></div><div className="grid grid-cols-2 gap-2"><button onClick={()=>setMarks(p=>({...p,[r.student._id]:'present'}))} className={'rounded-xl border px-4 py-2 text-sm font-bold '+(marks[r.student._id]==='present'?'bg-emerald-600 text-white':'text-emerald-700')}>Present</button><button onClick={()=>setMarks(p=>({...p,[r.student._id]:'absent'}))} className={'rounded-xl border px-4 py-2 text-sm font-bold '+(marks[r.student._id]==='absent'?'bg-red-600 text-white':'text-red-700')}>Absent</button></div></div>)}</div>
+        <div className="grid grid-cols-2 gap-2 border-b p-4">
+          <button type="button" onClick={()=>setRosterTab('issued')} className={'rounded-xl px-3 py-3 text-sm font-bold '+(rosterTab==='issued'?'bg-emerald-600 text-white':'bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]')}>Active · PassCard issued <span className="ml-1">({shown.filter(r=>passCardStudentIds.includes(r.student._id)).length})</span></button>
+          <button type="button" onClick={()=>setRosterTab('missing')} className={'rounded-xl px-3 py-3 text-sm font-bold '+(rosterTab==='missing'?'bg-amber-500 text-white':'bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]')}>No PassCard <span className="ml-1">({shown.filter(r=>!passCardStudentIds.includes(r.student._id)).length})</span></button>
+        </div>
+        <div className="divide-y">{busy?<div className="p-10 text-center">Loading…</div>:rosterTabRows.map((r,n)=><div key={r.student._id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><b>{n+1}. {name(r)}</b><p className="text-xs text-[var(--color-text-tertiary)]">{r.student.studentId} · {cls(r)}</p></div><div className="grid grid-cols-2 gap-2"><button onClick={()=>setMarks(p=>({...p,[r.student._id]:'present'}))} className={'rounded-xl border px-4 py-2 text-sm font-bold '+(marks[r.student._id]==='present'?'bg-emerald-600 text-white':'text-emerald-700')}>Present</button><button onClick={()=>setMarks(p=>({...p,[r.student._id]:'absent'}))} className={'rounded-xl border px-4 py-2 text-sm font-bold '+(marks[r.student._id]==='absent'?'bg-red-600 text-white':'text-red-700')}>Absent</button></div></div>)}{!busy&&rosterTabRows.length===0&&<div className="p-8 text-center text-sm text-[var(--color-text-tertiary)]">{rosterTab==='issued'?'No students with a PassCard in this exam period.':'All students in this room have a PassCard.'}</div>}</div>
         <div className="flex justify-end border-t p-4"><button disabled={busy||!roster.length||marked!==roster.length} onClick={()=>void save()} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-40"><CheckCircle2 size={16} className="mr-2 inline"/>Submit Attendance</button></div>
       </div>}
     </div>
