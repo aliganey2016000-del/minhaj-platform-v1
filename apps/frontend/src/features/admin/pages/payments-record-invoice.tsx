@@ -97,7 +97,7 @@ function StudentPicker({ value, onChange, classId }: { value: Student | null; on
   </div>;
 }
 
-function PaymentForm() {
+function PaymentForm({ embedded = false }: { embedded?: boolean }) {
   const [student, setStudent] = useState<Student | null>(null);
   const [classId, setClassId] = useState('');
   const [classes, setClasses] = useState<ClassOption[]>([]);
@@ -197,7 +197,7 @@ function PaymentForm() {
 
   if (receipt) return <PaymentReceipt data={receipt} onClose={() => setReceipt(null)} />;
 
-  return <div className="min-h-screen bg-[var(--color-surface-secondary)] p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10"><div className="mx-auto max-w-6xl space-y-6">
+  return <div className={embedded ? "bg-[var(--color-surface-secondary)]" : "min-h-screen bg-[var(--color-surface-secondary)] p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10"}><div className={embedded ? "mx-auto max-w-6xl space-y-6" : "mx-auto max-w-6xl space-y-6"}>
     <div><div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700"><CreditCard className="h-3.5 w-3.5" /> Finance desk</div><h1 className="flex items-center gap-2 text-2xl font-bold text-[var(--color-text-primary)] sm:text-3xl"><Wallet className="h-7 w-7 text-primary-600" /> Record Invoice Payment</h1><p className="mt-2 text-sm text-[var(--color-text-tertiary)]">Every student payment must be applied to an existing invoice. Walk-in / Ad-hoc invoices are not created automatically.</p></div>
     {message && <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700"><CheckCircle2 className="h-4 w-4" />{message}</div>}
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
@@ -226,11 +226,11 @@ export function PaymentsRecordInvoice() {
   return (
     <div className="min-h-screen bg-[var(--color-surface-secondary)] p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
       <div className="mx-auto max-w-screen-2xl">
-        <div className="mb-5">
+        <div className="mb-3">
           <h1 className="text-2xl font-bold text-[var(--color-text-primary)] sm:text-3xl">Payments</h1>
           <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Record student payments and review previous transactions from one workspace.</p>
         </div>
-        <div role="tablist" aria-label="Payment workspace" className="mb-5 flex w-full gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 sm:w-fit">
+        <div role="tablist" aria-label="Payment workspace" className="mb-3 flex w-full gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 sm:w-fit">
           <button type="button" role="tab" id="record-payment-tab" aria-selected={activeTab === 'record'} aria-controls="record-payment-panel" onClick={() => setActiveTab('record')}
             className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors sm:flex-none ${activeTab === 'record' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
             <CreditCard className="h-4 w-4" /> Record Payment
@@ -242,11 +242,11 @@ export function PaymentsRecordInvoice() {
         </div>
         {activeTab === 'record' ? (
           <section id="record-payment-panel" role="tabpanel" aria-labelledby="record-payment-tab">
-            <PaymentForm />
+            <PaymentForm embedded />
           </section>
         ) : (
           <section id="payment-history-panel" role="tabpanel" aria-labelledby="payment-history-tab">
-            <PaymentsHistory />
+            <PaymentsHistory embedded />
           </section>
         )}
       </div>
