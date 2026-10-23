@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, CreditCard, FileText, Search, ShieldCheck, Wallet, X } from 'lucide-react';
+import { CheckCircle2, CreditCard, FileText, Search, ShieldCheck, Wallet, X, History } from 'lucide-react';
+import { PaymentsHistory } from './payments-history';
 import api from '../../../lib/axios';
 import { PaymentReceipt } from './payment-receipt';
 import type { PaymentReceiptData } from './payment-receipt';
@@ -96,7 +97,7 @@ function StudentPicker({ value, onChange, classId }: { value: Student | null; on
   </div>;
 }
 
-export function PaymentsRecordInvoice() {
+function PaymentForm() {
   const [student, setStudent] = useState<Student | null>(null);
   const [classId, setClassId] = useState('');
   const [classes, setClasses] = useState<ClassOption[]>([]);
@@ -213,5 +214,42 @@ export function PaymentsRecordInvoice() {
       <aside className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-5 shadow-card sm:p-6"><p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)]">Payment rule</p><h2 className="mt-1 text-lg font-bold text-[var(--color-text-primary)]">Invoice-first collection</h2><p className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">Payments are linked directly to an existing invoice. No automatic Walk-in / Ad-hoc invoice is created from this screen.</p><div className="mt-5 space-y-3 text-sm"><div className="flex gap-3"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>Student identity is verified before collection.</span></div><div className="flex gap-3"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>Payment cannot exceed the selected invoice balance.</span></div><div className="flex gap-3"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>A branded receipt appears immediately after success.</span></div></div></aside>
     </div>
   </div>{review && invoice && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="w-full max-w-md rounded-2xl bg-[var(--color-surface-primary)] p-6 shadow-2xl"><h2 className="text-lg font-bold">Confirm Payment</h2><p className="mt-2 text-sm text-[var(--color-text-tertiary)]">You are recording {money(amountNumber)} against <strong>{invoice.title}</strong> for <strong>{student ? studentName(student) : ''}</strong>.</p><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><p className="text-xs text-[var(--color-text-tertiary)]">Payment</p><p className="font-bold">{money(amountNumber)}</p></div><div className="rounded-xl bg-[var(--color-surface-secondary)] p-3"><p className="text-xs text-[var(--color-text-tertiary)]">Balance after</p><p className="font-bold">{money(Math.max(0, invoice.amountDue - amountNumber))}</p></div></div><div className="mt-6 flex gap-3"><button onClick={() => setReview(false)} disabled={loading} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-3 text-sm font-semibold">Cancel</button><button onClick={submit} disabled={loading} className="flex-1 rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white">{loading ? 'Recording...' : 'Confirm & Record'}</button></div></div></div>}
-  </div>;
+  </div>;}
+
+/**
+ * Combined finance workspace. Existing collection and history workflows are
+ * kept intact and displayed through tabs without duplicating payment logic.
+ */
+export function PaymentsRecordInvoice() {
+  const [activeTab, setActiveTab] = useState<'record' | 'history'>('record');
+
+  return (
+    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
+      <div className="mx-auto max-w-screen-2xl">
+        <div className="mb-5">
+          <h1 className="text-2xl font-bold text-[var(--color-text-primary)] sm:text-3xl">Payments</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Record student payments and review previous transactions from one workspace.</p>
+        </div>
+        <div role="tablist" aria-label="Payment workspace" className="mb-5 flex w-full gap-1 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 sm:w-fit">
+          <button type="button" role="tab" id="record-payment-tab" aria-selected={activeTab === 'record'} aria-controls="record-payment-panel" onClick={() => setActiveTab('record')}
+            className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors sm:flex-none ${activeTab === 'record' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
+            <CreditCard className="h-4 w-4" /> Record Payment
+          </button>
+          <button type="button" role="tab" id="payment-history-tab" aria-selected={activeTab === 'history'} aria-controls="payment-history-panel" onClick={() => setActiveTab('history')}
+            className={`inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors sm:flex-none ${activeTab === 'history' ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
+            <History className="h-4 w-4" /> Payment History
+          </button>
+        </div>
+        {activeTab === 'record' ? (
+          <section id="record-payment-panel" role="tabpanel" aria-labelledby="record-payment-tab">
+            <PaymentForm />
+          </section>
+        ) : (
+          <section id="payment-history-panel" role="tabpanel" aria-labelledby="payment-history-tab">
+            <PaymentsHistory />
+          </section>
+        )}
+      </div>
+    </div>
+  );
 }
