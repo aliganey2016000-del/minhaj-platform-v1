@@ -75,6 +75,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       student: student._id,
       examPeriod: period._id,
       cardNumber,
+      status: 'pending',
       issuedBy: req.user!.userId,
     });
     const populated = await ExamPassCard.findById(card._id)
