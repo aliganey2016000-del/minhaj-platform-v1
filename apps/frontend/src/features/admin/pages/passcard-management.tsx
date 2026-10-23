@@ -4,7 +4,7 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
 type Period = { _id: string; name: string; academicYear: string; term?: string; startDate?: string; endDate?: string; status: string };
-type Student = { _id: string; studentId: string; profile?: { firstName?: string; lastName?: string } | null; class?: { title?: string; section?: string } | null };
+type Student = { _id: string; studentId: string; department?: string | null; profile?: { firstName?: string; lastName?: string } | null; class?: { _id?: string; title?: string; section?: string } | null };
 type PassCard = { _id: string; cardNumber: string; createdAt: string; student?: Student; examPeriod?: Period; status: string };
 const fullName = (s?: Student) => [s?.profile?.firstName, s?.profile?.lastName].filter(Boolean).join(' ') || s?.studentId || 'Student';
 const className = (s?: Student) => [s?.class?.title, s?.class?.section].filter(Boolean).join(' · ') || '—';
@@ -15,7 +15,6 @@ export function PassCardManagement() {
   const [students, setStudents] = useState<Student[]>([]);
   const [cards, setCards] = useState<PassCard[]>([]);
   const [periodId, setPeriodId] = useState('');
-  const [studentId, setStudentId] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -25,6 +24,12 @@ export function PassCardManagement() {
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<'issued' | 'pending'>('issued');
+  const [scope, setScope] = useState<'all' | 'department' | 'class'>('all');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [classFilter, setClassFilter] = useState('');
+  const [studentSearch, setStudentSearch] = useState('');
+  const [issuingId, setIssuingId] = useState('');
   const { user } = useAuth();
   const [schoolName, setSchoolName] = useState((user as any)?.organizationName || 'School');
   const [schoolLogo, setSchoolLogo] = useState('');
@@ -63,12 +68,20 @@ export function PassCardManagement() {
     return () => { active = false; };
   }, [user]);
 
-  const visibleCards = useMemo(() => cards.filter(c => {
+  const visibleCards = useMemo(() => cards.filter(c => c.status === activeTab).filter(c => {
     const q = search.toLowerCase().trim();
     return !q || fullName(c.student).toLowerCase().includes(q) || c.student?.studentId?.toLowerCase().includes(q) || c.cardNumber.toLowerCase().includes(q);
-  }), [cards, search]);
-  const existingStudentIds = useMemo(() => new Set(cards.filter(c => c.status === 'issued').map(c => c.student?._id)), [cards]);
-  const availableStudents = students.filter(s => !existingStudentIds.has(s._id));
+  }), [cards, search, activeTab]);
+  const existingStudentIds = useMemo(() => new Set(cards.filter(c => c.status === 'issued' || c.status === 'pending').map(c => c.student?._id)), [cards]);
+  const departments = useMemo(() => Array.from(new Set(students.map(s => s.department?.trim()).filter((v): v is string => Boolean(v)))).sort((a,b)=>a.localeCompare(b)), [students]);
+  const classOptions = useMemo(() => Array.from(new Map(students.filter(s=>s.class?._id).map(s=>[s.class!._id!, {id:s.class!._id!, label:className(s)}])).values()).sort((a,b)=>a.label.localeCompare(b.label)), [students]);
+  const filteredStudents = students.filter(s => {
+    if (scope === 'department' && departmentFilter && s.department !== departmentFilter) return false;
+    if (scope === 'class' && classFilter && s.class?._id !== classFilter) return false;
+    const q = studentSearch.trim().toLowerCase();
+    return !q || fullName(s).toLowerCase().includes(q) || s.studentId.toLowerCase().includes(q);
+  });
+  const availableStudents = filteredStudents.filter(s => !existingStudentIds.has(s._id));
   const toggleStudent = (id: string) => setSelectedStudentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const createBulk = async () => {
     if (!periodId || selectedStudentIds.length === 0) { setError('Choose an exam period and at least one student.'); return; }
@@ -85,18 +98,6 @@ export function PassCardManagement() {
       setMessage('Bulk issue complete: ' + created + ' created, ' + skipped + ' already existed, ' + failed + ' failed.');
       await load();
     } finally { setBulkSaving(false); }
-  };
-
-  const create = async () => {
-    if (!periodId || !studentId) { setError('Choose an exam period and a student first.'); return; }
-    setSaving(true); setError(''); setMessage('');
-    try {
-      const r = await api.post('/passcards', { periodId, studentId });
-      setMessage(r.data?.message || 'PassCard created successfully.');
-      setStudentId('');
-      await load();
-    } catch (e: any) { setError(e.response?.data?.message || 'Could not create PassCard.'); }
-    finally { setSaving(false); }
   };
 
   const revoke = async (card: PassCard) => {
@@ -122,32 +123,24 @@ export function PassCardManagement() {
       </div>
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className={panel+' p-5'}><div className="flex items-center justify-between"><span className="text-sm text-[var(--color-text-tertiary)]">Issued PassCards</span><IdCard className="text-primary-600"/></div><p className="mt-3 text-3xl font-bold">{cards.filter(c=>c.status==='issued').length}</p></div>
-        <div className={panel+' p-5'}><div className="flex items-center justify-between"><span className="text-sm text-[var(--color-text-tertiary)]">Students</span><Users className="text-primary-600"/></div><p className="mt-3 text-3xl font-bold">{students.length}</p></div>
-        <div className={panel+' p-5'}><div className="flex items-center justify-between"><span className="text-sm text-[var(--color-text-tertiary)]">Exam Periods</span><CalendarDays className="text-primary-600"/></div><p className="mt-3 text-3xl font-bold">{periods.length}</p></div>
-      </div>
+
       <section id="passcard-create-form" className={panel+' p-5 sm:p-6'}>
         <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><CreditCard size={21}/></div><div><h2 className="text-lg font-bold">Create PassCard</h2><p className="text-sm text-[var(--color-text-tertiary)]">Each student can have one active card per exam period.</p></div></div>
-        <details id="passcard-bulk-issue" className="mt-5 rounded-xl border border-[var(--color-border-default)] p-4">
-          <summary className="cursor-pointer select-none font-semibold">Bulk issue PassCards <span className="ml-2 text-xs font-normal text-[var(--color-text-tertiary)]">Select multiple students</span></summary>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-[var(--color-text-tertiary)]">{selectedStudentIds.length} student(s) selected · students with an existing issued card are excluded</p>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={()=>setSelectedStudentIds(availableStudents.map(x=>x._id))} className="rounded-lg border px-3 py-2 text-sm font-semibold">Select all eligible</button>
-              <button type="button" onClick={()=>setSelectedStudentIds([])} className="rounded-lg border px-3 py-2 text-sm font-semibold">Clear</button>
-              <button type="button" disabled={bulkSaving||!periodId||selectedStudentIds.length===0} onClick={()=>void createBulk()} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{bulkSaving?'Creating cards…':'Issue '+selectedStudentIds.length+' PassCards'}</button>
-            </div>
+        <div id="passcard-bulk-issue" className="mt-5 rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5">
+          <div className="mb-4 flex items-start gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><Users size={21}/></div><div><h3 className="font-bold">Generate PassCards</h3><p className="text-sm text-[var(--color-text-tertiary)]">Generated cards go to Not Issued. Issue each card when it is ready.</p></div></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-semibold">Exam period *<select value={periodId} onChange={e=>{setPeriodId(e.target.value);setSelectedStudentIds([]);}} className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 font-normal"><option value="">Select exam period</option>{periods.map(p=><option key={p._id} value={p._id}>{p.name} · {p.academicYear}{p.term?' · '+p.term:''}</option>)}</select></label>
+            <label className="block text-sm font-semibold">Generate for<select value={scope} onChange={e=>{setScope(e.target.value as 'all'|'department'|'class');setSelectedStudentIds([]);}} className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 font-normal"><option value="all">All eligible students</option><option value="department">Specific department</option><option value="class">Specific class</option></select></label>
+            {scope==='department'&&<label className="block text-sm font-semibold">Department *<select value={departmentFilter} onChange={e=>{setDepartmentFilter(e.target.value);setSelectedStudentIds([]);}} className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 font-normal"><option value="">Select department</option>{departments.map(d=><option key={d} value={d}>{d}</option>)}</select></label>}
+            {scope==='class'&&<label className="block text-sm font-semibold">Class *<select value={classFilter} onChange={e=>{setClassFilter(e.target.value);setSelectedStudentIds([]);}} className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 font-normal"><option value="">Select class</option>{classOptions.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select></label>}
           </div>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative min-w-0 flex-1"><Search size={16} className="absolute left-3 top-3 text-[var(--color-text-tertiary)]"/><input value={studentSearch} onChange={e=>setStudentSearch(e.target.value)} placeholder="Find student by name or ID…" className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent py-2.5 pl-9 pr-3 text-sm"/></div><div className="flex flex-wrap gap-2"><button type="button" onClick={()=>setSelectedStudentIds(availableStudents.map(x=>x._id))} className="rounded-lg border px-3 py-2 text-sm font-semibold">Select eligible ({availableStudents.length})</button><button type="button" onClick={()=>setSelectedStudentIds([])} className="rounded-lg border px-3 py-2 text-sm font-semibold">Clear</button></div></div>
           <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
-            {availableStudents.map(student=><label key={student._id} className="flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border-default)] p-3 hover:bg-[var(--color-surface-secondary)]">
-              <input type="checkbox" checked={selectedStudentIds.includes(student._id)} onChange={()=>toggleStudent(student._id)} className="mt-1 h-4 w-4 shrink-0 accent-current"/>
-              <span className="min-w-0"><span className="block break-words text-sm font-semibold">{fullName(student)}</span><span className="block text-xs text-[var(--color-text-tertiary)]">{student.studentId} · {className(student)}</span></span>
-            </label>)}
-            {availableStudents.length===0&&<p className="text-sm text-[var(--color-text-tertiary)]">No eligible students for this exam period.</p>}
+            {filteredStudents.map(student=>{const already=existingStudentIds.has(student._id);return <label key={student._id} className={'flex min-w-0 items-start gap-3 rounded-lg border p-3 '+(already?'cursor-not-allowed opacity-50':'cursor-pointer hover:bg-[var(--color-surface-secondary)]')}><input type="checkbox" disabled={already} checked={selectedStudentIds.includes(student._id)} onChange={()=>toggleStudent(student._id)} className="mt-1 h-4 w-4 shrink-0 accent-current"/><span className="min-w-0"><span className="block break-words text-sm font-semibold">{fullName(student)}</span><span className="block text-xs text-[var(--color-text-tertiary)]">{student.studentId} · {className(student)}</span><span className="block text-xs text-[var(--color-text-tertiary)]">{student.department||'No department'}{already?' · Already generated':''}</span></span></label>})}
+            {filteredStudents.length===0&&<p className="text-sm text-[var(--color-text-tertiary)]">No students match these filters.</p>}
           </div>
-        </details>
-
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border-default)] pt-4"><p className="text-sm text-[var(--color-text-tertiary)]">{selectedStudentIds.length} selected · existing pending or issued cards are excluded</p><button type="button" disabled={bulkSaving||!periodId||selectedStudentIds.length===0||(scope==='department'&&!departmentFilter)||(scope==='class'&&!classFilter)} onClick={()=>void createBulk()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"><Plus size={17}/>{bulkSaving?'Generating…':'Generate '+selectedStudentIds.length+' PassCard(s)'}</button></div>
+        </div>
       </section>
       <section className={panel+' overflow-hidden'}>
         <div className="grid grid-cols-2 gap-2 border-b border-[var(--color-border-default)] p-4 sm:p-5">
