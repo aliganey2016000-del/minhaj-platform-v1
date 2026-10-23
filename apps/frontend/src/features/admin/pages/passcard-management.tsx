@@ -75,8 +75,8 @@ export function PassCardManagement() {
   const departments = useMemo(() => Array.from(new Set(students.map(s => s.department?.trim()).filter((v): v is string => Boolean(v)))).sort((a,b)=>a.localeCompare(b)), [students]);
   const classOptions = useMemo(() => Array.from(new Map(students.filter(s=>s.class?._id).map(s=>[s.class!._id!, {id:s.class!._id!, label:className(s)}])).values()).sort((a,b)=>a.label.localeCompare(b.label)), [students]);
   const filteredStudents = students.filter(s => {
-    if (scope === 'department' && departmentFilter && s.department !== departmentFilter) return false;
-    if (scope === 'class' && classFilter && s.class?._id !== classFilter) return false;
+    if (scope === 'department' && (!departmentFilter || s.department !== departmentFilter)) return false;
+    if (scope === 'class' && (!classFilter || s.class?._id !== classFilter)) return false;
     const q = studentSearch.trim().toLowerCase();
     return !q || fullName(s).toLowerCase().includes(q) || s.studentId.toLowerCase().includes(q);
   });
