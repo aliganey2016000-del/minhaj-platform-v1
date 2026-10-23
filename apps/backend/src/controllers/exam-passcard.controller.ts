@@ -133,10 +133,14 @@ export const verify = async (req: Request, res: Response): Promise<Response> => 
     return res.status(400).type('html').send('<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><title>PassCard verification</title><body><h1>Invalid PassCard QR</h1></body></html>');
   }
 
-  let card = await ExamPassCard.findOne({ verificationToken: token }).populate('examPeriod', 'name academicYear').select('status examPeriod');
+  // Keep both lookups on the same query type to avoid Mongoose inference
+  // mismatches between the token lookup and the legacy ObjectId fallback.
+  const findVerificationCard = (filter: Record<string, unknown>) =>
+    ExamPassCard.findOne(filter).populate('examPeriod', 'name academicYear').select('status examPeriod');
+  let card = await findVerificationCard({ verificationToken: token });
   // Legacy cards have no verification token yet; their ObjectId supports read-only verification.
   if (!card && mongoose.isValidObjectId(token)) {
-    card = await ExamPassCard.findOne({ _id: token, verificationToken: { $exists: false } }).populate('examPeriod', 'name academicYear').select('status examPeriod');
+    card = await findVerificationCard({ _id: token, verificationToken: { $exists: false } });
   }
 
   const status = !card ? 'invalid' : card.status === 'issued' ? 'valid' : card.status === 'revoked' ? 'revoked' : 'pending';
