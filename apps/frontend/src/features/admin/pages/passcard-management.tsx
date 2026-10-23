@@ -21,6 +21,7 @@ export function PassCardManagement() {
   const [message, setMessage] = useState('');
   const [printing, setPrinting] = useState<PassCard | null>(null);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'issued' | 'pending'>('issued');
@@ -129,15 +130,16 @@ export function PassCardManagement() {
         <div className="relative shrink-0">
           <button type="button" onClick={() => setActionsMenuOpen(open => !open)} aria-label="PassCard actions" aria-expanded={actionsMenuOpen} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] shadow-sm hover:bg-[var(--color-surface-secondary)]"><MoreVertical size={22}/></button>
           {actionsMenuOpen && <><button type="button" aria-label="Close actions menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setActionsMenuOpen(false)}></button><div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-xl">
-            <button type="button" onClick={() => { setActionsMenuOpen(false); document.getElementById('passcard-create-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><Plus size={17}/> Create PassCard</button>
-            <button type="button" onClick={() => { setActionsMenuOpen(false); const bulk = document.getElementById('passcard-bulk-issue'); if (bulk instanceof HTMLDetailsElement) bulk.open = true; bulk?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><Users size={17}/> Bulk issue PassCards</button>
+            <button type="button" onClick={() => { setActionsMenuOpen(false); setCreateModalOpen(true); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><Plus size={17}/> Create PassCard</button>
+            <button type="button" onClick={() => { setActionsMenuOpen(false); setCreateModalOpen(true); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><Users size={17}/> Generate PassCards</button>
           </div></>}
         </div>
       </div>
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
 
-      <section id="passcard-create-form" className={panel+' p-5 sm:p-6'}>
+      {createModalOpen && <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/60 p-3 pt-8 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="passcard-create-modal-title" onClick={e=>{if(e.target===e.currentTarget)setCreateModalOpen(false);}}>
+      <section id="passcard-create-form" className={panel+' relative my-auto w-full max-w-4xl p-5 sm:p-6'}><div className="mb-5 flex items-center justify-between gap-3"><div><h2 id="passcard-create-modal-title" className="text-xl font-bold">PassCard Actions</h2><p className="text-sm text-[var(--color-text-tertiary)]">Create a single card or generate cards for multiple students.</p></div><button type="button" onClick={()=>setCreateModalOpen(false)} aria-label="Close PassCard actions" className="rounded-xl border px-3 py-2 text-sm font-semibold">Close ✕</button></div>
         <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><CreditCard size={21}/></div><div><h2 className="text-lg font-bold">Create PassCard</h2><p className="text-sm text-[var(--color-text-tertiary)]">Each student can have one active card per exam period.</p></div></div>
         <div id="passcard-bulk-issue" className="mt-5 rounded-xl border border-[var(--color-border-default)] p-4 sm:p-5">
           <div className="mb-4 flex items-start gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><Users size={21}/></div><div><h3 className="font-bold">Generate PassCards</h3><p className="text-sm text-[var(--color-text-tertiary)]">Generated cards go to Not Issued. Issue each card when it is ready.</p></div></div>
@@ -155,6 +157,7 @@ export function PassCardManagement() {
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border-default)] pt-4"><p className="text-sm text-[var(--color-text-tertiary)]">{selectedStudentIds.length} selected · existing pending or issued cards are excluded</p><button type="button" disabled={bulkSaving||!periodId||selectedStudentIds.length===0||(scope==='department'&&!departmentFilter)||(scope==='class'&&!classFilter)} onClick={()=>void createBulk()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"><Plus size={17}/>{bulkSaving?'Generating…':'Generate '+selectedStudentIds.length+' PassCard(s)'}</button></div>
         </div>
       </section>
+      </div>}
       <section className={panel+' overflow-hidden'}>
         <div className="grid grid-cols-2 gap-2 border-b border-[var(--color-border-default)] p-4 sm:p-5">
           <button type="button" onClick={()=>setActiveTab('issued')} className={'flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-bold '+(activeTab==='issued'?'border-emerald-500 bg-emerald-500/10 text-emerald-600':'border-[var(--color-border-default)] text-[var(--color-text-tertiary)]')}>Issued <span className="rounded-full bg-[var(--color-surface-secondary)] px-2 py-0.5 text-xs">{cards.filter(c=>c.status==='issued').length}</span></button>
