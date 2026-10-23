@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, CalendarDays, CreditCard, IdCard, Plus, Printer, Search, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { BadgeCheck, CalendarDays, CreditCard, IdCard, Plus, Printer, Search, ShieldCheck, Trash2, Users, MoreVertical } from 'lucide-react';
 import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 
@@ -22,6 +22,7 @@ export function PassCardManagement() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [printing, setPrinting] = useState<PassCard | null>(null);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [bulkSaving, setBulkSaving] = useState(false);
   const { user } = useAuth();
@@ -109,9 +110,15 @@ export function PassCardManagement() {
 
   return <div className="p-4 pt-5 sm:p-6 lg:p-8">
     <div className="mx-auto max-w-screen-2xl space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><p className="mb-1 text-xs font-bold uppercase tracking-[.16em] text-primary-600">Finance Management</p><h1 className="text-3xl font-bold text-[var(--color-text-primary)]">PassCard Management</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Issue and print examination entry cards for students.</p></div>
-        <button onClick={() => document.getElementById('passcard-create-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-primary-700"><Plus size={17}/> Create PassCard</button>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0"><p className="mb-1 text-xs font-bold uppercase tracking-[.16em] text-primary-600">Finance Management</p><h1 className="text-3xl font-bold text-[var(--color-text-primary)]">PassCard Management</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Issue and print examination entry cards for students.</p></div>
+        <div className="relative shrink-0">
+          <button type="button" onClick={() => setActionsMenuOpen(open => !open)} aria-label="PassCard actions" aria-expanded={actionsMenuOpen} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] shadow-sm hover:bg-[var(--color-surface-secondary)]"><MoreVertical size={22}/></button>
+          {actionsMenuOpen && <><button type="button" aria-label="Close actions menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setActionsMenuOpen(false)}></button><div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-xl">
+            <button type="button" onClick={() => { setActionsMenuOpen(false); document.getElementById('passcard-create-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><Plus size={17}/> Create PassCard</button>
+            <button type="button" onClick={() => { setActionsMenuOpen(false); const bulk = document.getElementById('passcard-bulk-issue'); if (bulk instanceof HTMLDetailsElement) bulk.open = true; bulk?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><Users size={17}/> Bulk issue PassCards</button>
+          </div></>}
+        </div>
       </div>
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
@@ -122,7 +129,7 @@ export function PassCardManagement() {
       </div>
       <section id="passcard-create-form" className={panel+' p-5 sm:p-6'}>
         <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><CreditCard size={21}/></div><div><h2 className="text-lg font-bold">Create PassCard</h2><p className="text-sm text-[var(--color-text-tertiary)]">Each student can have one active card per exam period.</p></div></div>
-        <details className="mt-5 rounded-xl border border-[var(--color-border-default)] p-4">
+        <details id="passcard-bulk-issue" className="mt-5 rounded-xl border border-[var(--color-border-default)] p-4">
           <summary className="cursor-pointer select-none font-semibold">Bulk issue PassCards <span className="ml-2 text-xs font-normal text-[var(--color-text-tertiary)]">Select multiple students</span></summary>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-[var(--color-text-tertiary)]">{selectedStudentIds.length} student(s) selected · students with an existing issued card are excluded</p>
