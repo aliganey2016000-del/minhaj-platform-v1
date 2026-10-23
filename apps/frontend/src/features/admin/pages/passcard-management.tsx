@@ -127,7 +127,7 @@ export function PassCardManagement() {
   };
 
   const printCard = (card: PassCard) => { setPrinting(card); window.setTimeout(() => window.print(), 100); };
-  const verificationUrl = printing ? String(api.defaults.baseURL || window.location.origin).replace(/\/+$/, '') + '/passcards/verify/' + encodeURIComponent(printing.verificationToken || printing._id) : '';
+  const verificationUrl = printing ? window.location.origin + String(api.defaults.baseURL || '/api/v1').replace(/\/+$/, '') + '/passcards/verify/' + encodeURIComponent(printing.verificationToken || printing._id) : '';
 
   if (pageView === 'exams') {
     return <div className="p-4 pt-5 sm:p-6 lg:p-8"><div className="mx-auto max-w-screen-2xl space-y-6">
