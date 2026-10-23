@@ -75,6 +75,7 @@ export const create = async (req: Request, res: Response): Promise<Response> => 
       student: student._id,
       examPeriod: period._id,
       cardNumber,
+      verificationToken: randomBytes(32).toString('hex'),
       status: 'pending',
       issuedBy: req.user!.userId,
     });
@@ -116,4 +117,36 @@ export const revoke = async (req: Request, res: Response): Promise<Response> => 
   );
   if (!card) throw new NotFoundError('Active PassCard');
   return res.json({ success: true, message: 'PassCard revoked.', data: card });
+};
+
+function escapeVerificationHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return entities[char] || char;
+  });
+}
+
+/** Public QR verification page. It intentionally reveals no student-identifying data. */
+export const verify = async (req: Request, res: Response): Promise<Response> => {
+  const token = String(req.params.token || '').trim();
+  if (!token || token.length > 128) {
+    return res.status(400).type('html').send('<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><title>PassCard verification</title><body><h1>Invalid PassCard QR</h1></body></html>');
+  }
+
+  let card = await ExamPassCard.findOne({ verificationToken: token }).populate('examPeriod', 'name academicYear').select('status examPeriod');
+  // Legacy cards have no verification token yet; their ObjectId supports read-only verification.
+  if (!card && mongoose.isValidObjectId(token)) {
+    card = await ExamPassCard.findOne({ _id: token, verificationToken: { $exists: false } }).populate('examPeriod', 'name academicYear').select('status examPeriod');
+  }
+
+  const status = !card ? 'invalid' : card.status === 'issued' ? 'valid' : card.status === 'revoked' ? 'revoked' : 'pending';
+  const title = status === 'valid' ? 'PASSCARD VERIFIED' : status === 'pending' ? 'NOT YET ISSUED' : status === 'revoked' ? 'PASSCARD REVOKED' : 'INVALID PASSCARD';
+  const color = status === 'valid' ? '#047857' : status === 'pending' ? '#b45309' : '#b91c1c';
+  const period = card?.examPeriod as any;
+  const details = period ? '<p>' + escapeVerificationHtml(String(period.name || 'Examination')) + ' · ' + escapeVerificationHtml(String(period.academicYear || '')) + '</p>' : '';
+  const message = status === 'valid' ? 'This examination PassCard is officially issued.' : status === 'pending' ? 'This PassCard has been generated but has not been issued.' : status === 'revoked' ? 'This PassCard is no longer valid.' : 'No matching PassCard was found.';
+  res.setHeader('Cache-Control', 'no-store');
+  const code = status === 'valid' ? 200 : status === 'pending' ? 200 : 404;
+  const html = '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>PassCard verification</title><style>body{font:16px system-ui,sans-serif;background:#f1f5f9;color:#0f172a;display:grid;min-height:100vh;place-items:center;margin:0;padding:20px;box-sizing:border-box}.card{background:white;border:1px solid #e2e8f0;border-radius:20px;padding:28px;max-width:420px;width:100%;box-sizing:border-box;text-align:center;box-shadow:0 12px 36px #0f172a12}h1{font-size:22px;color:' + color + '}p{color:#475569}.mark{font-size:44px;color:' + color + '}</style></head><body><main class="card"><div class="mark">' + (status === 'valid' ? '✓' : '!') + '</div><h1>' + title + '</h1>' + details + '<p>' + message + '</p></main></body></html>';
+  return res.status(code).type('html').send(html);
 };
