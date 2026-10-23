@@ -147,11 +147,7 @@ export function PassCardManagement() {
             {availableStudents.length===0&&<p className="text-sm text-[var(--color-text-tertiary)]">No eligible students for this exam period.</p>}
           </div>
         </details>
-        <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
-          <label className="block text-sm font-semibold">Exam period<select value={periodId} onChange={e=>setPeriodId(e.target.value)} className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 font-normal"><option value="">Select exam period</option>{periods.map(p=><option key={p._id} value={p._id}>{p.name} · {p.academicYear}{p.term?' · '+p.term:''}</option>)}</select></label>
-          <label className="block text-sm font-semibold">Student<select value={studentId} onChange={e=>setStudentId(e.target.value)} className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 font-normal"><option value="">Select student</option>{availableStudents.map(s=><option key={s._id} value={s._id}>{fullName(s)} · {s.studentId} · {className(s)}</option>)}</select></label>
-          <button disabled={saving||!periodId||!studentId} onClick={()=>void create()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"><Plus size={17}/>{saving?'Creating…':'Create PassCard'}</button>
-        </div>
+
       </section>
       <section className={panel+' overflow-hidden'}>
         <div className="grid grid-cols-2 gap-2 border-b border-[var(--color-border-default)] p-4 sm:p-5">
