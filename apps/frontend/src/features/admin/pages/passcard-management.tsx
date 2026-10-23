@@ -17,7 +17,6 @@ export function PassCardManagement() {
   const [periodId, setPeriodId] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [printing, setPrinting] = useState<PassCard | null>(null);
@@ -95,9 +94,23 @@ export function PassCardManagement() {
         } catch { failed++; }
       }
       setSelectedStudentIds([]);
-      setMessage('Bulk issue complete: ' + created + ' created, ' + skipped + ' already existed, ' + failed + ' failed.');
+      setMessage('Generation complete: ' + created + ' added to Not Issued, ' + skipped + ' already existed, ' + failed + ' failed.');
       await load();
     } finally { setBulkSaving(false); }
+  };
+
+  const issueCard = async (card: PassCard) => {
+    setIssuingId(card._id); setError(''); setMessage('');
+    try {
+      const response = await api.post('/passcards/' + card._id + '/issue');
+      setMessage(response.data?.message || 'PassCard issued successfully.');
+      await load();
+      setActiveTab('issued');
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Could not issue this PassCard.');
+    } finally {
+      setIssuingId('');
+    }
   };
 
   const revoke = async (card: PassCard) => {
@@ -149,7 +162,7 @@ export function PassCardManagement() {
         </div>
         <div className="flex flex-col gap-3 border-b border-[var(--color-border-default)] p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">{activeTab==='issued'?'Issued PassCards':'Not Issued PassCards'}</h2><p className="text-sm text-[var(--color-text-tertiary)]">{activeTab==='issued'?'Cards officially issued for the selected exam period.':'Generated cards waiting to be issued.'}</p></div><div className="relative w-full sm:max-w-xs"><Search size={16} className="absolute left-3 top-3 text-[var(--color-text-tertiary)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, student ID, card…" className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent py-2.5 pl-9 pr-3 text-sm"/></div></div>
         <div className="flex flex-wrap items-center gap-3 border-b p-4"><label className="text-sm font-semibold">Exam period</label><select value={periodId} onChange={e=>setPeriodId(e.target.value)} className="min-w-56 rounded-xl border bg-transparent px-3 py-2 text-sm">{periods.map(p=><option key={p._id} value={p._id}>{p.name} · {p.academicYear}</option>)}</select><button onClick={()=>void load()} className="rounded-xl border px-4 py-2 text-sm font-semibold">Refresh</button></div>
-        {loading?<div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Loading PassCards…</div>:visibleCards.length===0?<div className="p-12 text-center"><BadgeCheck className="mx-auto mb-3 text-[var(--color-text-tertiary)]" size={34}/><p className="font-semibold">No PassCards found</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose an exam period and create a card for a student.</p></div>:<div>
+        {loading?<div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Loading PassCards…</div>:visibleCards.length===0?<div className="p-12 text-center"><BadgeCheck className="mx-auto mb-3 text-[var(--color-text-tertiary)]" size={34}/><p className="font-semibold">{activeTab==='issued'?'No issued PassCards':'No PassCards waiting to be issued'}</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{activeTab==='issued'?'Generate cards, then issue them to move them here.':'Generate PassCards above to populate this list.'}</p></div>:<div>
           <div className="grid gap-3 p-3 sm:hidden">{visibleCards.map(c=><article key={c._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
             <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-bold">{fullName(c.student)}</h3><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Student ID: {c.student?.studentId || '—'}</p></div><span className={'shrink-0 rounded-full px-2.5 py-1 text-xs font-bold '+(c.status==='issued'?'bg-emerald-100 text-emerald-800':'bg-amber-100 text-amber-800')}>{c.status==='issued'?'Issued':'Not Issued'}</span></div>
             <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-sm"><div className="min-w-0"><dt className="text-xs text-[var(--color-text-tertiary)]">Class</dt><dd className="break-words font-medium">{className(c.student)}</dd></div><div className="min-w-0"><dt className="text-xs text-[var(--color-text-tertiary)]">Issued date</dt><dd>{new Date(c.createdAt).toLocaleDateString()}</dd></div><div className="col-span-2 min-w-0"><dt className="text-xs text-[var(--color-text-tertiary)]">Card number</dt><dd className="break-all font-mono text-xs">{c.cardNumber}</dd></div></dl>
