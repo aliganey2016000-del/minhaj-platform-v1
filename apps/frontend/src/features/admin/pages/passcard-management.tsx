@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, CalendarDays, CreditCard, IdCard, Plus, Printer, Search, ShieldCheck, Trash2, Users } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 type Period = { _id: string; name: string; academicYear: string; term?: string; startDate?: string; endDate?: string; status: string };
 type Student = { _id: string; studentId: string; profile?: { firstName?: string; lastName?: string } | null; class?: { title?: string; section?: string } | null };
@@ -21,6 +22,9 @@ export function PassCardManagement() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [printing, setPrinting] = useState<PassCard | null>(null);
+  const { user } = useAuth();
+  const [schoolName, setSchoolName] = useState((user as any)?.organizationName || 'School');
+  const [schoolLogo, setSchoolLogo] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -40,6 +44,21 @@ export function PassCardManagement() {
   }, [periodId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const schoolId = String((user as any)?.organizationId || '');
+    if (!schoolId) return;
+    let active = true;
+    api.get(`/schools/${schoolId}/branding`).then(({ data }) => {
+      if (!active) return;
+      const school = data?.data?.school || {};
+      if (school.name) setSchoolName(school.name);
+      if (school.branding?.logo) setSchoolLogo(school.branding.logo);
+    }).catch(() => {
+      // Branding is optional; the passcard remains printable without a logo.
+    });
+    return () => { active = false; };
+  }, [user]);
 
   const visibleCards = useMemo(() => cards.filter(c => {
     const q = search.toLowerCase().trim();
@@ -93,17 +112,56 @@ export function PassCardManagement() {
       <section className={panel+' overflow-hidden'}>
         <div className="flex flex-col gap-3 border-b border-[var(--color-border-default)] p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">Issued PassCards</h2><p className="text-sm text-[var(--color-text-tertiary)]">Cards created for the selected exam period.</p></div><div className="relative w-full sm:max-w-xs"><Search size={16} className="absolute left-3 top-3 text-[var(--color-text-tertiary)]"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, student ID, card…" className="w-full rounded-xl border border-[var(--color-border-default)] bg-transparent py-2.5 pl-9 pr-3 text-sm"/></div></div>
         <div className="flex flex-wrap items-center gap-3 border-b p-4"><label className="text-sm font-semibold">Exam period</label><select value={periodId} onChange={e=>setPeriodId(e.target.value)} className="min-w-56 rounded-xl border bg-transparent px-3 py-2 text-sm">{periods.map(p=><option key={p._id} value={p._id}>{p.name} · {p.academicYear}</option>)}</select><button onClick={()=>void load()} className="rounded-xl border px-4 py-2 text-sm font-semibold">Refresh</button></div>
-        {loading?<div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Loading PassCards…</div>:visibleCards.length===0?<div className="p-12 text-center"><BadgeCheck className="mx-auto mb-3 text-[var(--color-text-tertiary)]" size={34}/><p className="font-semibold">No PassCards found</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose an exam period and create a card for a student.</p></div>:<div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-[var(--color-surface-secondary)] text-xs uppercase text-[var(--color-text-tertiary)]"><tr><th className="px-5 py-3">Student</th><th className="px-5 py-3">Student ID</th><th className="px-5 py-3">Class</th><th className="px-5 py-3">Card Number</th><th className="px-5 py-3">Issued Date</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-[var(--color-border-default)]">{visibleCards.map(c=><tr key={c._id} className="hover:bg-[var(--color-surface-secondary)]"><td className="px-5 py-4 font-semibold">{fullName(c.student)}</td><td className="px-5 py-4">{c.student?.studentId}</td><td className="px-5 py-4">{className(c.student)}</td><td className="px-5 py-4 font-mono text-xs">{c.cardNumber}</td><td className="px-5 py-4">{new Date(c.createdAt).toLocaleDateString()}</td><td className="px-5 py-4"><div className="flex justify-end gap-2"><button onClick={()=>printCard(c)} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-bold"><Printer size={14}/> Print</button><button onClick={()=>void revoke(c)} className="rounded-lg border border-red-200 p-2 text-red-600" title="Revoke PassCard"><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>}
+        {loading?<div className="p-12 text-center text-sm text-[var(--color-text-tertiary)]">Loading PassCards…</div>:visibleCards.length===0?<div className="p-12 text-center"><BadgeCheck className="mx-auto mb-3 text-[var(--color-text-tertiary)]" size={34}/><p className="font-semibold">No PassCards found</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Choose an exam period and create a card for a student.</p></div>:<div>
+          <div className="grid gap-3 p-3 sm:hidden">{visibleCards.map(c=><article key={c._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-bold">{fullName(c.student)}</h3><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Student ID: {c.student?.studentId || '—'}</p></div><span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">Issued</span></div>
+            <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-sm"><div className="min-w-0"><dt className="text-xs text-[var(--color-text-tertiary)]">Class</dt><dd className="break-words font-medium">{className(c.student)}</dd></div><div className="min-w-0"><dt className="text-xs text-[var(--color-text-tertiary)]">Issued date</dt><dd>{new Date(c.createdAt).toLocaleDateString()}</dd></div><div className="col-span-2 min-w-0"><dt className="text-xs text-[var(--color-text-tertiary)]">Card number</dt><dd className="break-all font-mono text-xs">{c.cardNumber}</dd></div></dl>
+            <div className="mt-4 grid grid-cols-[1fr_auto] gap-2"><button onClick={()=>printCard(c)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-3 py-2 text-sm font-bold text-white"><Printer size={16}/> Print A5</button><button onClick={()=>void revoke(c)} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-red-200 px-3 text-red-600" title="Revoke PassCard" aria-label={`Revoke PassCard ${c.cardNumber}`}><Trash2 size={17}/></button></div>
+          </article>)}</div>
+          <div className="hidden overflow-x-auto sm:block"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-[var(--color-surface-secondary)] text-xs uppercase text-[var(--color-text-tertiary)]"><tr><th className="px-4 py-3">Student</th><th className="px-4 py-3">Student ID</th><th className="px-4 py-3">Class</th><th className="px-4 py-3">Card Number</th><th className="px-4 py-3">Issued Date</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-[var(--color-border-default)]">{visibleCards.map(c=><tr key={c._id} className="hover:bg-[var(--color-surface-secondary)]"><td className="max-w-48 break-words px-4 py-4 font-semibold">{fullName(c.student)}</td><td className="px-4 py-4">{c.student?.studentId || '—'}</td><td className="px-4 py-4">{className(c.student)}</td><td className="max-w-48 break-all px-4 py-4 font-mono text-xs">{c.cardNumber}</td><td className="whitespace-nowrap px-4 py-4">{new Date(c.createdAt).toLocaleDateString()}</td><td className="px-4 py-4"><div className="flex justify-end gap-2"><button onClick={()=>printCard(c)} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-bold"><Printer size={14}/> Print A5</button><button onClick={()=>void revoke(c)} className="rounded-lg border border-red-200 p-2 text-red-600" title="Revoke PassCard" aria-label={`Revoke PassCard ${c.cardNumber}`}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>
+        </div>}
       </section>
-      {printing&&<div className="print-passcard fixed inset-0 z-[100] flex items-center justify-center bg-white p-8">
-        <div className="w-full max-w-xl rounded-2xl border-2 border-slate-800 p-8 text-slate-900">
-          <div className="flex items-center justify-between border-b-2 border-slate-800 pb-4"><div><p className="text-xs font-bold uppercase tracking-[.2em]">Examination Admission</p><h2 className="text-2xl font-black">STUDENT PASSCARD</h2></div><ShieldCheck size={42}/></div>
-          <div className="grid grid-cols-[1fr_auto] gap-5 py-6"><div className="space-y-3"><p><span className="block text-xs uppercase text-slate-500">Student name</span><b className="text-xl">{fullName(printing.student)}</b></p><p><span className="block text-xs uppercase text-slate-500">Student ID</span><b>{printing.student?.studentId}</b></p><p><span className="block text-xs uppercase text-slate-500">Class</span><b>{className(printing.student)}</b></p><p><span className="block text-xs uppercase text-slate-500">Exam</span><b>{printing.examPeriod?.name || periods.find(p=>p._id===periodId)?.name}</b></p><p><span className="block text-xs uppercase text-slate-500">Academic year</span><b>{printing.examPeriod?.academicYear || periods.find(p=>p._id===periodId)?.academicYear}</b></p></div><div className="flex h-28 w-28 items-center justify-center border-2 border-dashed border-slate-500 p-2 text-center text-xs font-bold">OFFICIAL<br/>PASSCARD</div></div>
-          <div className="flex items-end justify-between border-t-2 border-slate-800 pt-4"><div><span className="block text-xs uppercase text-slate-500">Card number</span><b className="font-mono">{printing.cardNumber}</b></div><span className="text-xs font-bold uppercase">Authorized Entry</span></div>
-          <button onClick={()=>setPrinting(null)} className="mt-6 rounded-lg border px-4 py-2 text-sm print:hidden">Close Preview</button>
+      {printing&&<div className="print-passcard fixed inset-0 z-[100] flex items-center justify-center bg-slate-100 p-3 sm:p-6">
+        <div className="passcard-sheet relative flex w-full max-w-[210mm] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
+          <div className="passcard-top relative overflow-hidden bg-gradient-to-r from-blue-950 via-blue-800 to-teal-700 px-6 py-5 text-white sm:px-9 sm:py-7">
+            <div className="absolute -right-8 -top-12 h-40 w-40 rounded-full border-[18px] border-white/10"></div>
+            <div className="relative flex items-center gap-4">
+              {schoolLogo ? <img src={schoolLogo} alt="School logo" className="h-16 w-16 shrink-0 rounded-xl bg-white object-contain p-1.5"/> : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-white/15 text-xl font-black ring-1 ring-white/30">{schoolName.slice(0,2).toUpperCase()}</div>}
+              <div className="min-w-0 flex-1"><p className="text-xs font-bold uppercase tracking-[.18em] text-teal-200">Official Examination Document</p><h2 className="mt-1 break-words text-xl font-black uppercase leading-tight sm:text-2xl">{schoolName}</h2><p className="mt-1 text-sm font-semibold text-blue-100">STUDENT EXAMINATION PASSCARD</p></div>
+              <ShieldCheck className="hidden shrink-0 text-teal-200 sm:block" size={42}/>
+            </div>
+          </div>
+          <div className="passcard-body flex flex-1 flex-col px-6 py-5 sm:px-9 sm:py-7">
+            <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-200 pb-4"><div><p className="text-xs font-bold uppercase tracking-widest text-teal-700">Examination Admission</p><h3 className="mt-1 text-xl font-black text-slate-900">EXAM PASSCARD</h3></div><div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-center"><p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Academic Year</p><p className="mt-1 text-sm font-extrabold text-slate-900">{printing.examPeriod?.academicYear || periods.find(p=>p._id===periodId)?.academicYear || '—'}</p></div></div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Student name</p><p className="mt-1 break-words text-lg font-extrabold text-slate-900">{fullName(printing.student)}</p></div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Student ID</p><p className="mt-1 text-lg font-extrabold text-slate-900">{printing.student?.studentId || '—'}</p></div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Class / Section</p><p className="mt-1 text-base font-bold text-slate-900">{className(printing.student)}</p></div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Examination</p><p className="mt-1 break-words text-base font-bold text-slate-900">{printing.examPeriod?.name || periods.find(p=>p._id===periodId)?.name || '—'}</p><p className="mt-1 text-xs text-slate-500">{printing.examPeriod?.term || periods.find(p=>p._id===periodId)?.term || ''}</p></div>
+            </div>
+            <div className="mt-4 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/60 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-blue-800">PassCard Number</p><p className="mt-1 break-all font-mono text-sm font-black tracking-wide text-slate-900">{printing.cardNumber}</p></div>
+            <div className="mt-auto grid grid-cols-2 gap-6 pt-7">
+              <div className="border-t border-slate-300 pt-2 text-center"><p className="text-xs font-semibold text-slate-600">Student Signature</p></div>
+              <div className="flex min-h-[90px] flex-col items-center justify-end rounded-xl border border-dashed border-slate-300 px-3 pb-2 pt-3 text-center"><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Official Stamp</p><p className="mt-1 text-[10px] text-slate-400">School seal / stamp area</p></div>
+            </div>
+            <div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><span>Valid for selected examination period</span><span>Issued {new Date(printing.createdAt).toLocaleDateString()}</span></div>
+          </div>
+          <div className="passcard-footer h-2 bg-gradient-to-r from-blue-950 via-teal-500 to-blue-800"></div>
+          <div className="flex gap-2 p-4 print:hidden"><button onClick={()=>window.print()} className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-bold text-white">Print A5</button><button onClick={()=>setPrinting(null)} className="rounded-xl border px-4 py-2 text-sm font-semibold">Close Preview</button></div>
         </div>
       </div>}
-      <style>{'@media print { body * { visibility: hidden !important; } .print-passcard, .print-passcard * { visibility: visible !important; } .print-passcard { position: fixed !important; inset: 0 !important; display: flex !important; background: white !important; padding: 20mm !important; } .print\\:hidden { display: none !important; } }'}</style>
+      <style>{'@media print {
+        @page { size: A5 portrait; margin: 0; }
+        html, body { width: 148mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; background: #fff !important; print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
+        body * { visibility: hidden !important; }
+        .print-passcard, .print-passcard * { visibility: visible !important; }
+        .print-passcard { position: fixed !important; inset: 0 !important; display: flex !important; align-items: stretch !important; justify-content: center !important; width: 148mm !important; height: 210mm !important; padding: 0 !important; margin: 0 !important; background: #fff !important; }
+        .passcard-sheet { width: 148mm !important; max-width: none !important; height: 210mm !important; max-height: 210mm !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+        .passcard-top { padding: 8mm 9mm !important; }
+        .passcard-body { padding: 7mm 9mm !important; }
+        .passcard-footer { flex: 0 0 2mm !important; }
+        .print\\:hidden { display: none !important; }
+      }'}</style>
     </div>
   </div>;
 }
