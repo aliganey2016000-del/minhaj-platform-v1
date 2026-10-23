@@ -190,6 +190,7 @@ export function PaymentsHistory({ embedded = false }: { embedded?: boolean } = {
         {loading ? (
           <div className="flex justify-center py-16"><div className="h-10 w-10 animate-spin rounded-full border-3 border-[var(--color-border-default)] border-t-primary-600" /></div>
         ) : (
+          <>
           <div className="space-y-3 md:hidden">
             {payments.length === 0 ? <div className="rounded-2xl border border-dashed border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-5 py-12 text-center"><ReceiptText className="mx-auto mb-3 h-8 w-8 text-[var(--color-text-tertiary)]" /><p className="font-semibold text-[var(--color-text-primary)]">No payments found</p><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Try changing your search or filters.</p></div> : payments.map((p) => {
               const rowCurrency = p.currency || 'USD';
@@ -283,6 +284,7 @@ export function PaymentsHistory({ embedded = false }: { embedded?: boolean } = {
             {totalPages > 1 && <div className="flex flex-col gap-3 border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"><p className="text-xs text-[var(--color-text-tertiary)]">{total} payments · Page {page} of {totalPages}</p><div className="flex items-center gap-2"><button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="flex-1 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-medium disabled:opacity-30 sm:flex-none">← Previous</button><button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="flex-1 rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-medium disabled:opacity-30 sm:flex-none">Next →</button></div></div>}
           </div>
           {totalPages > 1 && <div className="flex items-center justify-between rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 md:hidden"><span className="text-xs text-[var(--color-text-tertiary)]">{total} payments · {page}/{totalPages}</span><div className="flex gap-2"><button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-medium disabled:opacity-30">← Prev</button><button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="rounded-lg border border-[var(--color-border-default)] px-3 py-2 text-xs font-medium disabled:opacity-30">Next →</button></div></div>}
+          </>
         )}
       </div>
       {refundPayment && <RefundModal payment={refundPayment} onClose={() => setRefundPayment(null)} onDone={async () => { setRefundPayment(null); await fetchPayments(); }} />}
