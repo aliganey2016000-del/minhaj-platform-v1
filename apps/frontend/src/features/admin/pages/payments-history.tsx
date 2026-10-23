@@ -98,7 +98,7 @@ function dateRange(preset: string): { from?: string; to?: string } {
   return preset === 'custom' ? {} : { from: format(start), to: format(now) };
 }
 
-export function PaymentsHistory() {
+export function PaymentsHistory({ embedded = false }: { embedded?: boolean } = {}) {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -149,8 +149,8 @@ export function PaymentsHistory() {
   const totalRefunded = payments.reduce((sum, payment) => sum + Number(payment.refundedAmount || 0), 0);
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-secondary)] p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10">
-      <div className="mx-auto max-w-screen-2xl space-y-6">
+    <div className={embedded ? "bg-[var(--color-surface-secondary)]" : "min-h-screen bg-[var(--color-surface-secondary)] p-4 pt-20 sm:p-6 lg:p-10 lg:pt-10"}>
+      <div className="mx-auto max-w-screen-2xl space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-[var(--color-text-primary)]">Payment History</h1>
