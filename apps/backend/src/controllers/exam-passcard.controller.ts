@@ -44,7 +44,7 @@ export const list = async (req: Request, res: Response): Promise<Response> => {
     filter.examPeriod = String(req.query.periodId);
   }
   const cards = await ExamPassCard.find(filter)
-    .populate({ path: 'student', select: 'studentId profile class', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'class', select: 'title section' }] })
+    .populate({ path: 'student', select: 'studentId profile class department', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'class', select: 'title section' }] })
     .populate('examPeriod', 'name academicYear term startDate endDate')
     .populate('issuedBy', 'email')
     .sort({ createdAt: -1 })
