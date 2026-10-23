@@ -13,6 +13,7 @@ import studentRoutes from './student.routes';
 import analyticsRoutes from './analytics.routes';
 import paymentRoutes from './payment.routes';
 import examPassCardRoutes from './exam-passcard.routes';
+import * as examPassCardController from '../../controllers/exam-passcard.controller';
 import feeStructureRoutes from './fee-structure.routes';
 import invoiceRoutes from './invoice.routes';
 import refundRoutes from './refund.routes';
@@ -84,6 +85,8 @@ router.use('/courses', courseRoutes);
 router.use('/students', authMiddleware, requireModulePermission('admissions'), studentRoutes);
 router.use('/analytics', authMiddleware, requireModulePermission('system'), analyticsRoutes);
 router.use('/payments', authMiddleware, requireModulePermission('finance'), paymentRoutes);
+// Public, read-only verification page for the opaque token printed in PassCard QR codes.
+router.get('/passcards/verify/:token', asyncHandler(examPassCardController.verify));
 router.use('/passcards', authMiddleware, requireModulePermission('finance'), examPassCardRoutes);
 router.use('/fee-structures', authMiddleware, requireModulePermission('finance'), feeStructureRoutes);
 router.use('/invoices', authMiddleware, requireModulePermission('finance'), invoiceRoutes);
