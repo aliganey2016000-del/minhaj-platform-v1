@@ -103,7 +103,6 @@ const navSections: { title: string; items: NavEntry[] }[] = [
       { path: '/admin/payments/bulk', label: 'Bulk Collect', icon: Zap },
       { path: '/admin/payments/balances', label: 'Student Balances', icon: BarChart3 },
       { path: '/admin/payments/discounts', label: 'Discounts & Scholarships', icon: BadgePercent },
-      { path: '/admin/payments/history', label: 'Payment History', icon: History },
       { path: '/admin/payments/passcards', label: 'PassCard Management', icon: FileCheck2 },
       { path: '/admin/payments/reports', label: 'Reports', icon: FileBarChart },
     ],
