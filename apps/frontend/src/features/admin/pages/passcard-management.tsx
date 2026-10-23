@@ -25,6 +25,7 @@ export function PassCardManagement() {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'issued' | 'pending'>('issued');
+  const [pageView, setPageView] = useState<'exams' | 'detail'>('exams');
   const [scope, setScope] = useState<'all' | 'department' | 'class'>('all');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [classFilter, setClassFilter] = useState('');
@@ -73,6 +74,8 @@ export function PassCardManagement() {
     return !q || fullName(c.student).toLowerCase().includes(q) || c.student?.studentId?.toLowerCase().includes(q) || c.cardNumber.toLowerCase().includes(q);
   }), [cards, search, activeTab]);
   const existingStudentIds = useMemo(() => new Set(cards.filter(c => c.status === 'issued' || c.status === 'pending').map(c => c.student?._id)), [cards]);
+  const sortedPeriods = useMemo(() => [...periods].sort((a,b) => new Date(b.startDate || b.endDate || '1970-01-01').getTime() - new Date(a.startDate || a.endDate || '1970-01-01').getTime()), [periods]);
+  const selectedPeriod = periods.find(p => p._id === periodId);
   const departments = useMemo(() => Array.from(new Set(students.map(s => s.department?.trim()).filter((v): v is string => Boolean(v)))).sort((a,b)=>a.localeCompare(b)), [students]);
   const classOptions = useMemo(() => Array.from(new Map(students.filter(s=>s.class?._id).map(s=>[s.class!._id!, {id:s.class!._id!, label:className(s)}])).values()).sort((a,b)=>a.label.localeCompare(b.label)), [students]);
   const filteredStudents = students.filter(s => {
@@ -97,6 +100,8 @@ export function PassCardManagement() {
       setSelectedStudentIds([]);
       setMessage('Generation complete: ' + created + ' added to Not Issued, ' + skipped + ' already existed, ' + failed + ' failed.');
       await load();
+      setPageView('detail');
+      setCreateModalOpen(false);
     } finally { setBulkSaving(false); }
   };
 
@@ -123,14 +128,23 @@ export function PassCardManagement() {
 
   const printCard = (card: PassCard) => { setPrinting(card); window.setTimeout(() => window.print(), 100); };
 
+  if (pageView === 'exams') {
+    return <div className="p-4 pt-5 sm:p-6 lg:p-8"><div className="mx-auto max-w-screen-2xl space-y-6">
+      <header><p className="mb-1 text-xs font-bold uppercase tracking-[.16em] text-primary-600">Finance Management</p><h1 className="whitespace-nowrap text-[clamp(1.1rem,5vw,1.875rem)] font-bold leading-tight tracking-tight text-[var(--color-text-primary)]">PassCard Management</h1><p className="mt-2 text-sm text-[var(--color-text-tertiary)]">Select an exam to manage its PassCards.</p></header>
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {loading ? <div className={panel+" p-12 text-center"}>Loading exam periods…</div> : sortedPeriods.length === 0 ? <div className={panel+" p-10 text-center"}><h2 className="font-bold">No exam periods found</h2><p className="mt-2 text-sm text-[var(--color-text-tertiary)]">Create an exam period first.</p></div> : <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{sortedPeriods.map((period,index) => <button key={period._id} type="button" onClick={() => { setPeriodId(period._id); setPageView('detail'); setSearch(''); }} className={panel+" group min-w-0 p-5 text-left transition hover:border-primary-500 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-primary-500"}><div className="flex items-start justify-between gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-500/10 text-primary-600"><CreditCard size={22}/></span>{index===0&&<span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-600">Newest</span>}</div><h2 className="mt-4 break-words text-lg font-bold">{period.name}</h2><p className="mt-1 text-sm text-[var(--color-text-secondary)]">{period.academicYear}{period.term?' · '+period.term:''}</p><div className="mt-4 text-xs text-[var(--color-text-tertiary)]">{period.startDate ? new Date(period.startDate).toLocaleDateString() : period.endDate ? new Date(period.endDate).toLocaleDateString() : 'Date not set'}</div><p className="mt-4 text-sm font-bold text-primary-600">Open exam →</p></button>)}</section>}
+    </div></div>;
+  }
+
+  const returnToExamList = () => { setPageView('exams'); setActionsMenuOpen(false); setCreateModalOpen(false); };
+
   return <div className="p-4 pt-5 sm:p-6 lg:p-8">
     <div className="mx-auto max-w-screen-2xl space-y-6">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0"><p className="mb-1 text-xs font-bold uppercase tracking-[.16em] text-primary-600">Finance Management</p><h1 className="text-3xl font-bold text-[var(--color-text-primary)]">PassCard Management</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">Issue and print examination entry cards for students.</p></div>
+        <div className="min-w-0"><button type="button" onClick={returnToExamList} className="mb-3 rounded-lg border border-[var(--color-border-default)] px-3 py-1.5 text-sm font-semibold">← All exams</button><p className="mb-1 text-xs font-bold uppercase tracking-[.16em] text-primary-600">Finance Management</p><h1 className="whitespace-nowrap text-[clamp(1.1rem,5vw,1.875rem)] font-bold leading-tight tracking-tight text-[var(--color-text-primary)]">PassCard Management</h1><p className="mt-1 text-sm text-[var(--color-text-tertiary)]">{selectedPeriod?.name || "Selected exam"} · {selectedPeriod?.academicYear || ""} — issue and print student entry cards.</p></div>
         <div className="relative shrink-0">
           <button type="button" onClick={() => setActionsMenuOpen(open => !open)} aria-label="PassCard actions" aria-expanded={actionsMenuOpen} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)] shadow-sm hover:bg-[var(--color-surface-secondary)]"><MoreVertical size={22}/></button>
           {actionsMenuOpen && <><button type="button" aria-label="Close actions menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setActionsMenuOpen(false)}></button><div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-xl">
-            <button type="button" onClick={() => { setActionsMenuOpen(false); setCreateModalOpen(true); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><Plus size={17}/> Create PassCard</button>
             <button type="button" onClick={() => { setActionsMenuOpen(false); setCreateModalOpen(true); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold hover:bg-[var(--color-surface-secondary)]"><Users size={17}/> Generate PassCards</button>
           </div></>}
         </div>
