@@ -187,7 +187,7 @@ export function PassCardManagement() {
           <div className="flex gap-2 p-4 print:hidden"><button onClick={()=>window.print()} className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-bold text-white">Print A5</button><button onClick={()=>setPrinting(null)} className="rounded-xl border px-4 py-2 text-sm font-semibold">Close Preview</button></div>
         </div>
       </div>}
-      <style>{'@media print {
+      <style>{`@media print {
         @page { size: A5 portrait; margin: 0; }
         html, body { width: 148mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; background: #fff !important; print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
         body * { visibility: hidden !important; }
@@ -198,7 +198,7 @@ export function PassCardManagement() {
         .passcard-body { padding: 7mm 9mm !important; }
         .passcard-footer { flex: 0 0 2mm !important; }
         .print\\:hidden { display: none !important; }
-      }'}</style>
+      }`}</style>
     </div>
   </div>;
 }
