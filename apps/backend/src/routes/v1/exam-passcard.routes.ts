@@ -7,6 +7,7 @@ const router = Router();
 router.get('/context', asyncHandler(controller.context));
 router.get('/', asyncHandler(controller.list));
 router.post('/', asyncHandler(controller.create));
+router.post('/:id/issue', asyncHandler(controller.issue));
 router.delete('/:id', asyncHandler(controller.revoke));
 
 export default router;
