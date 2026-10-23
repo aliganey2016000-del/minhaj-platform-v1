@@ -17,7 +17,7 @@ const examPassCardSchema = new Schema<IExamPassCard>({
   student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
   examPeriod: { type: Schema.Types.ObjectId, ref: 'ExamPeriod', required: true, index: true },
   cardNumber: { type: String, required: true, trim: true, unique: true },
-  verificationToken: { type: String, trim: true, unique: true, sparse: true, index: true },
+  verificationToken: { type: String, trim: true, unique: true, sparse: true },
   status: { type: String, enum: ['pending', 'issued', 'revoked'], default: 'pending', index: true },
   issuedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true, toJSON: { transform(_doc: any, ret: any) { delete ret.__v; return ret; } } });
