@@ -207,7 +207,7 @@ export function PassCardManagement() {
             </div>
             <div className="mt-4 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/60 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-blue-800">PassCard Number</p><p className="mt-1 break-all font-mono text-sm font-black tracking-wide text-slate-900">{printing.cardNumber}</p></div>
             <div className="mt-auto grid grid-cols-2 gap-6 pt-7">
-              <div className="border-t border-slate-300 pt-2 text-center"><p className="text-xs font-semibold text-slate-600">Student Signature</p></div>
+              <div className="border-t border-slate-300 pt-2 text-center"><p className="text-xs font-semibold text-slate-600">Finance Signature</p></div>
               <div className="flex min-h-[90px] flex-col items-center justify-end rounded-xl border border-dashed border-slate-300 px-3 pb-2 pt-3 text-center"><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Official Stamp</p><p className="mt-1 text-[10px] text-slate-400">School seal / stamp area</p></div>
             </div>
             <div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><span>Valid for selected examination period</span><span>Issued {new Date(printing.createdAt).toLocaleDateString()}</span></div>
@@ -218,12 +218,11 @@ export function PassCardManagement() {
       </div>}
       <style>{`@media print {
         @page { size: A5 portrait; margin: 0; }
-        html, body { width: 148mm !important; min-height: 0 !important; height: auto !important; margin: 0 !important; padding: 0 !important; background: #fff !important; print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
-        body { overflow: hidden !important; }
+        html, body { box-sizing: border-box !important; width: 148mm !important; min-width: 148mm !important; max-width: 148mm !important; height: 210mm !important; min-height: 210mm !important; max-height: 210mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: #fff !important; print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
         body * { visibility: hidden !important; }
         .print-passcard, .print-passcard * { visibility: visible !important; }
-        .print-passcard { position: absolute !important; inset: 0 auto auto 0 !important; display: block !important; width: 148mm !important; height: 210mm !important; max-height: 210mm !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; background: #fff !important; break-inside: avoid !important; page-break-inside: avoid !important; }
-        .passcard-sheet { display: flex !important; width: 148mm !important; max-width: none !important; height: 210mm !important; min-height: 210mm !important; max-height: 210mm !important; overflow: hidden !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+        .print-passcard { position: fixed !important; top: 0 !important; left: 0 !important; right: auto !important; bottom: auto !important; display: block !important; box-sizing: border-box !important; width: 148mm !important; min-width: 148mm !important; max-width: 148mm !important; height: 210mm !important; min-height: 210mm !important; max-height: 210mm !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; background: #fff !important; break-inside: avoid-page !important; page-break-inside: avoid !important; break-after: avoid-page !important; page-break-after: avoid !important; }
+        .passcard-sheet { display: flex !important; box-sizing: border-box !important; flex: none !important; width: 148mm !important; min-width: 148mm !important; max-width: 148mm !important; height: 210mm !important; min-height: 210mm !important; max-height: 210mm !important; overflow: hidden !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; break-inside: avoid-page !important; page-break-inside: avoid !important; break-after: avoid-page !important; page-break-after: avoid !important; }
         .passcard-top { padding: 8mm 9mm !important; }
         .passcard-body { padding: 7mm 9mm !important; }
         .passcard-footer { flex: 0 0 2mm !important; }
