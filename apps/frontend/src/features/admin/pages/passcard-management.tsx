@@ -22,6 +22,8 @@ export function PassCardManagement() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [printing, setPrinting] = useState<PassCard | null>(null);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [bulkSaving, setBulkSaving] = useState(false);
   const { user } = useAuth();
   const [schoolName, setSchoolName] = useState((user as any)?.organizationName || 'School');
   const [schoolLogo, setSchoolLogo] = useState('');
@@ -66,6 +68,23 @@ export function PassCardManagement() {
   }), [cards, search]);
   const existingStudentIds = useMemo(() => new Set(cards.filter(c => c.status === 'issued').map(c => c.student?._id)), [cards]);
   const availableStudents = students.filter(s => !existingStudentIds.has(s._id));
+  const toggleStudent = (id: string) => setSelectedStudentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const createBulk = async () => {
+    if (!periodId || selectedStudentIds.length === 0) { setError('Choose an exam period and at least one student.'); return; }
+    setBulkSaving(true); setError(''); setMessage('');
+    let created = 0; let skipped = 0; let failed = 0;
+    try {
+      for (const id of selectedStudentIds) {
+        try {
+          const response = await api.post('/passcards', { periodId, studentId: id });
+          if (response.data?.alreadyExists) skipped++; else created++;
+        } catch { failed++; }
+      }
+      setSelectedStudentIds([]);
+      setMessage('Bulk issue complete: ' + created + ' created, ' + skipped + ' already existed, ' + failed + ' failed.');
+      await load();
+    } finally { setBulkSaving(false); }
+  };
 
   const create = async () => {
     if (!periodId || !studentId) { setError('Choose an exam period and a student first.'); return; }
@@ -103,6 +122,24 @@ export function PassCardManagement() {
       </div>
       <section id="passcard-create-form" className={panel+' p-5 sm:p-6'}>
         <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-primary-50 p-3 text-primary-700"><CreditCard size={21}/></div><div><h2 className="text-lg font-bold">Create PassCard</h2><p className="text-sm text-[var(--color-text-tertiary)]">Each student can have one active card per exam period.</p></div></div>
+        <details className="mt-5 rounded-xl border border-[var(--color-border-default)] p-4">
+          <summary className="cursor-pointer select-none font-semibold">Bulk issue PassCards <span className="ml-2 text-xs font-normal text-[var(--color-text-tertiary)]">Select multiple students</span></summary>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-[var(--color-text-tertiary)]">{selectedStudentIds.length} student(s) selected · students with an existing issued card are excluded</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={()=>setSelectedStudentIds(availableStudents.map(x=>x._id))} className="rounded-lg border px-3 py-2 text-sm font-semibold">Select all eligible</button>
+              <button type="button" onClick={()=>setSelectedStudentIds([])} className="rounded-lg border px-3 py-2 text-sm font-semibold">Clear</button>
+              <button type="button" disabled={bulkSaving||!periodId||selectedStudentIds.length===0} onClick={()=>void createBulk()} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{bulkSaving?'Creating cards…':'Issue '+selectedStudentIds.length+' PassCards'}</button>
+            </div>
+          </div>
+          <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+            {availableStudents.map(student=><label key={student._id} className="flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border-default)] p-3 hover:bg-[var(--color-surface-secondary)]">
+              <input type="checkbox" checked={selectedStudentIds.includes(student._id)} onChange={()=>toggleStudent(student._id)} className="mt-1 h-4 w-4 shrink-0 accent-current"/>
+              <span className="min-w-0"><span className="block break-words text-sm font-semibold">{fullName(student)}</span><span className="block text-xs text-[var(--color-text-tertiary)]">{student.studentId} · {className(student)}</span></span>
+            </label>)}
+            {availableStudents.length===0&&<p className="text-sm text-[var(--color-text-tertiary)]">No eligible students for this exam period.</p>}
+          </div>
+        </details>
         <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
           <label className="block text-sm font-semibold">Exam period<select value={periodId} onChange={e=>setPeriodId(e.target.value)} className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 font-normal"><option value="">Select exam period</option>{periods.map(p=><option key={p._id} value={p._id}>{p.name} · {p.academicYear}{p.term?' · '+p.term:''}</option>)}</select></label>
           <label className="block text-sm font-semibold">Student<select value={studentId} onChange={e=>setStudentId(e.target.value)} className="mt-2 w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 font-normal"><option value="">Select student</option>{availableStudents.map(s=><option key={s._id} value={s._id}>{fullName(s)} · {s.studentId} · {className(s)}</option>)}</select></label>
@@ -150,7 +187,7 @@ export function PassCardManagement() {
           <div className="flex gap-2 p-4 print:hidden"><button onClick={()=>window.print()} className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-bold text-white">Print A5</button><button onClick={()=>setPrinting(null)} className="rounded-xl border px-4 py-2 text-sm font-semibold">Close Preview</button></div>
         </div>
       </div>}
-      <style>{'@media print {
+      <style>{`@media print {
         @page { size: A5 portrait; margin: 0; }
         html, body { width: 148mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; background: #fff !important; print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
         body * { visibility: hidden !important; }
@@ -161,7 +198,7 @@ export function PassCardManagement() {
         .passcard-body { padding: 7mm 9mm !important; }
         .passcard-footer { flex: 0 0 2mm !important; }
         .print\\:hidden { display: none !important; }
-      }'}</style>
+      }`}</style>
     </div>
   </div>;
 }
