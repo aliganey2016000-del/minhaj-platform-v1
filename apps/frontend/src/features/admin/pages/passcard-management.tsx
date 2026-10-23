@@ -5,7 +5,7 @@ import { useAuth } from '../../../store/auth-context';
 
 type Period = { _id: string; name: string; academicYear: string; term?: string; startDate?: string; endDate?: string; status: string };
 type Student = { _id: string; studentId: string; department?: string | null; profile?: { firstName?: string; lastName?: string } | null; class?: { _id?: string; title?: string; section?: string } | null };
-type PassCard = { _id: string; cardNumber: string; createdAt: string; student?: Student; examPeriod?: Period; status: string };
+type PassCard = { _id: string; cardNumber: string; verificationToken?: string; createdAt: string; student?: Student; examPeriod?: Period; status: string };
 const fullName = (s?: Student) => [s?.profile?.firstName, s?.profile?.lastName].filter(Boolean).join(' ') || s?.studentId || 'Student';
 const className = (s?: Student) => [s?.class?.title, s?.class?.section].filter(Boolean).join(' · ') || '—';
 const panel = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card';
@@ -127,6 +127,7 @@ export function PassCardManagement() {
   };
 
   const printCard = (card: PassCard) => { setPrinting(card); window.setTimeout(() => window.print(), 100); };
+  const verificationUrl = printing ? String(api.defaults.baseURL || window.location.origin).replace(/\/+$/, '') + '/passcards/verify/' + encodeURIComponent(printing.verificationToken || printing._id) : '';
 
   if (pageView === 'exams') {
     return <div className="p-4 pt-5 sm:p-6 lg:p-8"><div className="mx-auto max-w-screen-2xl space-y-6">
@@ -206,9 +207,12 @@ export function PassCardManagement() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Examination</p><p className="mt-1 break-words text-base font-bold text-slate-900">{printing.examPeriod?.name || periods.find(p=>p._id===periodId)?.name || '—'}</p><p className="mt-1 text-xs text-slate-500">{printing.examPeriod?.term || periods.find(p=>p._id===periodId)?.term || ''}</p></div>
             </div>
             <div className="mt-4 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/60 p-3"><p className="text-[10px] font-bold uppercase tracking-widest text-blue-800">PassCard Number</p><p className="mt-1 break-all font-mono text-sm font-black tracking-wide text-slate-900">{printing.cardNumber}</p></div>
-            <div className="mt-auto grid grid-cols-2 gap-6 pt-7">
+            <div className="mt-auto grid grid-cols-2 items-end gap-6 pt-6">
               <div className="border-t border-slate-300 pt-2 text-center"><p className="text-xs font-semibold text-slate-600">Finance Signature</p></div>
-              <div className="flex min-h-[90px] flex-col items-center justify-end rounded-xl border border-dashed border-slate-300 px-3 pb-2 pt-3 text-center"><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Official Stamp</p><p className="mt-1 text-[10px] text-slate-400">School seal / stamp area</p></div>
+              <div className="flex min-h-[27mm] flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 px-2 py-2 text-center">
+                <img alt="PassCard verification QR code" className="h-[22mm] w-[22mm] object-contain" src={"https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=2&data="+encodeURIComponent(verificationUrl)}/>
+                <p className="text-[8px] font-extrabold uppercase tracking-[.12em] text-slate-600">SCAN TO VERIFY</p>
+              </div>
             </div>
             <div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><span>Valid for selected examination period</span><span>Issued {new Date(printing.createdAt).toLocaleDateString()}</span></div>
           </div>
@@ -225,6 +229,7 @@ export function PassCardManagement() {
         .passcard-sheet { display: flex !important; box-sizing: border-box !important; flex: none !important; width: 148mm !important; min-width: 148mm !important; max-width: 148mm !important; height: 210mm !important; min-height: 210mm !important; max-height: 210mm !important; overflow: hidden !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; break-inside: avoid-page !important; page-break-inside: avoid !important; break-after: avoid-page !important; page-break-after: avoid !important; }
         .passcard-top { padding: 8mm 9mm !important; }
         .passcard-body { padding: 7mm 9mm !important; }
+        .passcard-body img[alt="PassCard verification QR code"] { image-rendering: pixelated !important; }
         .passcard-footer { flex: 0 0 2mm !important; }
         .print\\:hidden { display: none !important; }
         .print-passcard button { display: none !important; }
