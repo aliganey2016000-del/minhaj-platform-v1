@@ -189,15 +189,18 @@ export function PassCardManagement() {
       </div>}
       <style>{`@media print {
         @page { size: A5 portrait; margin: 0; }
-        html, body { width: 148mm !important; height: 210mm !important; margin: 0 !important; padding: 0 !important; background: #fff !important; print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
+        html, body { width: 148mm !important; min-height: 0 !important; height: auto !important; margin: 0 !important; padding: 0 !important; background: #fff !important; print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
+        body { overflow: hidden !important; }
         body * { visibility: hidden !important; }
         .print-passcard, .print-passcard * { visibility: visible !important; }
-        .print-passcard { position: fixed !important; inset: 0 !important; display: flex !important; align-items: stretch !important; justify-content: center !important; width: 148mm !important; height: 210mm !important; padding: 0 !important; margin: 0 !important; background: #fff !important; }
-        .passcard-sheet { width: 148mm !important; max-width: none !important; height: 210mm !important; max-height: 210mm !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+        .print-passcard { position: absolute !important; inset: 0 auto auto 0 !important; display: block !important; width: 148mm !important; height: 210mm !important; max-height: 210mm !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; background: #fff !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+        .passcard-sheet { display: flex !important; width: 148mm !important; max-width: none !important; height: 210mm !important; min-height: 210mm !important; max-height: 210mm !important; overflow: hidden !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; break-inside: avoid !important; page-break-inside: avoid !important; }
         .passcard-top { padding: 8mm 9mm !important; }
         .passcard-body { padding: 7mm 9mm !important; }
         .passcard-footer { flex: 0 0 2mm !important; }
         .print\\:hidden { display: none !important; }
+        .print-passcard button { display: none !important; }
+        * { animation: none !important; transition: none !important; }
       }`}</style>
     </div>
   </div>;
