@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ClipboardList, UserRoundCheck, ShieldCheck } from 'lucide-react';
+import { CalendarCheck, ClipboardList, UserRoundCheck, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
 import SchoolAttendanceOfflineSettings from './components/school-attendance-offline-settings';
 import SchoolPeriodAttendanceManage from './school-period-attendance-manage';
@@ -20,7 +20,14 @@ export function SchoolAttendanceManage() {
 
   return (
     <div className="min-w-0 w-full space-y-4 p-3 pt-20 sm:p-6 lg:pt-6">
-      <div className="sticky top-0 z-20 min-w-0 w-full">
+      <div className="flex min-w-0 items-start gap-3 py-1">
+        <CalendarCheck className="mt-1 h-8 w-8 shrink-0 text-emerald-500" />
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Attendance Control Center</h1>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--color-text-tertiary)]">Take attendance, review records, and generate simple class reports.</p>
+        </div>
+      </div>
+      <div className="min-w-0 w-full">
         <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:gap-2 sm:p-2.5">
           {tabs.map(([key, label, Icon]) => {
             const selected = workspace === key;
