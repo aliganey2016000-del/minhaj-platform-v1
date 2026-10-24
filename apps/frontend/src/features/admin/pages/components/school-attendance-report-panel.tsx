@@ -208,6 +208,7 @@ interface StudentSearchRow {
   _id: string;
   studentId: string;
   name: string;
+  email?: string;
   className: string;
 }
 
@@ -1379,6 +1380,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold text-[var(--color-text-primary)]">{student.name}</p>
                       <p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId} · {student.className}</p>
+                      {student.email && <p className="mt-0.5 truncate text-xs text-[var(--color-text-secondary)]">{student.email}</p>}
                     </div>
                     <ChevronRight className="h-5 w-5 text-[var(--color-text-tertiary)]" />
                   </button>
