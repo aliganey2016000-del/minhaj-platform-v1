@@ -73,7 +73,7 @@ router.post('/', adminOrTeacher, attendanceCourseScope, asyncHandler(attendanceP
 // Organization administrators may unlock their own submitted school session,
 // but only with an auditable correction reason. Keep the platform-admin legacy
 // endpoint for backward compatibility with existing admin tools.
-router.patch('/school/unlock', roleMiddleware(['admin', 'org_admin']), attendanceCourseScope, asyncHandler(attendanceProController.unlockSchoolSession));
+router.patch('/school/unlock', roleMiddleware(['admin']), attendanceCourseScope, asyncHandler(attendanceProController.unlockSchoolSession));
 router.patch('/unlock', roleMiddleware(['admin']), attendanceCourseScope, asyncHandler(attendanceController.unlockSession));
 
 // Generic attendance reads now share the same tenant/course guard. The report
