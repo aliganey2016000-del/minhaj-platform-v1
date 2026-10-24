@@ -453,10 +453,12 @@ export function SchoolAttendanceManage() {
 
       {tab === 'take' && (
         <>
-          <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
-            <div className="grid min-w-0 gap-3 sm:grid-cols-3 [&>label]:min-w-0 [&_input]:min-w-0 [&_select]:min-w-0">
-              <label>
-                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Attendance Date</span>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-4">
+            <div className="grid min-w-0 grid-cols-3 gap-2 sm:gap-3 [&>label]:min-w-0 [&_input]:min-w-0 [&_select]:min-w-0">
+              <label className="min-w-0 rounded-xl border border-sky-200 bg-sky-50/80 p-2.5 dark:border-sky-900/70 dark:bg-sky-950/30 sm:p-3">
+                <span className="mb-2 flex min-h-8 items-center gap-1.5 text-[11px] font-bold leading-tight text-sky-800 dark:text-sky-300 sm:text-xs">
+                  <CalendarDays className="h-4 w-4 shrink-0" /> <span>Attendance Date</span>
+                </span>
                 <input
                   type="date"
                   value={date}
@@ -467,11 +469,14 @@ export function SchoolAttendanceManage() {
                     setSessions([]);
                     setCalendarDay(null);
                   }}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm"
+                  aria-label="Attendance Date"
+                  className="block w-full min-w-0 rounded-lg border border-sky-200 bg-white px-1.5 py-2.5 text-[10px] font-semibold text-slate-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 dark:border-sky-800 dark:bg-slate-900 dark:text-slate-100 sm:px-2 sm:text-sm"
                 />
               </label>
-              <label>
-                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Class</span>
+              <label className="min-w-0 rounded-xl border border-violet-200 bg-violet-50/80 p-2.5 dark:border-violet-900/70 dark:bg-violet-950/30 sm:p-3">
+                <span className="mb-2 flex min-h-8 items-center gap-1.5 text-[11px] font-bold leading-tight text-violet-800 dark:text-violet-300 sm:text-xs">
+                  <CheckSquare className="h-4 w-4 shrink-0" /> <span>Class</span>
+                </span>
                 <select
                   value={classFilter}
                   disabled={filterOptionsLoading}
@@ -481,14 +486,17 @@ export function SchoolAttendanceManage() {
                     setSessions([]);
                     setCalendarDay(null);
                   }}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm disabled:opacity-60"
+                  aria-label="Class"
+                  className="block w-full min-w-0 rounded-lg border border-violet-200 bg-white px-1.5 py-2.5 text-[11px] font-semibold text-slate-800 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:opacity-60 dark:border-violet-800 dark:bg-slate-900 dark:text-slate-100 sm:px-2 sm:text-sm"
                 >
-                  <option value="">{filterOptionsLoading ? 'Loading classes...' : 'Select Class'}</option>
+                  <option value="">{filterOptionsLoading ? 'Loading...' : 'Select Class'}</option>
                   {classOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
                 </select>
               </label>
-              <label>
-                <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Period</span>
+              <label className="min-w-0 rounded-xl border border-emerald-200 bg-emerald-50/80 p-2.5 dark:border-emerald-900/70 dark:bg-emerald-950/30 sm:p-3">
+                <span className="mb-2 flex min-h-8 items-center gap-1.5 text-[11px] font-bold leading-tight text-emerald-800 dark:text-emerald-300 sm:text-xs">
+                  <Clock3 className="h-4 w-4 shrink-0" /> <span>Period</span>
+                </span>
                 <select
                   value={periodFilter}
                   disabled={!classFilter || filterOptionsLoading}
@@ -497,14 +505,18 @@ export function SchoolAttendanceManage() {
                     setSessions([]);
                     setCalendarDay(null);
                   }}
-                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-3 text-sm disabled:opacity-60"
+                  aria-label="Period"
+                  className="block w-full min-w-0 rounded-lg border border-emerald-200 bg-white px-1.5 py-2.5 text-[11px] font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 disabled:opacity-60 dark:border-emerald-800 dark:bg-slate-900 dark:text-slate-100 sm:px-2 sm:text-sm"
                 >
-                  <option value="">{!classFilter ? 'Select Class First' : 'Select Period'}</option>
+                  <option value="">{!classFilter ? 'Select Class' : 'Select Period'}</option>
                   {periodOptions.map((period) => <option key={period.value} value={period.value}>{period.label}</option>)}
                 </select>
               </label>
             </div>
-            <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">Only scheduled lessons on an instructional school day can be marked.</p>
+            <p className="mt-3 flex items-start gap-2 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400 sm:text-xs">
+              <CalendarCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              <span>Only scheduled lessons on an instructional school day can be marked.</span>
+            </p>
           </div>
 
           {calendarDay && !calendarDay.isInstructional && (
