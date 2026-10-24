@@ -428,14 +428,6 @@ export function SchoolAttendanceManage() {
 
   return (
     <div className="min-w-0 w-full space-y-5 pb-10">
-      <div className="flex items-center gap-3">
-        <CalendarCheck className="h-8 w-8 shrink-0 text-emerald-600" />
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text-primary)] sm:text-3xl">Attendance Control Center</h1>
-          <p className="text-sm text-[var(--color-text-tertiary)]">Take attendance, review records, and generate simple class reports.</p>
-        </div>
-      </div>
-
       <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
         {([
           ['take', 'Take Attendance', CheckSquare],
