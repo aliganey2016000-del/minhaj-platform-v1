@@ -256,6 +256,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
   const [teacherDetail, setTeacherDetail] = useState<TeacherComplianceDetail | null>(null);
   const [teacherDetailLoading, setTeacherDetailLoading] = useState(false);
   const [teacherDetailName, setTeacherDetailName] = useState('');
+  const [teacherLessonFilter, setTeacherLessonFilter] = useState<'all' | 'submitted' | 'partial' | 'missing'>('all');
   const [cellReport, setCellReport] = useState<ClassReport | null>(null);
   const [cellReportLoading, setCellReportLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -1152,9 +1153,8 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
       )}
 
       {(teacherDetailLoading || teacherDetail) && (
-        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Teacher attendance compliance detail">
-          <div className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl sm:max-w-3xl sm:rounded-2xl">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-default)] p-4">
+        <div className="fixed inset-0 z-[90] flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--color-surface-primary)]" role="region" aria-label="Teacher attendance compliance detail page">
+          <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-default)] p-4 sm:px-6">
               <div className="min-w-0">
                 <p className="text-lg font-bold text-[var(--color-text-primary)]">{teacherDetail?.teacher.name || teacherDetailName || 'Teacher Attendance'}</p>
                 <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
@@ -1174,18 +1174,26 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
             ) : teacherDetail ? (
               <>
                 <div className="grid grid-cols-4 gap-2 border-b border-[var(--color-border-default)] p-3 sm:p-4">
-                  <SummaryCard label="Scheduled" value={teacherDetail.summary.scheduled} />
-                  <SummaryCard label="Submitted" value={teacherDetail.summary.submitted} tone="present" />
-                  <SummaryCard label="Partial" value={teacherDetail.summary.partial} />
-                  <SummaryCard label="Missing" value={teacherDetail.summary.missing} tone="absent" />
+                  {([
+                    { key: 'all', label: 'Scheduled', value: teacherDetail.summary.scheduled, style: 'border-slate-300 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100' },
+                    { key: 'submitted', label: 'Submitted', value: teacherDetail.summary.submitted, style: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300' },
+                    { key: 'partial', label: 'Partial', value: teacherDetail.summary.partial, style: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/50 dark:text-orange-300' },
+                    { key: 'missing', label: 'Missing', value: teacherDetail.summary.missing, style: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300' },
+                  ] as const).map((item) => (
+                    <button key={item.key} type="button" onClick={() => setTeacherLessonFilter(item.key)} aria-pressed={teacherLessonFilter === item.key}
+                      className={`min-w-0 rounded-2xl border p-2.5 text-center transition-all sm:p-3 ${item.style} ${teacherLessonFilter === item.key ? 'ring-2 ring-emerald-500 ring-offset-1 ring-offset-[var(--color-surface-primary)]' : 'opacity-75 hover:opacity-100'}`}>
+                      <span className="block truncate text-xs sm:text-sm">{item.label}</span>
+                      <span className="mt-1 block text-xl font-extrabold tabular-nums sm:text-2xl">{item.value}</span>
+                    </button>
+                  ))}
                 </div>
 
                 <div className="overflow-y-auto overscroll-contain">
-                  {teacherDetail.rows.length === 0 ? (
-                    <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No completed lesson times were found in this review window.</div>
+                  {teacherDetail.rows.filter((row) => teacherLessonFilter === 'all' || row.status === teacherLessonFilter).length === 0 ? (
+                    <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No lessons match this status.</div>
                   ) : (
                     <div className="divide-y divide-[var(--color-border-subtle)]">
-                      {teacherDetail.rows.map((row) => {
+                      {teacherDetail.rows.filter((row) => teacherLessonFilter === 'all' || row.status === teacherLessonFilter).map((row) => {
                         const submittedByText = row.submittedByType === 'teacher'
                           ? `Submitted by teacher · ${row.submittedBy}`
                           : row.submittedByType === 'other'
@@ -1240,8 +1248,6 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                 </div>
               </>
             ) : null}
-          </div>
-        </div>
       )}
 
       {(cellReportLoading || cellReport) && (
