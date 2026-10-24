@@ -9,13 +9,22 @@ type RequestRow = {
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
   reviewNote?: string;
-  teacher?: { name?: string; fullName?: string; teacherId?: string; user?: { name?: string; fullName?: string; firstName?: string; lastName?: string } } | string;
+  teacher?: { name?: string; fullName?: string; teacherId?: string; profile?: { firstName?: string; lastName?: string }; user?: { email?: string } } | string;
   course?: { _id?: string; title?: { en?: string } | string; courseCode?: string } | string;
   schedule?: { _id?: string; startTime?: string; endTime?: string; class?: { title?: string; section?: string } | string } | string;
 };
 
 const idOf = (value: any) => typeof value === 'string' ? value : value?._id || '';
-const labelOf = (value: any) => typeof value === 'string' ? value : value?.name || value?.fullName || [value?.user?.firstName, value?.user?.lastName].filter(Boolean).join(' ') || value?.user?.name || value?.user?.fullName || value?.teacherId || value?.title?.en || value?.title || value?.courseCode || '—';
+const labelOf = (value: any) => typeof value === 'string' ? value : value?.name || value?.fullName || value?.title?.en || value?.title || value?.courseCode || '—';
+const teacherName = (teacher: any) => {
+  if (!teacher || typeof teacher === 'string') return teacher || '—';
+  const profileName = [teacher.profile?.firstName, teacher.profile?.lastName].filter(Boolean).join(' ').trim();
+  return profileName || teacher.name || teacher.fullName || teacher.teacherId || teacher.user?.email || 'Unknown teacher';
+};
+const className = (value: any) => {
+  if (!value || typeof value === 'string') return value || 'Class not specified';
+  return [value.title, value.section ? '(' + value.section + ')' : ''].filter(Boolean).join(' ');
+};
 
 export default function SchoolAttendanceUnlockRequests() {
   const [rows, setRows] = useState<RequestRow[]>([]);
@@ -70,9 +79,11 @@ export default function SchoolAttendanceUnlockRequests() {
     {loading ? <div className="rounded-2xl border border-[var(--color-border-default)] p-10 text-center text-sm text-[var(--color-text-tertiary)]">Loading requests…</div> : rows.length === 0 ? <div className="rounded-2xl border border-[var(--color-border-default)] p-10 text-center text-sm text-[var(--color-text-tertiary)]">No {status === 'pending' ? 'pending ' : ''}unlock requests.</div> : <div className="grid gap-3">
       {rows.map((row) => {
         const schedule: any = row.schedule || {};
+        const teacher = teacherName(row.teacher);
+        const classLabel = className(schedule.class);
         return <article key={row._id} className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><h3 className="font-black text-[var(--color-text-primary)]">{labelOf(row.teacher)}</h3><p className="mt-1 text-sm font-semibold text-emerald-600">{labelOf(row.course)}</p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{String(row.date).slice(0, 10)} · {schedule.startTime || '—'}–{schedule.endTime || '—'}</p></div>
+            <div className="min-w-0 flex-1"><h3 className="font-black text-[var(--color-text-primary)]">{labelOf(row.course)}</h3><p className="mt-1 text-sm font-semibold text-[var(--color-text-primary)]">Teacher: <span className="font-medium">{teacher}</span></p><p className="mt-1 text-sm font-semibold text-[var(--color-text-primary)]">Class: <span className="font-medium">{classLabel}</span></p><p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{String(row.date).slice(0, 10)} · {schedule.startTime || '—'}–{schedule.endTime || '—'}</p></div>
             <span className={'rounded-full px-3 py-1 text-xs font-bold ' + (row.status === 'pending' ? 'bg-amber-100 text-amber-800' : row.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800')}>{row.status === 'pending' ? 'Pending Approval' : row.status === 'approved' ? 'Approved' : 'Rejected'}</span>
           </div>
           <div className="mt-4 rounded-xl bg-[var(--color-surface-secondary)] p-3"><p className="text-xs font-bold uppercase tracking-wide text-[var(--color-text-tertiary)]">Teacher's reason</p><p className="mt-1 whitespace-pre-wrap text-sm text-[var(--color-text-primary)]">{row.reason}</p></div>
