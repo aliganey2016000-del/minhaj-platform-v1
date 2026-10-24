@@ -19,7 +19,7 @@ export function SchoolAttendanceManage() {
   ] as const;
 
   return (
-    <div className="min-w-0 w-full space-y-4 p-3 pt-20 sm:p-6 lg:pt-6">
+    <div className="min-w-0 w-full space-y-3 p-3 pt-3 sm:space-y-4 sm:p-6 lg:pt-4">
       <div className="flex min-w-0 items-start gap-3 py-1">
         <CalendarCheck className="mt-1 h-8 w-8 shrink-0 text-emerald-500" />
         <div className="min-w-0">
