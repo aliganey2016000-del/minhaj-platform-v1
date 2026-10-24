@@ -14,8 +14,8 @@ export function SchoolAttendanceManage() {
   const { user } = useAuth();
   const canManageOffline = user?.role === 'org_admin';
 
-  const tabs = [
-    ['period', 'Period Attendance', ClipboardList],
+  const tabs = [['period', 'Period Attendance', ClipboardList]] as const;
+  const actions = [
     ['substitutes', 'Substitutes', UserRoundCheck],
     ...(canManageOffline ? [['offline', 'Offline Settings', ShieldCheck] as const] : []),
   ] as const;
@@ -39,7 +39,7 @@ export function SchoolAttendanceManage() {
           </button>
           {actionsOpen && (
             <div className="absolute right-0 top-full z-30 mt-2 w-52 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
-              {tabs.map(([key, label, Icon]) => (
+              {actions.map(([key, label, Icon]) => (
                 <button
                   key={key}
                   type="button"
@@ -55,7 +55,7 @@ export function SchoolAttendanceManage() {
         </div>
       </div>
       <div className="min-w-0 w-full">
-        <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:gap-2 sm:p-2.5">
+        <div className="grid grid-cols-1 gap-1.5 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:gap-2 sm:p-2.5">
           {tabs.map(([key, label, Icon]) => {
             const selected = workspace === key;
             const tone = key === 'period'
