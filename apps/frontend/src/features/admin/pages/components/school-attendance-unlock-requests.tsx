@@ -9,13 +9,13 @@ type RequestRow = {
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
   reviewNote?: string;
-  teacher?: { name?: string; fullName?: string } | string;
+  teacher?: { name?: string; fullName?: string; teacherId?: string; user?: { name?: string; fullName?: string; firstName?: string; lastName?: string } } | string;
   course?: { _id?: string; title?: { en?: string } | string; courseCode?: string } | string;
   schedule?: { _id?: string; startTime?: string; endTime?: string; class?: { title?: string; section?: string } | string } | string;
 };
 
 const idOf = (value: any) => typeof value === 'string' ? value : value?._id || '';
-const labelOf = (value: any) => typeof value === 'string' ? value : value?.name || value?.fullName || value?.title?.en || value?.title || value?.courseCode || '—';
+const labelOf = (value: any) => typeof value === 'string' ? value : value?.name || value?.fullName || [value?.user?.firstName, value?.user?.lastName].filter(Boolean).join(' ') || value?.user?.name || value?.user?.fullName || value?.teacherId || value?.title?.en || value?.title || value?.courseCode || '—';
 
 export default function SchoolAttendanceUnlockRequests() {
   const [rows, setRows] = useState<RequestRow[]>([]);
