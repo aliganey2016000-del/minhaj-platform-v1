@@ -24,7 +24,6 @@ export function SchoolAttendanceManage() {
         <CalendarCheck className="mt-1 h-8 w-8 shrink-0 text-emerald-500" />
         <div className="min-w-0">
           <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-[var(--color-text-primary)] sm:text-3xl">Attendance Control Center</h1>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--color-text-tertiary)]">Take attendance, review records, and generate simple class reports.</p>
         </div>
       </div>
       <div className="min-w-0 w-full">
