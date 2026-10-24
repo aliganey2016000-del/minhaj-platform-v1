@@ -540,7 +540,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
           ['date', 'By Date', CalendarDays],
           ['risk', 'Risk', AlertTriangle],
           ['teacher', 'Teachers', CheckCircle2],
-          ['student', 'By Student', UserRound],
+          ['student', 'Student', UserRound],
         ] as const).map(([key, label, Icon]) => (
           <button
             key={key}
