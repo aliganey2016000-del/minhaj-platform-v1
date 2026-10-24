@@ -734,13 +734,16 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
   const regex = new RegExp(escapeRegex(search), 'i');
   const terms = search.split(/\s+/).filter(Boolean).slice(0, 4);
   const profileIds = await Profile.find({
-    $and: terms.map((term) => {
-      const termRegex = new RegExp(escapeRegex(term), 'i');
-      return { $or: [{ firstName: termRegex }, { lastName: termRegex }] };
-    }),
+    $or: [
+      { email: regex },
+      ...terms.map((term) => {
+        const termRegex = new RegExp(escapeRegex(term), 'i');
+        return { $and: [{ $or: [{ firstName: termRegex }, { lastName: termRegex }] }] };
+      }),
+    ],
   })
     .select('_id')
-    .limit(60)
+    .limit(100)
     .lean();
 
   const students: any[] = await Student.find({
@@ -752,7 +755,7 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
       { profile: { $in: profileIds.map((profile) => profile._id) } },
     ],
   })
-    .populate('profile', 'firstName lastName')
+    .populate('profile', 'firstName lastName email')
     .populate('class', 'title section')
     .select('studentId profile class')
     .sort({ studentId: 1 })
@@ -763,6 +766,7 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
     _id: student._id,
     studentId: student.studentId,
     name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
+    email: student.profile?.email || '',
     className: student.class ? className(student.class) : 'Unassigned',
   })));
 };
