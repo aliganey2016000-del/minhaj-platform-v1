@@ -1348,7 +1348,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
         <div className="space-y-4">
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
             <label>
-              <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Student Name or ID</span>
+              <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Student Name, ID, or Email</span>
               <div className="flex gap-2">
                 <div className="relative min-w-0 flex-1">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
@@ -1356,7 +1356,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                     value={studentSearch}
                     onChange={(e) => setStudentSearch(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') void searchStudents(); }}
-                    placeholder="e.g. BALCAD-706 or student name"
+                    placeholder="e.g. BALCAD-706, student name, or email"
                     className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-3 pl-10 pr-3 text-sm"
                   />
                 </div>
