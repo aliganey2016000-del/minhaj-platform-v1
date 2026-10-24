@@ -11,6 +11,7 @@ import {
   MapPin,
   Search,
   ShieldCheck,
+  Unlock,
   SlidersHorizontal,
   Users,
   DownloadCloud,
@@ -92,6 +93,9 @@ export function TeacherSchoolAttendance({ view = 'list' }: { view?: 'list' | 'of
   const [preparing, setPreparing] = useState(false);
   const [offlineMessage, setOfflineMessage] = useState('');
   const [queuedCount, setQueuedCount] = useState(0);
+  const [unlockRequestMessage, setUnlockRequestMessage] = useState('');
+  const [unlockRequestError, setUnlockRequestError] = useState('');
+  const [unlockRequestBusy, setUnlockRequestBusy] = useState('');
   const [accessWindow, setAccessWindow] = useState(getOfflineAttendanceAccessWindow);
   const [clockNow, setClockNow] = useState(() => Date.now());
 
@@ -107,6 +111,18 @@ export function TeacherSchoolAttendance({ view = 'list' }: { view?: 'list' | 'of
       window.removeEventListener('sahal-offline-access-updated', refreshGrant);
     };
   }, []);
+
+  const requestUnlock = async (session: Session) => {
+    if (!session.attendance.locked || !session.course?._id || !online) return;
+    const reason = window.prompt('Explain why this completed attendance needs to be reopened:');
+    if (!reason?.trim()) return;
+    setUnlockRequestBusy(session._id); setUnlockRequestError(''); setUnlockRequestMessage('');
+    try {
+      await api.post('/attendance/school/unlock-requests', { course: session.course._id, schedule: session._id, date, reason: reason.trim() });
+      setUnlockRequestMessage('Unlock request submitted for ' + session.className + '.');
+    } catch (e: any) { setUnlockRequestError(e?.response?.data?.message || 'Could not submit the unlock request.'); }
+    finally { setUnlockRequestBusy(''); }
+  };
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -508,6 +524,8 @@ export function TeacherSchoolAttendance({ view = 'list' }: { view?: 'list' | 'of
         )}
       </section>
 
+      {(unlockRequestMessage || unlockRequestError) && <div role={unlockRequestError ? 'alert' : 'status'} className={'rounded-xl border p-3 text-sm ' + (unlockRequestError ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300')}>{unlockRequestError || unlockRequestMessage}</div>}
+
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
@@ -556,8 +574,11 @@ export function TeacherSchoolAttendance({ view = 'list' }: { view?: 'list' | 'of
                       </div>
                     </div>
                     <div className="border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-secondary)]/40 p-3 sm:px-5">
-                      <div className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition ${complete ? 'border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-primary)]' : 'bg-emerald-500 text-slate-950'}`}>
-                        {complete ? <><BarChart3 className="h-4 w-4"/>View Attendance</> : <>Take Attendance<ArrowRight className="h-4 w-4"/></>}
+                      <div className="grid gap-2">
+                        <div className={complete ? 'inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-4 py-2.5 text-sm font-black text-[var(--color-text-primary)]' : 'inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-black text-slate-950'}>
+                          {complete ? <><BarChart3 className="h-4 w-4"/>View Attendance</> : <>Take Attendance<ArrowRight className="h-4 w-4"/></>}
+                        </div>
+                        {complete && session.attendance.locked && <button type="button" disabled={!online || unlockRequestBusy === session._id} onClick={(event) => { event.stopPropagation(); void requestUnlock(session); }} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-amber-300 px-4 py-2 text-sm font-bold text-amber-700 transition hover:bg-amber-50 disabled:opacity-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950/30"><Unlock className="h-4 w-4"/>{unlockRequestBusy === session._id ? 'Submitting request…' : 'Request Unlock'}</button>}
                       </div>
                     </div>
                   </article>
