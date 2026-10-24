@@ -1173,19 +1173,21 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
               </div>
             ) : teacherDetail ? (
               <>
-                <div className="grid grid-cols-4 gap-2 border-b border-[var(--color-border-default)] p-3 sm:p-4">
-                  {([
-                    { key: 'all', label: 'Scheduled', value: teacherDetail.summary.scheduled, style: 'border-slate-300 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100' },
-                    { key: 'submitted', label: 'Submitted', value: teacherDetail.summary.submitted, style: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-300' },
-                    { key: 'partial', label: 'Partial', value: teacherDetail.summary.partial, style: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/50 dark:text-orange-300' },
-                    { key: 'missing', label: 'Missing', value: teacherDetail.summary.missing, style: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300' },
-                  ] as const).map((item) => (
-                    <button key={item.key} type="button" onClick={() => setTeacherLessonFilter(item.key)} aria-pressed={teacherLessonFilter === item.key}
-                      className={`min-w-0 rounded-2xl border p-2.5 text-center transition-all sm:p-3 ${item.style} ${teacherLessonFilter === item.key ? 'ring-2 ring-emerald-500 ring-offset-1 ring-offset-[var(--color-surface-primary)]' : 'opacity-75 hover:opacity-100'}`}>
-                      <span className="block truncate text-xs sm:text-sm">{item.label}</span>
-                      <span className="mt-1 block text-xl font-extrabold tabular-nums sm:text-2xl">{item.value}</span>
-                    </button>
-                  ))}
+                <div className="border-b border-[var(--color-border-default)] p-2.5 sm:p-4">
+                  <div className="grid grid-cols-4 gap-1.5 rounded-2xl border border-slate-200 bg-slate-100/80 p-1.5 dark:border-slate-800 dark:bg-slate-950/70 sm:gap-2 sm:p-2">
+                    {([
+                      { key: 'all', label: 'Scheduled', value: teacherDetail.summary.scheduled, idle: 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200', active: 'border-slate-500 bg-slate-700 text-white shadow-md dark:border-slate-500 dark:bg-slate-700' },
+                      { key: 'submitted', label: 'Submitted', value: teacherDetail.summary.submitted, idle: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300', active: 'border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-900/20' },
+                      { key: 'partial', label: 'Partial', value: teacherDetail.summary.partial, idle: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/60 dark:text-orange-300', active: 'border-orange-500 bg-orange-500 text-white shadow-md shadow-orange-900/20' },
+                      { key: 'missing', label: 'Missing', value: teacherDetail.summary.missing, idle: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300', active: 'border-red-600 bg-red-600 text-white shadow-md shadow-red-900/20' },
+                    ] as const).map((item) => (
+                      <button key={item.key} type="button" onClick={() => setTeacherLessonFilter(item.key)} aria-pressed={teacherLessonFilter === item.key}
+                        className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl border px-0.5 py-2 text-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 sm:min-h-16 sm:gap-1 sm:px-2 ${teacherLessonFilter === item.key ? item.active : item.idle}`}>
+                        <span className="w-full truncate text-[10px] font-semibold leading-tight sm:text-sm">{item.label}</span>
+                        <span className="text-base font-extrabold tabular-nums sm:text-xl">{item.value}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="overflow-y-auto overscroll-contain">
