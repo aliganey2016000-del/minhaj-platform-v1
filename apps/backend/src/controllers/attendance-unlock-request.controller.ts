@@ -49,9 +49,9 @@ export async function listRequests(req: Request, res: Response): Promise<Respons
   }
   if (req.query.status === 'all') delete filter.status;
   const rows = await AttendanceUnlockRequest.find(filter)
-    .populate({ path: 'teacher', select: 'teacherId user', populate: { path: 'user', select: 'name fullName firstName lastName' } })
+    .populate({ path: 'teacher', select: 'teacherId profile user', populate: [{ path: 'profile', select: 'firstName lastName' }, { path: 'user', select: 'email' }] })
     .populate('course', 'title courseCode')
-    .populate('schedule', 'startTime endTime class')
+    .populate({ path: 'schedule', select: 'startTime endTime class', populate: { path: 'class', select: 'title section' } })
     .sort({ createdAt: -1 }).limit(200).lean();
   return ApiResponse.success(res, rows);
 }
