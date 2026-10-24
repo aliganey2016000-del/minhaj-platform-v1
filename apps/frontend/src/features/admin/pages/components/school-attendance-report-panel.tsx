@@ -1260,6 +1260,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                 </div>
               </>
             ) : null}
+        </div>
       )}
 
       {(cellReportLoading || cellReport) && (
