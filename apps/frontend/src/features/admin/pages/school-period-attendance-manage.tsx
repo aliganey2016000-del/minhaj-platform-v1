@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import api from '../../../lib/axios';
 import SchoolAttendanceReportPanel from './components/school-attendance-report-panel';
+import SchoolAttendanceUnlockRequests from './components/school-attendance-unlock-requests';
 
 interface SessionSummary {
   _id: string;
@@ -42,7 +43,7 @@ interface SessionSummary {
 type AttendanceStatus = 'present' | 'absent';
 type ReasonCode = '' | 'sick' | 'medical' | 'family_emergency' | 'school_activity' | 'suspension' | 'transport_delay' | 'other';
 type CalendarDayType = 'instructional' | 'holiday' | 'closure' | 'exam' | 'special';
-type Tab = 'take' | 'report' | 'calendar';
+type Tab = 'take' | 'report' | 'calendar' | 'unlockRequests';
 
 interface RosterStudent {
   _id: string;
@@ -435,13 +436,14 @@ export function SchoolAttendanceManage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
+      <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-card">
         {([
           ['take', 'Take Attendance', CheckSquare],
           ['report', 'Reports', BarChart3],
+          ['unlockRequests', 'Unlock Requests', Unlock],
         ] as const).map(([key, label, Icon]) => (
           <button key={key} type="button" onClick={() => setTab(key)} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 text-xs font-semibold sm:text-sm ${tab === key ? 'bg-primary-600 text-white shadow-sm' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]'}`}>
-            <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{label}</span><span className="sm:hidden">{key === 'take' ? 'Take' : 'Report'}</span>
+            <Icon className="h-4 w-4" /> <span className="hidden sm:inline">{label}</span><span className="sm:hidden">{key === 'take' ? 'Take' : key === 'unlockRequests' ? 'Unlock' : 'Report'}</span>
           </button>
         ))}
       </div>
@@ -629,6 +631,8 @@ export function SchoolAttendanceManage() {
       )}
 
       {tab === 'report' && <SchoolAttendanceReportPanel onOpenAttendanceSession={openAttendanceFromReport} />}
+
+      {tab === 'unlockRequests' && <SchoolAttendanceUnlockRequests />}
 
       {tab === 'calendar' && (
         <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
