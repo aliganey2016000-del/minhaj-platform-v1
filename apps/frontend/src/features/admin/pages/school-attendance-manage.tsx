@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreVertical } from 'lucide-react';
 import { CalendarCheck, ClipboardList, UserRoundCheck, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
 import SchoolAttendanceOfflineSettings from './components/school-attendance-offline-settings';
@@ -35,7 +35,7 @@ export function SchoolAttendanceManage() {
             onClick={() => setActionsOpen((open) => !open)}
             className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] shadow-sm transition hover:bg-[var(--color-surface-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 sm:h-10 sm:w-10"
           >
-            <MoreHorizontal className="h-5 w-5" />
+            <MoreVertical className="h-5 w-5" />
           </button>
           {actionsOpen && (
             <div className="absolute right-0 top-full z-30 mt-2 w-52 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1.5 shadow-xl">
