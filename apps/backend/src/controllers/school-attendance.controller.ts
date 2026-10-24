@@ -8,6 +8,7 @@ import ClassSchedule from '../models/class-schedule.model';
 import Student from '../models/student.model';
 import Teacher from '../models/teacher.model';
 import Profile from '../models/profile.model';
+import User from '../models/user.model';
 import School, { resolveInstitutionType } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/api-error';
@@ -733,15 +734,15 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
   const escapeRegex = (value: string) => value.replace(/[.*+?^$(){}|[\]\\]/g, (match) => `\\${match}`);
   const regex = new RegExp(escapeRegex(search), 'i');
   const terms = search.split(/\s+/).filter(Boolean).slice(0, 4);
-  const profileIds = await Profile.find({
-    $and: terms.map((term) => {
-      const termRegex = new RegExp(escapeRegex(term), 'i');
-      return { $or: [{ firstName: termRegex }, { lastName: termRegex }] };
-    }),
-  })
-    .select('_id')
-    .limit(60)
-    .lean();
+  const [profileIds, userIds] = await Promise.all([
+    Profile.find({
+      $and: terms.map((term) => {
+        const termRegex = new RegExp(escapeRegex(term), 'i');
+        return { $or: [{ firstName: termRegex }, { lastName: termRegex }] };
+      }),
+    }).select('_id').limit(60).lean(),
+    User.find({ email: regex, role: 'student' }).select('_id').limit(60).lean(),
+  ]);
 
   const students: any[] = await Student.find({
     school: schoolId,
@@ -750,11 +751,13 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
     $or: [
       { studentId: regex },
       { profile: { $in: profileIds.map((profile) => profile._id) } },
+      { user: { $in: userIds.map((user) => user._id) } },
     ],
   })
     .populate('profile', 'firstName lastName')
+    .populate('user', 'email')
     .populate('class', 'title section')
-    .select('studentId profile class')
+    .select('studentId profile user class')
     .sort({ studentId: 1 })
     .limit(30)
     .lean();
@@ -763,6 +766,7 @@ export const searchSchoolReportStudents = async (req: Request, res: Response): P
     _id: student._id,
     studentId: student.studentId,
     name: `${student.profile?.firstName || ''} ${student.profile?.lastName || ''}`.trim() || student.studentId,
+    email: student.user?.email || '',
     className: student.class ? className(student.class) : 'Unassigned',
   })));
 };
