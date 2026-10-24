@@ -256,6 +256,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
   const [teacherDetail, setTeacherDetail] = useState<TeacherComplianceDetail | null>(null);
   const [teacherDetailLoading, setTeacherDetailLoading] = useState(false);
   const [teacherDetailName, setTeacherDetailName] = useState('');
+  const [teacherLessonFilter, setTeacherLessonFilter] = useState<'all' | 'submitted' | 'partial' | 'missing'>('all');
   const [cellReport, setCellReport] = useState<ClassReport | null>(null);
   const [cellReportLoading, setCellReportLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -1152,9 +1153,8 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
       )}
 
       {(teacherDetailLoading || teacherDetail) && (
-        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Teacher attendance compliance detail">
-          <div className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-2xl sm:max-w-3xl sm:rounded-2xl">
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-default)] p-4">
+        <div className="fixed inset-0 z-[90] flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--color-surface-primary)]" role="region" aria-label="Teacher attendance compliance detail page">
+          <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-default)] p-4 sm:px-6">
               <div className="min-w-0">
                 <p className="text-lg font-bold text-[var(--color-text-primary)]">{teacherDetail?.teacher.name || teacherDetailName || 'Teacher Attendance'}</p>
                 <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
@@ -1173,19 +1173,29 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
               </div>
             ) : teacherDetail ? (
               <>
-                <div className="grid grid-cols-4 gap-2 border-b border-[var(--color-border-default)] p-3 sm:p-4">
-                  <SummaryCard label="Scheduled" value={teacherDetail.summary.scheduled} />
-                  <SummaryCard label="Submitted" value={teacherDetail.summary.submitted} tone="present" />
-                  <SummaryCard label="Partial" value={teacherDetail.summary.partial} />
-                  <SummaryCard label="Missing" value={teacherDetail.summary.missing} tone="absent" />
+                <div className="border-b border-[var(--color-border-default)] p-2.5 sm:p-4">
+                  <div className="grid grid-cols-4 gap-1.5 rounded-2xl border border-slate-200 bg-slate-100/80 p-1.5 dark:border-slate-800 dark:bg-slate-950/70 sm:gap-2 sm:p-2">
+                    {([
+                      { key: 'all', label: 'Scheduled', value: teacherDetail.summary.scheduled, idle: 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200', active: 'border-slate-500 bg-slate-700 text-white shadow-md dark:border-slate-500 dark:bg-slate-700' },
+                      { key: 'submitted', label: 'Submitted', value: teacherDetail.summary.submitted, idle: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300', active: 'border-emerald-600 bg-emerald-600 text-white shadow-md shadow-emerald-900/20' },
+                      { key: 'partial', label: 'Partial', value: teacherDetail.summary.partial, idle: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/60 dark:text-orange-300', active: 'border-orange-500 bg-orange-500 text-white shadow-md shadow-orange-900/20' },
+                      { key: 'missing', label: 'Missing', value: teacherDetail.summary.missing, idle: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300', active: 'border-red-600 bg-red-600 text-white shadow-md shadow-red-900/20' },
+                    ] as const).map((item) => (
+                      <button key={item.key} type="button" onClick={() => setTeacherLessonFilter(item.key)} aria-pressed={teacherLessonFilter === item.key}
+                        className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl border px-0.5 py-2 text-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 sm:min-h-16 sm:gap-1 sm:px-2 ${teacherLessonFilter === item.key ? item.active : item.idle}`}>
+                        <span className="w-full truncate text-[10px] font-semibold leading-tight sm:text-sm">{item.label}</span>
+                        <span className="text-base font-extrabold tabular-nums sm:text-xl">{item.value}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="overflow-y-auto overscroll-contain">
-                  {teacherDetail.rows.length === 0 ? (
-                    <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No completed lesson times were found in this review window.</div>
+                  {teacherDetail.rows.filter((row) => teacherLessonFilter === 'all' || row.status === teacherLessonFilter).length === 0 ? (
+                    <div className="p-10 text-center text-sm text-[var(--color-text-tertiary)]">No lessons match this status.</div>
                   ) : (
                     <div className="divide-y divide-[var(--color-border-subtle)]">
-                      {teacherDetail.rows.map((row) => {
+                      {teacherDetail.rows.filter((row) => teacherLessonFilter === 'all' || row.status === teacherLessonFilter).map((row) => {
                         const submittedByText = row.submittedByType === 'teacher'
                           ? `Submitted by teacher · ${row.submittedBy}`
                           : row.submittedByType === 'other'
@@ -1196,23 +1206,32 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                             key={`${row.date}-${row.scheduleId}`}
                             type="button"
                             onClick={() => openComplianceLesson(row)}
-                            className="flex w-full items-start gap-3 p-4 text-left hover:bg-[var(--color-surface-secondary)]"
+                            className={`group flex w-full items-start gap-3 rounded-2xl border p-3 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md sm:gap-4 sm:p-4 ${
+                              row.status === 'submitted'
+                                ? (row.submittedByType === 'teacher' ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-white dark:border-emerald-900 dark:from-emerald-950/40 dark:to-slate-950' : 'border-blue-200 bg-gradient-to-r from-blue-50 to-white dark:border-blue-900 dark:from-blue-950/40 dark:to-slate-950')
+                                : row.status === 'partial'
+                                  ? 'border-orange-200 bg-gradient-to-r from-orange-50 to-white dark:border-orange-900 dark:from-orange-950/40 dark:to-slate-950'
+                                  : 'border-red-200 bg-gradient-to-r from-red-50 to-white dark:border-red-900 dark:from-red-950/40 dark:to-slate-950'
+                            }`}
                           >
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]">
+                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm sm:h-12 sm:w-12 ${
+                              row.status === 'submitted'
+                                ? (row.submittedByType === 'teacher' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300')
+                                : row.status === 'partial'
+                                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/60 dark:text-orange-300'
+                                  : 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300'
+                            }`}>
                               <Clock3 className="h-5 w-5" />
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="truncate font-bold text-[var(--color-text-primary)]">{row.courseName}</p>
-                                  <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{row.date} · {row.className} · {row.startTime}–{row.endTime}</p>
-                                </div>
-                                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <p className="min-w-0 flex-1 truncate font-bold text-[var(--color-text-primary)]">{row.courseName}</p>
+                                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold sm:text-xs ${
                                   row.status === 'submitted'
-                                    ? (row.submittedByType === 'teacher' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700')
+                                    ? (row.submittedByType === 'teacher' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white')
                                     : row.status === 'partial'
-                                      ? 'bg-orange-100 text-orange-700'
-                                      : 'bg-red-100 text-red-700'
+                                      ? 'bg-orange-500 text-white'
+                                      : 'bg-red-600 text-white'
                                 }`}>
                                   {row.status === 'submitted'
                                     ? (row.submittedByType === 'teacher' ? 'Submitted · Teacher' : 'Submitted · By Other')
@@ -1221,17 +1240,18 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                                       : 'Missing'}
                                 </span>
                               </div>
+                              <p className="mt-1 text-xs font-medium text-[var(--color-text-secondary)] sm:text-sm">{row.date} · {row.className} · {row.startTime}–{row.endTime}</p>
                               {submittedByText && <p className="mt-2 text-xs font-medium text-[var(--color-text-secondary)]">{submittedByText}</p>}
                               {row.status === 'partial' && (
-                                <p className="mt-1 text-[11px] text-orange-700">
+                                <p className="mt-1 text-[11px] text-orange-700 dark:text-orange-300">
                                   {row.recordedStudents}/{row.expectedStudents ?? '?'} students recorded{row.submittedBy ? ` · Last saved by ${row.submittedBy}` : ''}
                                 </p>
                               )}
-                              {row.status === 'missing' && <p className="mt-1 text-[11px] text-red-600">Attendance has not been taken for this lesson.</p>}
+                              {row.status === 'missing' && <p className="mt-1 text-[11px] text-red-700 dark:text-red-300">Attendance has not been taken for this lesson.</p>}
                               {row.status === 'submitted' && row.locked && <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Submitted & locked · open to view students or unlock for correction.</p>}
-                              {row.isSubstitute && <p className="mt-1 text-[11px] text-blue-600">Substitute assignment{row.substituteReason ? ` · ${row.substituteReason}` : ''}</p>}
+                              {row.isSubstitute && <p className="mt-1 text-[11px] text-blue-700 dark:text-blue-300">Substitute assignment{row.substituteReason ? ` · ${row.substituteReason}` : ''}</p>}
                             </div>
-                            <ChevronRight className="mt-2 h-5 w-5 shrink-0 text-[var(--color-text-tertiary)]" />
+                            <ChevronRight className="mt-1 h-5 w-5 shrink-0 text-[var(--color-text-tertiary)] transition-transform group-hover:translate-x-0.5" />
                           </button>
                         );
                       })}
@@ -1240,7 +1260,6 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                 </div>
               </>
             ) : null}
-          </div>
         </div>
       )}
 
