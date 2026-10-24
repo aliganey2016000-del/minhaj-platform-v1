@@ -84,10 +84,11 @@ export async function reviewRequest(req: Request, res: Response): Promise<Respon
     session.syncSubmissionId = undefined;
     session.syncState = undefined;
     session.syncClaimedAt = undefined;
-    session.unlockedBy = new mongoose.Types.ObjectId(req.user!.userId);
+    const unlockedBy = new mongoose.Types.ObjectId(req.user!.userId);
+    session.unlockedBy = unlockedBy;
     session.unlockedAt = unlockedAt;
     session.unlockReason = reasonText;
-    session.corrections.push({ unlockedBy: session.unlockedBy, unlockedAt, reason: reasonText });
+    session.corrections.push({ unlockedBy, unlockedAt, reason: reasonText });
     await session.save();
   }
   await request.save();
