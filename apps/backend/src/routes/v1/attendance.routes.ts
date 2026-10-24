@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as attendanceController from '../../controllers/attendance.controller';
 import * as attendanceProController from '../../controllers/attendance-pro.controller';
+import * as attendanceUnlockRequestController from '../../controllers/attendance-unlock-request.controller';
 import * as attendanceReportController from '../../controllers/attendance-report.controller';
 import * as attendanceSummaryController from '../../controllers/attendance-summary.controller';
 import * as dailyAttendanceController from '../../controllers/daily-attendance.controller';
@@ -30,6 +31,10 @@ router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(atten
 // dated substitute assignments; admins/org-admins receive the full timetable.
 router.get('/school/sessions', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSessions));
 router.get('/school/session/:scheduleId', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSession));
+router.get('/school/unlock-requests/mine', roleMiddleware(['teacher']), asyncHandler(attendanceUnlockRequestController.myRequests));
+router.get('/school/unlock-requests', roleMiddleware(['admin', 'org_admin']), asyncHandler(attendanceUnlockRequestController.listRequests));
+router.post('/school/unlock-requests', roleMiddleware(['teacher']), attendanceCourseScope, asyncHandler(attendanceUnlockRequestController.createRequest));
+router.patch('/school/unlock-requests/:id/review', roleMiddleware(['admin', 'org_admin']), attendanceCourseScope, asyncHandler(attendanceUnlockRequestController.reviewRequest));
 router.get('/school/options', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolOptions));
 router.get('/school/report', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolClassReport));
 router.get('/school/report/student', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.getSchoolClassStudentReport));
