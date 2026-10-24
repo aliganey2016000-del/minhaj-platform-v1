@@ -49,7 +49,7 @@ export async function listRequests(req: Request, res: Response): Promise<Respons
   }
   if (req.query.status === 'all') delete filter.status;
   const rows = await AttendanceUnlockRequest.find(filter)
-    .populate('teacher', 'name fullName')
+    .populate({ path: 'teacher', select: 'teacherId user', populate: { path: 'user', select: 'name fullName firstName lastName' } })
     .populate('course', 'title courseCode')
     .populate('schedule', 'startTime endTime class')
     .sort({ createdAt: -1 }).limit(200).lean();
