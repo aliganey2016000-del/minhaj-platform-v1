@@ -1206,23 +1206,32 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                             key={`${row.date}-${row.scheduleId}`}
                             type="button"
                             onClick={() => openComplianceLesson(row)}
-                            className="flex w-full items-start gap-3 p-4 text-left hover:bg-[var(--color-surface-secondary)]"
+                            className={`group flex w-full items-start gap-3 rounded-2xl border p-3 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md sm:gap-4 sm:p-4 ${
+                              row.status === 'submitted'
+                                ? (row.submittedByType === 'teacher' ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-white dark:border-emerald-900 dark:from-emerald-950/40 dark:to-slate-950' : 'border-blue-200 bg-gradient-to-r from-blue-50 to-white dark:border-blue-900 dark:from-blue-950/40 dark:to-slate-950')
+                                : row.status === 'partial'
+                                  ? 'border-orange-200 bg-gradient-to-r from-orange-50 to-white dark:border-orange-900 dark:from-orange-950/40 dark:to-slate-950'
+                                  : 'border-red-200 bg-gradient-to-r from-red-50 to-white dark:border-red-900 dark:from-red-950/40 dark:to-slate-950'
+                            }`}
                           >
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]">
+                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm sm:h-12 sm:w-12 ${
+                              row.status === 'submitted'
+                                ? (row.submittedByType === 'teacher' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300')
+                                : row.status === 'partial'
+                                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/60 dark:text-orange-300'
+                                  : 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300'
+                            }`}>
                               <Clock3 className="h-5 w-5" />
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="truncate font-bold text-[var(--color-text-primary)]">{row.courseName}</p>
-                                  <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{row.date} · {row.className} · {row.startTime}–{row.endTime}</p>
-                                </div>
-                                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <p className="min-w-0 flex-1 truncate font-bold text-[var(--color-text-primary)]">{row.courseName}</p>
+                                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold sm:text-xs ${
                                   row.status === 'submitted'
-                                    ? (row.submittedByType === 'teacher' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700')
+                                    ? (row.submittedByType === 'teacher' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white')
                                     : row.status === 'partial'
-                                      ? 'bg-orange-100 text-orange-700'
-                                      : 'bg-red-100 text-red-700'
+                                      ? 'bg-orange-500 text-white'
+                                      : 'bg-red-600 text-white'
                                 }`}>
                                   {row.status === 'submitted'
                                     ? (row.submittedByType === 'teacher' ? 'Submitted · Teacher' : 'Submitted · By Other')
@@ -1231,17 +1240,18 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                                       : 'Missing'}
                                 </span>
                               </div>
+                              <p className="mt-1 text-xs font-medium text-[var(--color-text-secondary)] sm:text-sm">{row.date} · {row.className} · {row.startTime}–{row.endTime}</p>
                               {submittedByText && <p className="mt-2 text-xs font-medium text-[var(--color-text-secondary)]">{submittedByText}</p>}
                               {row.status === 'partial' && (
-                                <p className="mt-1 text-[11px] text-orange-700">
+                                <p className="mt-1 text-[11px] text-orange-700 dark:text-orange-300">
                                   {row.recordedStudents}/{row.expectedStudents ?? '?'} students recorded{row.submittedBy ? ` · Last saved by ${row.submittedBy}` : ''}
                                 </p>
                               )}
-                              {row.status === 'missing' && <p className="mt-1 text-[11px] text-red-600">Attendance has not been taken for this lesson.</p>}
+                              {row.status === 'missing' && <p className="mt-1 text-[11px] text-red-700 dark:text-red-300">Attendance has not been taken for this lesson.</p>}
                               {row.status === 'submitted' && row.locked && <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">Submitted & locked · open to view students or unlock for correction.</p>}
-                              {row.isSubstitute && <p className="mt-1 text-[11px] text-blue-600">Substitute assignment{row.substituteReason ? ` · ${row.substituteReason}` : ''}</p>}
+                              {row.isSubstitute && <p className="mt-1 text-[11px] text-blue-700 dark:text-blue-300">Substitute assignment{row.substituteReason ? ` · ${row.substituteReason}` : ''}</p>}
                             </div>
-                            <ChevronRight className="mt-2 h-5 w-5 shrink-0 text-[var(--color-text-tertiary)]" />
+                            <ChevronRight className="mt-1 h-5 w-5 shrink-0 text-[var(--color-text-tertiary)] transition-transform group-hover:translate-x-0.5" />
                           </button>
                         );
                       })}
