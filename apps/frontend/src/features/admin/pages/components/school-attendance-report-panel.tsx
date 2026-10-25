@@ -208,6 +208,7 @@ interface StudentSearchRow {
   _id: string;
   studentId: string;
   name: string;
+  email?: string;
   className: string;
 }
 
@@ -539,7 +540,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
           ['date', 'By Date', CalendarDays],
           ['risk', 'Risk', AlertTriangle],
           ['teacher', 'Teachers', CheckCircle2],
-          ['student', 'By Student', UserRound],
+          ['student', 'Student', UserRound],
         ] as const).map(([key, label, Icon]) => (
           <button
             key={key}
@@ -1347,7 +1348,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
         <div className="space-y-4">
           <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-card">
             <label>
-              <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Student Name or ID</span>
+              <span className="mb-1.5 block text-xs font-semibold text-[var(--color-text-secondary)]">Student Name, ID, or Email</span>
               <div className="flex gap-2">
                 <div className="relative min-w-0 flex-1">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
@@ -1355,7 +1356,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                     value={studentSearch}
                     onChange={(e) => setStudentSearch(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') void searchStudents(); }}
-                    placeholder="e.g. BALCAD-706 or student name"
+                    placeholder="e.g. BALCAD-706, student name, or email"
                     className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] py-3 pl-10 pr-3 text-sm"
                   />
                 </div>
@@ -1378,6 +1379,7 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold text-[var(--color-text-primary)]">{student.name}</p>
                       <p className="text-xs text-[var(--color-text-tertiary)]">{student.studentId} · {student.className}</p>
+                      {student.email && <p className="mt-0.5 truncate text-xs text-[var(--color-text-secondary)]">{student.email}</p>}
                     </div>
                     <ChevronRight className="h-5 w-5 text-[var(--color-text-tertiary)]" />
                   </button>
