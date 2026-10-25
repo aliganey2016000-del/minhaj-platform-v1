@@ -376,18 +376,21 @@ export function TeacherSchoolAttendanceRoster() {
               </span>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">
-                <p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Time</p>
-                <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-black"><Clock3 className="h-4 w-4" />{session.startTime}–{session.endTime}</p>
+            <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="min-w-0 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-500 to-blue-700 p-2.5 text-white shadow-sm dark:border-blue-400/30 sm:p-3">
+                <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-white/15"><Clock3 className="h-4 w-4" /></div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-blue-100">Time</p>
+                <p className="mt-1 break-words text-xs font-black leading-snug sm:text-sm">{session.startTime}–{session.endTime}</p>
               </div>
-              <div className="rounded-xl bg-[var(--color-surface-secondary)] p-3">
-                <p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Students</p>
-                <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-black"><Users className="h-4 w-4" />{total}</p>
+              <div className="min-w-0 rounded-xl border border-violet-200 bg-gradient-to-br from-violet-600 to-purple-700 p-2.5 text-white shadow-sm dark:border-violet-400/30 sm:p-3">
+                <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-white/15"><Users className="h-4 w-4" /></div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-violet-100">Students</p>
+                <p className="mt-1 text-lg font-black leading-snug sm:text-xl">{total}</p>
               </div>
-              <div className="col-span-2 rounded-xl bg-[var(--color-surface-secondary)] p-3 sm:col-span-1">
-                <p className="text-[10px] font-bold uppercase text-[var(--color-text-tertiary)]">Date</p>
-                <p className="mt-1 text-sm font-black">{date}</p>
+              <div className="min-w-0 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-500 to-teal-700 p-2.5 text-white shadow-sm dark:border-emerald-400/30 sm:p-3">
+                <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-white/15"><BookOpen className="h-4 w-4" /></div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-100">Date</p>
+                <p className="mt-1 break-words text-xs font-black leading-snug sm:text-sm">{date}</p>
               </div>
             </div>
           </div>
