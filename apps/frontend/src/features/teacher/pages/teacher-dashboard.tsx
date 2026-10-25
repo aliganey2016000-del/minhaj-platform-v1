@@ -8,12 +8,10 @@ import {
   CalendarDays,
   ClipboardCheck,
   ClipboardList,
-  Clock3,
   FileText,
   GraduationCap,
   RefreshCw,
   Sparkles,
-  Users,
 } from 'lucide-react';
 import api from '../../../lib/axios';
 
@@ -190,33 +188,6 @@ export function TeacherDashboard() {
     ? String(weeklyHours)
     : weeklyHours.toFixed(1);
 
-  const stats = [
-    {
-      label: isSo ? 'Fasallada' : 'Classes',
-      value: assignedClasses.size,
-      icon: GraduationCap,
-      tone: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
-    },
-    {
-      label: isSo ? 'Ardayda' : 'Students',
-      value: dashboard.stats.totalStudents,
-      icon: Users,
-      tone: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300',
-    },
-    {
-      label: isSo ? 'Koorsooyinka' : 'Courses',
-      value: dashboard.stats.totalCourses,
-      icon: BookOpen,
-      tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300',
-    },
-    {
-      label: isSo ? 'Saacadaha / usbuuc' : 'Hrs / Week',
-      value: weeklyHoursLabel,
-      icon: Clock3,
-      tone: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300',
-    },
-  ];
-
   const quickActions = [
     { label: isSo ? 'Xaadirinta ardayda' : 'Student Attendance', href: '/teacher/attendance', icon: ClipboardCheck, tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' },
     { label: isSo ? 'Imtixaannada' : 'Exam Workspace', href: '/teacher/exams', icon: FileText, tone: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-300' },
@@ -262,18 +233,6 @@ export function TeacherDashboard() {
           <AlertCircle className="h-4 w-4 shrink-0" /> {error}
         </div>
       )}
-
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {stats.map(({ label, value, icon: Icon, tone }) => (
-          <div key={label} className={`${cardClass} min-w-0 p-4 sm:p-5`}>
-            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>
-              <Icon className="h-5 w-5" />
-            </div>
-            <p className="mt-4 truncate text-2xl font-black text-[var(--color-text-primary)] sm:text-3xl">{value}</p>
-            <p className="mt-1 text-xs font-bold text-[var(--color-text-secondary)] sm:text-sm">{label}</p>
-          </div>
-        ))}
-      </section>
 
       <section className={`${cardClass} p-4 sm:p-5`}>
         <div className="mb-4 flex items-center justify-between gap-3">
