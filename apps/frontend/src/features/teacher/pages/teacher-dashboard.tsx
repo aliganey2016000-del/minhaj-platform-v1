@@ -226,37 +226,33 @@ export function TeacherDashboard() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-3 sm:p-5 lg:p-8">
-      <section className="overflow-hidden rounded-3xl border border-emerald-200/70 bg-gradient-to-br from-emerald-600 via-emerald-600 to-teal-700 text-white shadow-sm dark:border-emerald-900/50">
-        <div className="p-5 sm:p-6">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide">
-                <Sparkles className="h-3.5 w-3.5" />
-                {isSo ? 'Shaqada maanta' : 'Teacher Workspace'}
-              </div>
-              <p className="mt-3 text-sm font-semibold text-emerald-50 sm:text-base">
-                {(() => {
-                  const hour = new Date().getHours();
-                  const greeting = hour < 12 ? (isSo ? 'Subax wanaagsan' : 'Good Morning') : hour < 17 ? (isSo ? 'Galab wanaagsan' : 'Good Afternoon') : (isSo ? 'Fiid wanaagsan' : 'Good Evening');
-                  return `${isSo ? 'Soo dhowow' : 'Welcome back'}, ${dashboard.teacher?.name || ''} · ${greeting}`;
-                })()}
-              </p>
-              <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">
-                {isSo ? 'Dashboard-ka Macallinka' : lang === 'ar' ? 'لوحة المعلم' : 'Teacher Dashboard'}
-              </h1>
-              <p className="mt-1 max-w-2xl text-sm text-emerald-50">
-                {dashboard.teacher?.specialization?.length
-                  ? dashboard.teacher.specialization.join(', ')
-                  : isSo ? 'Waxyaabaha muhiimka kuu ah hal meel.' : 'The work that needs your attention, in one place.'}
-              </p>
-              {dashboard.teacher?.teacherId && (
-                <span className="mt-3 inline-flex rounded-lg bg-black/10 px-2.5 py-1 text-xs font-semibold">ID {dashboard.teacher.teacherId}</span>
-              )}
-            </div>
-
-            <button type="button" onClick={() => void load()} className="inline-flex min-h-11 w-fit items-center justify-center gap-2 rounded-xl bg-white/15 px-4 py-2.5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/20">
-              <RefreshCw className="h-4 w-4" /> Refresh
-            </button>
+      <section className="relative isolate overflow-hidden rounded-[2rem] border border-sky-100 bg-gradient-to-br from-sky-50 via-indigo-50 to-cyan-50 text-slate-900 shadow-md dark:border-slate-700 dark:from-slate-900 dark:via-indigo-950 dark:to-slate-900">
+        <div aria-hidden="true" className="pointer-events-none absolute -left-10 -top-12 h-36 w-36 rounded-full bg-gradient-to-br from-sky-300/80 to-blue-500/70 blur-[1px]" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 left-1/4 h-36 w-52 rounded-full bg-gradient-to-r from-violet-300/70 to-cyan-300/70 blur-2xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -right-8 -top-8 h-44 w-44 rounded-full bg-gradient-to-br from-violet-200 to-indigo-300 opacity-80" />
+        <div className="relative flex min-h-[190px] items-center gap-4 px-4 py-7 sm:min-h-[230px] sm:gap-7 sm:px-7 sm:py-8 lg:px-9">
+          <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center rounded-full border-[5px] border-white bg-gradient-to-br from-blue-200 via-indigo-200 to-sky-300 text-indigo-800 shadow-lg sm:h-32 sm:w-32 sm:border-[6px]">
+            <span className="text-4xl font-black sm:text-5xl">{(dashboard.teacher?.name || 'T').trim().charAt(0).toUpperCase()}</span>
+            <span aria-label="Online" title="Online" className="absolute bottom-0 right-0 h-5 w-5 rounded-full border-[3px] border-white bg-emerald-500 sm:h-7 sm:w-7 sm:border-4" />
+          </div>
+          <div className="relative z-10 min-w-0 flex-1 py-1">
+            <p className="inline-flex max-w-full items-center gap-2 rounded-full bg-white/75 px-3 py-2 text-sm font-extrabold text-blue-700 shadow-sm backdrop-blur sm:px-4 sm:text-lg dark:bg-white/10 dark:text-sky-200">
+              <span aria-hidden="true" className="text-xl sm:text-2xl">👋</span>
+              <span>{isSo ? 'Soo dhowow' : lang === 'ar' ? 'مرحباً بعودتك' : 'Welcome back,'}</span>
+            </p>
+            <h1 className="mt-3 break-words text-xl font-black leading-tight tracking-tight text-blue-950 sm:mt-3 sm:text-2xl md:text-3xl lg:text-4xl dark:text-white">
+              {dashboard.teacher?.name || (isSo ? 'Macallin' : 'Teacher')}
+            </h1>
+            <p className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-violet-100/90 px-4 py-2 text-sm font-extrabold text-violet-800 shadow-sm sm:mt-4 sm:text-base dark:bg-violet-400/15 dark:text-violet-200">
+              <span aria-hidden="true" className="text-lg sm:text-xl">🌙</span>
+              <span>{(() => { const hour = new Date().getHours(); return hour < 12 ? (isSo ? 'Subax wanaagsan' : lang === 'ar' ? 'صباح الخير' : 'Good Morning') : hour < 17 ? (isSo ? 'Galab wanaagsan' : lang === 'ar' ? 'مساء الخير' : 'Good Afternoon') : (isSo ? 'Fiid wanaagsan' : lang === 'ar' ? 'مساء الخير' : 'Good Evening'); })()}</span>
+            </p>
+          </div>
+          <div aria-hidden="true" className="pointer-events-none absolute bottom-0 right-0 hidden items-end gap-1 pr-4 sm:flex">
+            <div className="mb-1 h-5 w-24 rotate-[-8deg] rounded-md border border-blue-300 bg-blue-500 shadow-sm" />
+            <div className="mb-2 h-5 w-28 rotate-[-3deg] rounded-md border border-cyan-300 bg-cyan-400 shadow-sm" />
+            <div className="mb-3 h-5 w-24 rotate-[4deg] rounded-md border border-amber-300 bg-amber-400 shadow-sm" />
+            <BookOpen className="mb-7 ml-[-7rem] h-9 w-9 text-blue-700/70" />
           </div>
         </div>
       </section>
