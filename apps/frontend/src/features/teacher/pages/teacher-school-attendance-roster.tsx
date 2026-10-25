@@ -225,6 +225,26 @@ export function TeacherSchoolAttendanceRoster() {
     });
   };
 
+  const saveDraft = async () => {
+    if (!detail || detail.locked || !detail.roster.length || queued) return;
+    const owner = offlineAttendanceOwner();
+    if (!owner) {
+      setError('Secure draft storage is not ready. Please sign in online and reload this page.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      await storeAttendanceDraft(owner, date, detail.schedule._id, drafts);
+      setMessage('Draft saved on this device. You can return and edit it before submitting attendance.');
+    } catch (e: any) {
+      setError(e?.message || 'Could not save attendance draft.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const save = async () => {
     if (!detail?.schedule?.course?._id || detail.locked || !detail.roster.length || queued) return;
     const owner = offlineAttendanceOwner();
@@ -512,15 +532,31 @@ export function TeacherSchoolAttendanceRoster() {
             <span className="text-emerald-600">{counts.present} Present</span>
             <span className="text-red-600">{counts.absent} Absent</span>
           </div>
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={saving || detail.locked || !!queued || !detail.roster.length}
-            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white transition hover:bg-emerald-500 disabled:opacity-50"
-          >
-            <Save className="h-4 w-4" />
-            {saving ? 'Saving...' : queued ? queued.status === 'conflict' ? 'Needs Review' : 'Pending Sync' : detail.locked ? 'Attendance Submitted' : online ? 'Submit Attendance' : 'Save Offline & Sync Later'}
-          </button>
+          {detail.locked && (
+            <p className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              Attendance has been submitted and locked. To make changes, return to the attendance schedule and request an unlock from the administrator.
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => void saveDraft()}
+              disabled={saving || detail.locked || !!queued || !detail.roster.length}
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-blue-500 bg-blue-600 px-3 py-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-50 sm:px-5"
+            >
+              <Save className="h-4 w-4 shrink-0" />
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving || detail.locked || !!queued || !detail.roster.length}
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-3 text-sm font-black text-white transition hover:bg-emerald-500 disabled:opacity-50 sm:px-5"
+            >
+              <CloudUpload className="h-4 w-4 shrink-0" />
+              {saving ? 'Submitting...' : queued ? queued.status === 'conflict' ? 'Needs Review' : 'Pending Sync' : online ? 'Submit' : 'Submit Offline'}
+            </button>
+          </div>
         </div>
       </section>
     </div>
