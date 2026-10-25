@@ -534,10 +534,9 @@ export function SchoolAttendanceReportPanel({ onOpenAttendanceSession }: SchoolA
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-5 gap-0.5 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-card sm:gap-1 sm:p-1.5">
+      <div className="grid grid-cols-4 gap-0.5 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-1 shadow-card sm:gap-1 sm:p-1.5">
         {([
           ['date', 'By Date', CalendarDays],
-          ['missing', 'Missing', Clock3],
           ['risk', 'Risk', AlertTriangle],
           ['teacher', 'Teachers', CheckCircle2],
           ['student', 'By Student', UserRound],
