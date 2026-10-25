@@ -85,6 +85,7 @@ async function startServer() {
     // being saved.
     await import('./services/attendance-notification-automation');
     const { sendInstallmentReminders } = await import('./services/installment-reminder.service');
+    const { sendAttendanceVoiceReminders } = await import('./services/attendance-voice-reminder.service');
     const { repairStudentRegistrationIndex } = await import('./scripts/repair-student-registration-index');
     const { backfillContentSchools } = await import('./utils/content-school-backfill');
 
@@ -159,6 +160,16 @@ async function startServer() {
           void sendInstallmentReminders().catch((error) => console.error('sendInstallmentReminders failed:', error));
         }, 24 * 60 * 60 * 1000),
       );
+
+      // Attendance reminders are checked every minute against the school
+      // timetable. The job sends only at the 15-minute-before-end mark and
+      // skips lessons whose attendance session is already complete.
+      intervals.push(
+        setInterval(() => {
+          void sendAttendanceVoiceReminders().catch((error) => console.error('sendAttendanceVoiceReminders failed:', error));
+        }, 60_000),
+      );
+      void sendAttendanceVoiceReminders().catch((error) => console.error('initial attendance voice reminders failed:', error));
       void sendInstallmentReminders().catch((error) => console.error('initial installment reminders failed:', error));
 
       // AuditLog also carries a 24-month TTL index as the primary cleanup
