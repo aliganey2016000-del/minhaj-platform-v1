@@ -8,6 +8,7 @@ import ClassSchedule from '../models/class-schedule.model';
 import Student from '../models/student.model';
 import Teacher from '../models/teacher.model';
 import Profile from '../models/profile.model';
+import ActivityLog from '../models/activity-log.model';
 import User from '../models/user.model';
 import School, { resolveInstitutionType } from '../models/school.model';
 import ApiResponse from '../utils/api-response';
@@ -1566,4 +1567,102 @@ export const getSchoolOptions = async (req: Request, res: Response): Promise<Res
   }
 
   return ApiResponse.success(res, options);
+};
+
+
+/**
+ * Preview and reset historical school attendance without touching schedules,
+ * students, classes, courses, teachers, calendar settings, or unlock requests.
+ * Both operations are tenant-scoped and restricted by the route to admins.
+ */
+async function getAttendanceResetScope(schoolId: string) {
+  const [students, schedules] = await Promise.all([
+    Student.find({ school: schoolId }).select('_id').lean(),
+    ClassSchedule.find({ school: schoolId }).select('_id').lean(),
+  ]);
+  const studentIds = students.map((row: any) => row._id);
+  const scheduleIds = schedules.map((row: any) => row._id);
+  const clauses: Record<string, unknown>[] = [];
+  if (studentIds.length) clauses.push({ student: { $in: studentIds } });
+  if (scheduleIds.length) clauses.push({ schedule: { $in: scheduleIds } });
+  const attendanceFilter = clauses.length ? { $or: clauses } : { _id: { $exists: false } };
+  return { studentCount: studentIds.length, scheduleCount: scheduleIds.length, attendanceFilter, sessionFilter: { school: schoolId } };
+}
+
+export const previewSchoolAttendanceReset = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId, school } = await schoolContext(req);
+  const scope = await getAttendanceResetScope(schoolId);
+  const [attendanceRecords, attendanceSessions, latestRecord] = await Promise.all([
+    Attendance.countDocuments(scope.attendanceFilter),
+    AttendanceSession.countDocuments(scope.sessionFilter),
+    Attendance.findOne(scope.attendanceFilter).sort({ date: 1 }).select('date').lean(),
+  ]);
+  const [latest] = await Promise.all([
+    Attendance.findOne(scope.attendanceFilter).sort({ date: -1 }).select('date').lean(),
+  ]);
+  return ApiResponse.success(res, {
+    school: { _id: schoolId, name: (school as any).name },
+    students: scope.studentCount,
+    schedules: scope.scheduleCount,
+    attendanceRecords,
+    attendanceSessions,
+    dateFrom: (latestRecord as any)?.date || null,
+    dateTo: (latest as any)?.date || null,
+    confirmationPhrase: 'RESET ATTENDANCE',
+  });
+};
+
+export const resetSchoolAttendance = async (req: Request, res: Response): Promise<Response> => {
+  const { schoolId, school } = await schoolContext(req);
+  if (String(req.body?.confirmation || '') !== 'RESET ATTENDANCE') {
+    throw new BadRequestError('Type RESET ATTENDANCE exactly to confirm this destructive action.');
+  }
+  const reason = String(req.body?.reason || '').trim();
+  if (reason.length < 10 || reason.length > 500) {
+    throw new BadRequestError('A reason between 10 and 500 characters is required.');
+  }
+
+  const scope = await getAttendanceResetScope(schoolId);
+  const [attendanceRecords, attendanceSessions] = await Promise.all([
+    Attendance.countDocuments(scope.attendanceFilter),
+    AttendanceSession.countDocuments(scope.sessionFilter),
+  ]);
+  const actorId = req.user?.userId;
+  if (!actorId || !mongoose.isValidObjectId(actorId)) throw new ForbiddenError('Authenticated administrator is required.');
+
+  // Write the audit record before deletion so the intent remains traceable.
+  const audit = await ActivityLog.create({
+    user: new mongoose.Types.ObjectId(actorId),
+    organizationId: new mongoose.Types.ObjectId(schoolId),
+    action: 'delete',
+    resource: 'school_attendance_reset',
+    resourceId: schoolId,
+    details: JSON.stringify({ schoolName: (school as any).name, reason, attendanceRecords, attendanceSessions, requestedAt: new Date().toISOString() }),
+    ip: String(req.ip || ''),
+  });
+
+  try {
+    const [attendanceResult, sessionResult] = await Promise.all([
+      Attendance.deleteMany(scope.attendanceFilter),
+      AttendanceSession.deleteMany(scope.sessionFilter),
+    ]);
+    audit.details = JSON.stringify({
+      schoolName: (school as any).name,
+      reason,
+      attendanceRecordsDeleted: attendanceResult.deletedCount || 0,
+      attendanceSessionsDeleted: sessionResult.deletedCount || 0,
+      completedAt: new Date().toISOString(),
+    });
+    await audit.save();
+    return ApiResponse.success(res, {
+      attendanceRecordsDeleted: attendanceResult.deletedCount || 0,
+      attendanceSessionsDeleted: sessionResult.deletedCount || 0,
+      schedulesPreserved: true,
+      studentsPreserved: true,
+    }, 'School attendance records reset. Timetables and student records were preserved.');
+  } catch (error) {
+    audit.details = JSON.stringify({ schoolName: (school as any).name, reason, attendanceRecordsExpected: attendanceRecords, attendanceSessionsExpected: attendanceSessions, failedAt: new Date().toISOString(), error: error instanceof Error ? error.message : 'Unknown error' });
+    await audit.save();
+    throw error;
+  }
 };

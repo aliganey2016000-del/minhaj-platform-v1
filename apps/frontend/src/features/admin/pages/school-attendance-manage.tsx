@@ -1,22 +1,25 @@
 import { useState } from 'react';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, Trash2 } from 'lucide-react';
 import { CalendarCheck, UserRoundCheck, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../../store/auth-context';
 import SchoolAttendanceOfflineSettings from './components/school-attendance-offline-settings';
 import SchoolPeriodAttendanceManage from './school-period-attendance-manage';
 import { SchoolSubstitutesPanel } from './components/school-substitutes-panel';
+import SchoolAttendanceReset from './components/school-attendance-reset';
 
-type Workspace = 'period' | 'substitutes' | 'offline';
+type Workspace = 'period' | 'substitutes' | 'offline' | 'reset';
 
 export function SchoolAttendanceManage() {
   const [workspace, setWorkspace] = useState<Workspace>('period');
   const [actionsOpen, setActionsOpen] = useState(false);
   const { user } = useAuth();
   const canManageOffline = user?.role === 'org_admin';
+  const canResetAttendance = user?.role === 'admin' || user?.role === 'org_admin';
 
   const actions = [
     ['substitutes', 'Substitutes', UserRoundCheck],
     ...(canManageOffline ? [['offline', 'Offline Settings', ShieldCheck] as const] : []),
+    ...(canResetAttendance ? [['reset', 'Reset Attendance', Trash2] as const] : []),
   ] as const;
 
   return (
@@ -56,6 +59,7 @@ export function SchoolAttendanceManage() {
       {workspace === 'period' && <SchoolPeriodAttendanceManage />}
       {workspace === 'substitutes' && <SchoolSubstitutesPanel />}
       {workspace === 'offline' && canManageOffline && <SchoolAttendanceOfflineSettings />}
+      {workspace === 'reset' && canResetAttendance && <SchoolAttendanceReset />}
     </div>
   );
 }

@@ -29,6 +29,9 @@ router.get('/my/course-history', roleMiddleware(['student']), asyncHandler(atten
 
 // School schedule-first workflow. Teachers receive their own lessons plus any
 // dated substitute assignments; admins/org-admins receive the full timetable.
+router.get('/school/reset-preview', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.previewSchoolAttendanceReset));
+router.post('/school/reset', roleMiddleware(['admin', 'org_admin']), asyncHandler(schoolAttendanceController.resetSchoolAttendance));
+
 router.get('/school/sessions', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSessions));
 router.get('/school/session/:scheduleId', roleMiddleware(['admin', 'org_admin', 'teacher']), asyncHandler(schoolAttendanceController.getSchoolSession));
 router.get('/school/unlock-requests/mine', roleMiddleware(['teacher']), asyncHandler(attendanceUnlockRequestController.myRequests));
