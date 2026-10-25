@@ -89,12 +89,15 @@ export default function SchoolAttendanceUnlockRequests() {
 
   return <section className="space-y-5">
     <div className="overflow-hidden rounded-3xl border border-[var(--color-border-default)] bg-gradient-to-r from-emerald-50 via-white to-sky-50 shadow-sm dark:from-emerald-950/30 dark:via-[var(--color-surface-primary)] dark:to-sky-950/30">
-      <div className="flex flex-col gap-4 p-4 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex flex-col gap-4 p-4 pb-3 sm:p-6 sm:pb-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-600/20 sm:h-14 sm:w-14"><ShieldCheck className="h-6 w-6 sm:h-7 sm:w-7"/></div>
-          <div className="min-w-0"><h2 className="text-xl font-black tracking-tight text-[var(--color-text-primary)] sm:text-2xl">Attendance Unlock Requests</h2><p className="mt-1 text-sm text-[var(--color-text-secondary)] sm:text-base">Review teacher requests to correct completed period attendance.</p></div>
+          <div className="min-w-0 flex-1"><h2 className="text-xl font-black leading-tight tracking-tight text-[var(--color-text-primary)] sm:text-2xl">Attendance Unlock Requests</h2><p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--color-text-secondary)] sm:text-base">Review teacher requests to correct completed period attendance.</p></div>
         </div>
-        <div className="flex shrink-0 items-center gap-2 self-start rounded-2xl border border-sky-200 bg-white/80 px-3 py-2 text-sm font-bold text-sky-700 shadow-sm dark:border-sky-900 dark:bg-slate-900/70 dark:text-sky-300"><Clock3 className="h-4 w-4"/><span>{counts.pending} Pending</span></div>
+        <div className="hidden shrink-0 items-center gap-2 rounded-2xl border border-sky-200 bg-white/80 px-3 py-2 text-sm font-bold text-sky-700 shadow-sm dark:border-sky-900 dark:bg-slate-900/70 dark:text-sky-300 lg:flex"><Clock3 className="h-4 w-4"/><span>{counts.pending} Pending</span></div>
+      </div>
+      <div className="px-4 pb-4 sm:px-6 sm:pb-5">
+        <div className="inline-flex min-h-10 items-center gap-2 rounded-full border border-sky-200 bg-white/90 px-4 py-2 text-sm font-bold text-sky-700 shadow-sm dark:border-sky-900 dark:bg-slate-900/70 dark:text-sky-300"><Clock3 className="h-4 w-4 shrink-0"/><span>{counts.pending} Pending</span></div>
       </div>
       <div className="grid grid-cols-3 gap-2 px-3 pb-4 sm:gap-3 sm:px-6 sm:pb-6">
         <div className="flex min-w-0 flex-col items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-1.5 py-3 text-center dark:border-amber-900/70 dark:bg-amber-950/30 sm:flex-row sm:justify-between sm:gap-2 sm:px-3"><span className="whitespace-nowrap text-[11px] font-bold leading-tight text-amber-800 dark:text-amber-300 sm:text-sm">Pending</span><span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-amber-200 px-2 text-sm font-black text-amber-900 dark:bg-amber-900 dark:text-amber-100">{counts.pending}</span></div>
