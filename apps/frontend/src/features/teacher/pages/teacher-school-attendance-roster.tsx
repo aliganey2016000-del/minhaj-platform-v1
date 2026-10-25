@@ -417,56 +417,67 @@ export function TeacherSchoolAttendanceRoster() {
           {visible.map((student, index) => {
             const draft = drafts[student._id] || { status: 'present' as Status, reasonCode: '' as ReasonCode, notes: '' };
             return (
-              <div key={student._id} className="px-3 py-3 sm:px-5 sm:py-4">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-black text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                      {index + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate whitespace-nowrap text-sm font-black text-[var(--color-text-primary)] sm:text-[15px]">{student.name}</p>
-                      <p className="mt-0.5 truncate text-xs font-medium text-[var(--color-text-tertiary)]">{student.studentId}</p>
-                    </div>
+              <div
+                key={student._id}
+                className={
+                  'px-3 py-4 transition-colors sm:px-5 sm:py-5 ' +
+                  (index % 2 === 0
+                    ? 'bg-[var(--color-surface-primary)]'
+                    : 'bg-[var(--color-surface-secondary)]/70')
+                }
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className={
+                    'mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-white shadow-sm ' +
+                    (index % 2 === 0
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600'
+                      : 'bg-gradient-to-br from-violet-500 to-purple-700')
+                  }>
+                    {index + 1}
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="whitespace-normal break-words text-sm font-black leading-6 text-[var(--color-text-primary)] sm:text-base">{student.name}</p>
+                    <p className="mt-1 break-all text-xs font-medium text-[var(--color-text-tertiary)]">{student.studentId}</p>
+                  </div>
+                </div>
 
-                  <div className="flex shrink-0 gap-2">
-                    <button
-                      type="button"
-                      aria-label={`Mark ${student.name} present`}
-                      title="Present"
-                      disabled={detail.locked || !!queued}
-                      onClick={() => setDrafts((current) => ({
-                        ...current,
-                        [student._id]: { ...draft, status: 'present', reasonCode: '' },
-                      }))}
-                      className={
-                        'inline-flex h-11 w-11 items-center justify-center rounded-xl border text-base font-black transition disabled:opacity-50 ' +
-                        (draft.status === 'present'
-                          ? 'border-emerald-600 bg-emerald-600 text-white'
-                          : 'border-emerald-600/50 text-emerald-600')
-                      }
-                    >
-                      P
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Mark ${student.name} absent`}
-                      title="Absent"
-                      disabled={detail.locked || !!queued}
-                      onClick={() => setDrafts((current) => ({
-                        ...current,
-                        [student._id]: { ...draft, status: 'absent' },
-                      }))}
-                      className={
-                        'inline-flex h-11 w-11 items-center justify-center rounded-xl border text-base font-black transition disabled:opacity-50 ' +
-                        (draft.status === 'absent'
-                          ? 'border-red-600 bg-red-600 text-white'
-                          : 'border-red-600/50 text-red-600')
-                      }
-                    >
-                      A
-                    </button>
-                  </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 pl-0 sm:pl-[52px]">
+                  <button
+                    type="button"
+                    aria-label={`Mark ${student.name} present`}
+                    title="Present"
+                    disabled={detail.locked || !!queued}
+                    onClick={() => setDrafts((current) => ({
+                      ...current,
+                      [student._id]: { ...draft, status: 'present', reasonCode: '' },
+                    }))}
+                    className={
+                      'inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black transition disabled:opacity-50 sm:min-h-12 sm:text-base ' +
+                      (draft.status === 'present'
+                        ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm shadow-emerald-600/20'
+                        : 'border-emerald-600/50 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/30')
+                    }
+                  >
+                    <span aria-hidden="true">✓</span><span>Present</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Mark ${student.name} absent`}
+                    title="Absent"
+                    disabled={detail.locked || !!queued}
+                    onClick={() => setDrafts((current) => ({
+                      ...current,
+                      [student._id]: { ...draft, status: 'absent' },
+                    }))}
+                    className={
+                      'inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-black transition disabled:opacity-50 sm:min-h-12 sm:text-base ' +
+                      (draft.status === 'absent'
+                        ? 'border-red-600 bg-red-600 text-white shadow-sm shadow-red-600/20'
+                        : 'border-red-600/50 text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30')
+                    }
+                  >
+                    <span aria-hidden="true">×</span><span>Absent</span>
+                  </button>
                 </div>
 
                 {draft.status === 'absent' && !detail.locked && (
