@@ -47,6 +47,7 @@ interface DashboardData {
     performanceSamples?: number;
   };
   teacher: {
+    name?: string;
     teacherId: string;
     qualification?: string;
     // Backend (teacher.model.ts) stores this as string[] — rendering the
@@ -233,7 +234,14 @@ export function TeacherDashboard() {
                 <Sparkles className="h-3.5 w-3.5" />
                 {isSo ? 'Shaqada maanta' : 'Teacher Workspace'}
               </div>
-              <h1 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">
+              <p className="mt-3 text-sm font-semibold text-emerald-50 sm:text-base">
+                {(() => {
+                  const hour = new Date().getHours();
+                  const greeting = hour < 12 ? (isSo ? 'Subax wanaagsan' : 'Good Morning') : hour < 17 ? (isSo ? 'Galab wanaagsan' : 'Good Afternoon') : (isSo ? 'Fiid wanaagsan' : 'Good Evening');
+                  return `${isSo ? 'Soo dhowow' : 'Welcome back'}, ${dashboard.teacher?.name || ''} · ${greeting}`;
+                })()}
+              </p>
+              <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">
                 {isSo ? 'Dashboard-ka Macallinka' : lang === 'ar' ? 'لوحة المعلم' : 'Teacher Dashboard'}
               </h1>
               <p className="mt-1 max-w-2xl text-sm text-emerald-50">
