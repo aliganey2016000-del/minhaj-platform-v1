@@ -16,6 +16,7 @@ import {
   Users,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { useAuth } from '../../../store/auth-context';
 
 interface CourseCard {
   _id: string;
@@ -91,6 +92,7 @@ const dutyStart = (duty: Duty) => {
 
 export function TeacherDashboard() {
   const { i18n } = useTranslation();
+  const { user } = useAuth();
   const lang = i18n.language as 'en' | 'so' | 'ar';
   const isSo = lang === 'so';
 
@@ -225,29 +227,46 @@ export function TeacherDashboard() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-3 sm:p-5 lg:p-8">
-      <section className="overflow-hidden rounded-3xl border border-emerald-200/70 bg-gradient-to-br from-emerald-600 via-emerald-600 to-teal-700 text-white shadow-sm dark:border-emerald-900/50">
-        <div className="p-5 sm:p-6">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide">
-                <Sparkles className="h-3.5 w-3.5" />
-                {isSo ? 'Shaqada maanta' : 'Teacher Workspace'}
+      <section className="overflow-hidden rounded-3xl border border-emerald-200/70 bg-gradient-to-br from-emerald-600 via-teal-600 to-sky-600 text-white shadow-lg dark:border-emerald-900/50">
+        <div className="relative p-5 sm:p-7">
+          <div className="pointer-events-none absolute -right-10 -top-12 h-44 w-44 rounded-full bg-white/10 blur-2xl sm:h-56 sm:w-56" />
+          <div className="pointer-events-none absolute bottom-0 right-16 h-24 w-24 rounded-full bg-cyan-300/20 blur-xl" />
+          <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/15 px-3 py-1.5 text-xs font-bold backdrop-blur">
+                <Sparkles className="h-4 w-4" />
+                {isSo ? 'Ku soo dhowow' : lang === 'ar' ? 'مرحباً بعودتك' : 'Welcome back'}
               </div>
-              <h1 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">
-                {isSo ? 'Dashboard-ka Macallinka' : lang === 'ar' ? 'لوحة المعلم' : 'Teacher Dashboard'}
+              <h1 className="mt-3 break-words text-2xl font-black leading-tight tracking-tight sm:text-3xl lg:text-4xl">
+                {user?.firstName || user?.lastName
+                  ? [user.firstName, user.lastName].filter(Boolean).join(' ')
+                  : isSo ? 'Macallin' : lang === 'ar' ? 'المعلم' : 'Teacher'}
               </h1>
-              <p className="mt-1 max-w-2xl text-sm text-emerald-50">
+              <p className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-white/95 sm:text-base">
+                <span aria-hidden="true">{new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}</span>
+                <span>{new Date().getHours() < 12
+                  ? (isSo ? 'Subax wanaagsan' : lang === 'ar' ? 'صباح الخير' : 'Good Morning')
+                  : new Date().getHours() < 17
+                    ? (isSo ? 'Maalin wanaagsan' : lang === 'ar' ? 'نهارك سعيد' : 'Good Afternoon')
+                    : (isSo ? 'Fiid wanaagsan' : lang === 'ar' ? 'مساء الخير' : 'Good Evening')}</span>
+                <span className="font-normal text-white/80">· {isSo ? 'Maalin wanaagsan iyo guul ayaan kuu rajaynaynaa.' : 'Wishing you a successful day inspiring your students.'}</span>
+              </p>
+              <div className="mt-5 inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-white/20 bg-black/10 px-3 py-2.5 backdrop-blur-sm">
+                <GraduationCap className="h-5 w-5 shrink-0 text-white" />
+                <span className="text-xs font-extrabold uppercase tracking-[0.12em] text-white/90">{isSo ? 'Shaqada macallinka' : 'Teacher Workspace'}</span>
+              </div>
+              <h2 className="mt-3 text-xl font-black tracking-tight sm:text-2xl">{isSo ? 'Dashboard-ka Macallinka' : lang === 'ar' ? 'لوحة المعلم' : 'Teacher Dashboard'}</h2>
+              <p className="mt-1 break-words text-sm leading-relaxed text-white/90 sm:text-base">
                 {dashboard.teacher?.specialization?.length
                   ? dashboard.teacher.specialization.join(', ')
-                  : isSo ? 'Waxyaabaha muhiimka kuu ah hal meel.' : 'The work that needs your attention, in one place.'}
+                  : isSo ? 'Waxyaabaha muhiimka kuu ah hal meel.' : 'Your teaching workspace, all in one place.'}
               </p>
               {dashboard.teacher?.teacherId && (
-                <span className="mt-3 inline-flex rounded-lg bg-black/10 px-2.5 py-1 text-xs font-semibold">ID {dashboard.teacher.teacherId}</span>
+                <span className="mt-3 inline-flex max-w-full break-all rounded-xl border border-white/20 bg-black/10 px-3 py-1.5 text-xs font-semibold text-white/95">ID {dashboard.teacher.teacherId}</span>
               )}
             </div>
-
-            <button type="button" onClick={() => void load()} className="inline-flex min-h-11 w-fit items-center justify-center gap-2 rounded-xl bg-white/15 px-4 py-2.5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/20">
-              <RefreshCw className="h-4 w-4" /> Refresh
+            <button type="button" onClick={() => void load()} className="relative inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/15 px-4 py-3 text-sm font-bold text-white backdrop-blur transition hover:bg-white/25 sm:w-auto">
+              <RefreshCw className="h-4 w-4" /> {isSo ? 'Cusboonaysii' : 'Refresh'}
             </button>
           </div>
         </div>
