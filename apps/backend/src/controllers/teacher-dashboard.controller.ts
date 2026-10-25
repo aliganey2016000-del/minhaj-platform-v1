@@ -117,6 +117,10 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
     ? Math.round(Math.max(0, Math.min(100, rawAverage)))
     : null;
 
+  const teacherWithProfile = await teacher.populate({ path: 'profile', select: 'firstName lastName' });
+  const profile = teacherWithProfile.profile as any;
+  const teacherName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim();
+
   return ApiResponse.success(res, {
     activeCourses: activeCoursesWithCounts,
     draftCourses,
@@ -138,6 +142,7 @@ export const getDashboard = async (req: Request, res: Response): Promise<Respons
       performanceSamples,
     },
     teacher: {
+      name: teacherName,
       teacherId: teacher.teacherId,
       qualification: teacher.qualification,
       specialization: teacher.specialization,
