@@ -33,7 +33,7 @@ interface CourseBrief {
     _id?: string;
     title?: string;
     section?: string;
-    department?: { _id?: string; name?: string } | null;
+    department?: string | { _id?: string; name?: string } | null;
   } | null;
 }
 
@@ -44,7 +44,7 @@ interface ClassBrief {
   title: string;
   section: string;
   academicYear?: string;
-  department?: { _id?: string; name?: string } | null;
+  department?: string | { _id?: string; name?: string } | null;
 }
 
 interface ExamPeriod {
@@ -467,9 +467,12 @@ function DepartmentalExamView({
     const classRecord = classId ? classes.find((item) => item._id === classId) : undefined;
     const department = examClass?.department || classRecord?.department;
     const departmentId = typeof department === 'string' ? department : department?._id;
+    const classDepartmentName = typeof classRecord?.department === 'object' && classRecord.department
+      ? classRecord.department.name
+      : '';
     const name = String(
       (typeof department === 'object' && department ? department.name : '')
-      || classRecord?.department?.name
+      || classDepartmentName
       || ''
     ).trim();
     return {
