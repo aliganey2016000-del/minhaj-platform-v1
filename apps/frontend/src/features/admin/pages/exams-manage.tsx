@@ -458,11 +458,22 @@ function DepartmentalExamView({
     return normalizedName.replace(/[^a-z0-9]+/g, '-') || 'unassigned';
   };
 
+  // Exam list population may include the class but omit its nested department.
+  // Resolve the department from the already-loaded, school-scoped class list
+  // before treating the exam as unassigned.
   const departmentOfExam = (exam: Exam) => {
-    const department = exam.course?.class?.department;
-    const name = String(department?.name || '').trim();
+    const examClass = exam.course?.class;
+    const classId = examClass?._id ? String(examClass._id) : '';
+    const classRecord = classId ? classes.find((item) => item._id === classId) : undefined;
+    const department = examClass?.department || classRecord?.department;
+    const departmentId = typeof department === 'string' ? department : department?._id;
+    const name = String(
+      (typeof department === 'object' && department ? department.name : '')
+      || classRecord?.department?.name
+      || ''
+    ).trim();
     return {
-      key: normalizeDepartmentKey(department?._id, name),
+      key: normalizeDepartmentKey(departmentId, name),
       name: name || 'Unassigned Department',
     };
   };
