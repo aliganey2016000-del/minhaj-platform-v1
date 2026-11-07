@@ -485,8 +485,14 @@ function DepartmentalExamView({
     const values = new Map<string, { key: string; name: string }>();
 
     for (const cls of classes) {
-      const name = String(cls.department?.name || '').trim();
-      const key = normalizeDepartmentKey(cls.department?._id, name);
+      const department = cls.department;
+      const name = String(
+        typeof department === 'object' && department ? department.name : ''
+      ).trim();
+      const key = normalizeDepartmentKey(
+        typeof department === 'string' ? department : department?._id,
+        name,
+      );
       if (key === 'unassigned') continue;
       if (!values.has(key)) values.set(key, { key, name: name || 'Department' });
     }
