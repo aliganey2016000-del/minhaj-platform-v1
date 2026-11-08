@@ -1604,7 +1604,13 @@ interface ExamShiftRule {
   endTime: string;
 }
 
+interface DepartmentShiftAssignment {
+  departmentId: string;
+  shiftIndexes: number[];
+}
+
 interface ExamScheduleRules {
+  departmentShiftAssignments: DepartmentShiftAssignment[];
   preventClassOverlap: boolean;
   allowSharedRooms: boolean;
   roomCapacityCheck: boolean;
@@ -1633,6 +1639,7 @@ const DEFAULT_EXAM_SCHEDULE_RULES: ExamScheduleRules = {
   examShiftCount: 2,
   examShifts: DEFAULT_EXAM_SHIFTS.slice(0, 2).map((shift) => ({ ...shift })),
   allowedExamDays: [0, 1, 2, 3, 4, 5, 6],
+  departmentShiftAssignments: [],
 };
 
 const EXAM_DAY_OPTIONS = [
@@ -1680,6 +1687,7 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'admin';
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
+  const [departments, setDepartments] = useState<DepartmentBrief[]>([]);
   const [schoolId, setSchoolId] = useState('');
   const [rules, setRules] = useState<ExamScheduleRules>(DEFAULT_EXAM_SCHEDULE_RULES);
   const [loading, setLoading] = useState(!isSuperAdmin);
@@ -1693,6 +1701,18 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
       .then(({ data }) => setSchools((data.data || []).filter((s: SchoolBrief) => s.status === 'active')))
       .catch((err: any) => setError(err.response?.data?.message || 'Failed to load organizations'));
   }, [isSuperAdmin]);
+
+  useEffect(() => {
+    if (isSuperAdmin && !schoolId) {
+      setDepartments([]);
+      return;
+    }
+    api.get('/departments', {
+      params: isSuperAdmin ? { school: schoolId, limit: 200 } : { limit: 200 },
+    })
+      .then(({ data }) => setDepartments(data.data || []))
+      .catch(() => setDepartments([]));
+  }, [isSuperAdmin, schoolId]);
 
   const loadRules = useCallback(async (targetSchool?: string) => {
     if (isSuperAdmin && !targetSchool) return;
@@ -1756,7 +1776,26 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
           endTime: '10:00',
         }),
       })),
+      departmentShiftAssignments: (prev.departmentShiftAssignments || []).map((assignment) => ({
+        ...assignment,
+        shiftIndexes: assignment.shiftIndexes.filter((index) => index < count),
+      })),
     }));
+  };
+
+  const updateDepartmentShifts = (departmentId: string, shiftIndexes: number[]) => {
+    setRules((prev) => {
+      const assignments = prev.departmentShiftAssignments || [];
+      const existing = assignments.some((item) => item.departmentId === departmentId);
+      return {
+        ...prev,
+        departmentShiftAssignments: existing
+          ? assignments.map((item) => item.departmentId === departmentId
+            ? { ...item, shiftIndexes }
+            : item)
+          : [...assignments, { departmentId, shiftIndexes }],
+      };
+    });
   };
 
   const updateShift = (index: number, key: keyof ExamShiftRule, value: string) => {
@@ -1957,6 +1996,69 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
                     Break time is the gap between one shift's end time and the next shift's start time.
                   </p>
                 )}
+              </div>
+
+              <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
+                      <Building2 className="h-4 w-4 text-primary-600" />
+                      Department Shift Assignment
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
+                      Choose which configured exam shifts each department can use. Select multiple shifts for a department.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
+                    {departments.length} departments
+                  </span>
+                </div>
+
+                {departments.length === 0 ? (
+                  <p className="mt-3 rounded-xl border border-dashed border-[var(--color-border-default)] p-3 text-xs text-[var(--color-text-tertiary)]">
+                    No departments found for this organization.
+                  </p>
+                ) : (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {departments.map((department) => {
+                      const assignment = (rules.departmentShiftAssignments || []).find(
+                        (item) => item.departmentId === department._id
+                      );
+                      const selected = assignment?.shiftIndexes || [];
+                      return (
+                        <label key={department._id} className="min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3">
+                          <span className="mb-2 block text-xs font-bold text-[var(--color-text-primary)]">{department.name}</span>
+                          <select
+                            multiple
+                            size={Math.min(4, Math.max(2, rules.examShiftCount))}
+                            value={selected.map(String)}
+                            onChange={(event) => updateDepartmentShifts(
+                              department._id,
+                              Array.from(event.target.selectedOptions, (option) => Number(option.value)).sort((a, b) => a - b)
+                            )}
+                            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"
+                            aria-label={`Exam shifts for ${department.name}`}
+                          >
+                            {rules.examShifts.slice(0, rules.examShiftCount).map((shift, index) => (
+                              <option key={index} value={index}>{shift.name}</option>
+                            ))}
+                          </select>
+                          <span className="mt-2 block text-[10px] text-[var(--color-text-tertiary)]">
+                            {selected.length ? selected.map((index) => rules.examShifts[index]?.name).filter(Boolean).join(', ') : 'No shift assigned'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {rules.examShiftCount < 4 && (
+                  <p className="mt-3 text-[11px] text-[var(--color-text-tertiary)]">
+                    To assign Shift 3 or Shift 4, first increase Number of shifts above to 3 or 4.
+                  </p>
+                )}
+                <p className="mt-3 text-[11px] text-[var(--color-text-tertiary)]">
+                  Example: assign Shift 1 and 2 to Primary, then Shift 3 and 4 to Secondary. This setting is saved separately for this school.
+                </p>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
