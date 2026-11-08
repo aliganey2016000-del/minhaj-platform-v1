@@ -27,6 +27,8 @@ import { escapeRegex } from '../utils/escape-regex';
 import {
   getExamSchedulingRulesForSchool,
   normalizeExamSchedulingRules,
+  resolveClassShiftIndexes,
+  describeShiftIndexes,
 } from '../utils/exam-scheduling-rules';
 
 type PendingFixedExam = {
@@ -676,43 +678,32 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
 
   // Department shift assignments are authoritative when configured. Resolve
   // them once per class so no generated slot can fall back to another
-  // department's shifts.
+  // department's shifts. Only classes that actually have courses to schedule
+  // are checked: an empty helper class (e.g. a "Public Class" with no
+  // department and no subjects) must not block the whole timetable. Every
+  // problem is reported at once so the admin can fix them in one pass.
   const hasDepartmentShiftAssignments = rules.departmentShiftAssignments.length > 0;
-  const departmentShiftsById = new Map<string, number[]>(
-    rules.departmentShiftAssignments.map((assignment) => [
-      String(assignment.departmentId),
-      assignment.shiftIndexes,
-    ])
-  );
   const allShiftIndexes = rules.examShifts.map((_shift, index) => index);
   const classShiftIndexesById = new Map<string, number[]>();
+  const classesWithCourses = new Set(courses.map((course) => String(course.class || '')));
+  const shiftProblems: string[] = [];
 
   for (const cls of classes) {
     const classId = String(cls._id);
-    if (!hasDepartmentShiftAssignments) {
-      classShiftIndexesById.set(classId, allShiftIndexes);
+    if (!classesWithCourses.has(classId)) continue;
+    const resolved = resolveClassShiftIndexes(rules, cls);
+    if (resolved.error) {
+      shiftProblems.push(resolved.error);
       continue;
     }
-
-    const departmentId = String(cls.department || '');
-    if (!departmentId) {
-      throw new BadRequestError(
-        `Class "${cls.title || classId}" has no department, but Department Shift Assignment is configured. Assign the class to a department before generating the timetable.`
-      );
-    }
-
-    const assignedShiftIndexes = departmentShiftsById.get(departmentId);
-    if (!assignedShiftIndexes) {
-      throw new BadRequestError(
-        `No exam shifts are assigned to the department of class "${cls.title || classId}". Configure its Department Shift Assignment before generating the timetable.`
-      );
-    }
-    if (!assignedShiftIndexes.length) {
-      throw new BadRequestError(
-        `The department assigned to class "${cls.title || classId}" has no allowed exam shifts. Select at least one shift in Scheduling Rules.`
-      );
-    }
-    classShiftIndexesById.set(classId, assignedShiftIndexes);
+    classShiftIndexesById.set(classId, resolved.allowed);
+  }
+  if (shiftProblems.length) {
+    throw new BadRequestError(
+      shiftProblems.length === 1
+        ? shiftProblems[0]
+        : `Fix these classes before generating the timetable: ${shiftProblems.join(' ')}`
+    );
   }
 
   const normalizeSubject = (value: unknown) => String(value || '')
@@ -1088,10 +1079,31 @@ export const moveScheduleGroup = async (req: Request, res: Response): Promise<Re
   }
 
   const rules = await getExamSchedulingRulesForSchool(schoolId);
-  if (!Number.isInteger(targetShiftIndex) || targetShiftIndex < 0 || targetShiftIndex >= rules.examShifts.length) {
-    throw new BadRequestError('A valid target shift is required');
+  // The department view numbers its columns from the times present in its
+  // own data, which need not match the Scheduling Rules' shift order. When
+  // the client sends the cell's start/end time, that is the source of truth:
+  // it is resolved to the configured shift with those exact times, or kept
+  // as a custom window when the department's shift times were edited.
+  const targetStartTime = String(req.body?.targetStartTime || '').trim();
+  const targetEndTime = String(req.body?.targetEndTime || '').trim();
+  let shiftIndex = targetShiftIndex;
+  let shift: { name?: string; startTime: string; endTime: string };
+  if (targetStartTime || targetEndTime) {
+    const start = timeToMinutes(targetStartTime);
+    const end = timeToMinutes(targetEndTime);
+    if (start < 0 || end < 0 || end <= start) throw new BadRequestError('A valid target shift time is required');
+    shiftIndex = rules.examShifts.findIndex(
+      (item) => item.startTime === targetStartTime && item.endTime === targetEndTime
+    );
+    shift = shiftIndex >= 0
+      ? rules.examShifts[shiftIndex]
+      : { startTime: targetStartTime, endTime: targetEndTime };
+  } else {
+    if (!Number.isInteger(targetShiftIndex) || targetShiftIndex < 0 || targetShiftIndex >= rules.examShifts.length) {
+      throw new BadRequestError('A valid target shift is required');
+    }
+    shift = rules.examShifts[targetShiftIndex];
   }
-  const shift = rules.examShifts[targetShiftIndex];
   const duration = timeToMinutes(shift.endTime) - timeToMinutes(shift.startTime);
 
   const selectedExams = await Exam.find({
@@ -1126,10 +1138,31 @@ export const moveScheduleGroup = async (req: Request, res: Response): Promise<Re
   const classByCourse = new Map(courses.map((course) => [String(course._id), String(course.class || '')]));
   const excludedIds = [...examIds, ...displacedExamIds];
 
+  // Department Shift Assignment applies to manual placement exactly as it
+  // does to Auto Generate: a Secondary class assigned Shift 3/4 can never be
+  // dropped into Shift 1. Custom (edited) shift times are not one of the
+  // configured shifts, so there is no index to check them against.
+  const targetClasses = await ClassModel.find({
+    _id: { $in: Array.from(new Set(Array.from(classByCourse.values()).filter(Boolean))) },
+    school: schoolId,
+  }).select('_id title section department').lean() as any[];
+  const classDocById = new Map(targetClasses.map((cls) => [String(cls._id), cls]));
+  if (shiftIndex >= 0) {
+    for (const cls of targetClasses) {
+      const resolved = resolveClassShiftIndexes(rules, cls);
+      if (resolved.error) throw new ConflictError(resolved.error);
+      if (!resolved.allowed.includes(shiftIndex)) {
+        throw new ConflictError(
+          `${shift.name || `Shift ${shiftIndex + 1}`} is not assigned to the department of class "${cls.title}${cls.section ? ` - ${cls.section}` : ''}". Allowed: ${describeShiftIndexes(rules, resolved.allowed)}.`
+        );
+      }
+    }
+  }
+
   const pending: PendingFixedExam[] = [];
   for (const exam of selectedExams) {
     const classId = classByCourse.get(String(exam.course || '')) || '';
-    if (!classId) throw new BadRequestError('Could not resolve the class for one of the selected exams');
+    if (!classId || !classDocById.has(classId)) throw new BadRequestError('Could not resolve the class for one of the selected exams');
 
     await validateFixedExamSchedule({
       schoolId,
@@ -1182,7 +1215,7 @@ export const moveScheduleGroup = async (req: Request, res: Response): Promise<Re
     moved: selectedExams.length,
     displaced: displacedExamIds.length,
     targetDate,
-    shiftIndex: targetShiftIndex,
+    shiftIndex,
     startTime: shift.startTime,
     endTime: shift.endTime,
   }, `${selectedExams.length} exam(s) placed successfully`);
@@ -1239,13 +1272,13 @@ export const resetScheduleGroups = async (req: Request, res: Response): Promise<
 export const editDepartmentSchedule = async (req: Request, res: Response): Promise<Response> => {
   const schoolId = scheduleRulesSchoolId(req);
   const periodId = String(req.params.periodId || '');
-  if (!/^[a-f\\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
+  if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
 
   const rawIds: unknown[] = Array.isArray(req.body?.examIds) ? req.body.examIds : [];
   const examIds = Array.from(new Set(rawIds.map((item) => String(item || '')).filter(Boolean)));
   if (!examIds.length) throw new BadRequestError('No scheduled department exams were selected');
   if (examIds.length > 500) throw new BadRequestError('A maximum of 500 exams can be edited at once');
-  if (examIds.some((id) => !/^[a-f\\d]{24}$/i.test(id))) throw new BadRequestError('One or more exam ids are invalid');
+  if (examIds.some((id) => !/^[a-f\d]{24}$/i.test(id))) throw new BadRequestError('One or more exam ids are invalid');
 
   const editType = String(req.body?.editType || '');
   if (editType !== 'date' && editType !== 'shift') {
@@ -1409,7 +1442,7 @@ export const saveScheduleGrid = async (req: Request, res: Response): Promise<Res
         throw new BadRequestError('A valid exam shift is required');
       }
 
-      const cls = await ClassModel.findOne({ _id: classId, school: schoolId }).select('title section school').lean() as any;
+      const cls = await ClassModel.findOne({ _id: classId, school: schoolId }).select('title section school department').lean() as any;
       if (!cls) throw new NotFoundError('Class');
 
       const shift = rules.examShifts[shiftIndex];
@@ -1436,6 +1469,16 @@ export const saveScheduleGrid = async (req: Request, res: Response): Promise<Res
       }
 
       if (!/^[a-f\d]{24}$/i.test(courseId)) throw new BadRequestError('A valid course is required');
+
+      // Clearing a cell is always allowed; placing a course must respect the
+      // class's Department Shift Assignment, same as Auto Generate.
+      const resolvedShifts = resolveClassShiftIndexes(rules, cls);
+      if (resolvedShifts.error) throw new ConflictError(resolvedShifts.error);
+      if (!resolvedShifts.allowed.includes(shiftIndex)) {
+        throw new ConflictError(
+          `${shift.name || `Shift ${shiftIndex + 1}`} is not assigned to this class's department. Allowed: ${describeShiftIndexes(rules, resolvedShifts.allowed)}.`
+        );
+      }
       const course = await Course.findOne({ _id: courseId, class: classId, school: schoolId })
         .select('title teacher class school')
         .lean() as any;
