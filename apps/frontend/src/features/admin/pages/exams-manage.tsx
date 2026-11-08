@@ -4845,10 +4845,16 @@ export function ExamsManage() {
     if (!periodId || !examPeriods.length) return;
     const period = examPeriods.find((item) => item._id === periodId);
     if (!period) return;
-    if (selectedExamPeriodId !== periodId) setSelectedExamPeriodId(periodId);
+
+    // Only reset the display when the URL switches to a different exam period.
+    // Do not force "table" on every viewMode change: that would immediately
+    // undo the user's selection of the Departmental View.
+    if (selectedExamPeriodId !== periodId) {
+      setSelectedExamPeriodId(periodId);
+      setViewMode('table');
+    }
     if (!examDetailOpen) setExamDetailOpen(true);
-    if (viewMode !== 'table') setViewMode('table');
-  }, [workspaceSearchParams, examPeriods, selectedExamPeriodId, examDetailOpen, viewMode]);
+  }, [workspaceSearchParams, examPeriods, selectedExamPeriodId, examDetailOpen]);
 
   const periodPaperCount = (periodId: string) =>
     exams.filter((exam) =>
