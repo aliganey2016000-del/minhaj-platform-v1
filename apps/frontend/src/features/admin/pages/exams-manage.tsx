@@ -400,6 +400,15 @@ type DepartmentCellTarget = {
   shiftIndex: number;
 };
 
+type DepartmentAxisTarget = {
+  editType: 'date' | 'shift';
+  label: string;
+  examIds: string[];
+  targetDate?: string;
+  startTime?: string;
+  endTime?: string;
+};
+
 function DepartmentalExamView({
   exams,
   period,
@@ -416,6 +425,8 @@ function DepartmentalExamView({
   const [printBranding, setPrintBranding] = useState<{ name?: string; branding?: { logo?: string } }>({});
   const [departmentEditMode, setDepartmentEditMode] = useState(false);
   const [cellTarget, setCellTarget] = useState<DepartmentCellTarget | null>(null);
+  const [axisTarget, setAxisTarget] = useState<DepartmentAxisTarget | null>(null);
+  const [savingAxis, setSavingAxis] = useState(false);
   const [savingCell, setSavingCell] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resettingSchedule, setResettingSchedule] = useState(false);
@@ -615,6 +626,65 @@ function DepartmentalExamView({
     setMoveError('');
     setMoveSuccess('');
     setCellTarget({ date, shiftIndex });
+  };
+
+  const openDateEditor = (date: string, dayIndex: number) => {
+    if (!departmentEditMode || savingAxis || savingCell || resettingSchedule || !selectedSchedule) return;
+    const examIds = selectedSchedule.placedExams
+      .filter((exam) => examDateKey(exam) === date)
+      .map((exam) => exam._id);
+    if (!examIds.length) {
+      setMoveError('There are no scheduled papers on this date to edit.');
+      return;
+    }
+    setMoveError('');
+    setMoveSuccess('');
+    setAxisTarget({ editType: 'date', label: `Day ${dayIndex + 1}`, examIds, targetDate: date });
+  };
+
+  const openShiftEditor = (shift: { startTime: string; endTime: string }, shiftIndex: number) => {
+    if (!departmentEditMode || savingAxis || savingCell || resettingSchedule || !selectedSchedule) return;
+    const examIds = selectedSchedule.placedExams
+      .filter((exam) => exam.startTime === shift.startTime && exam.endTime === shift.endTime)
+      .map((exam) => exam._id);
+    if (!examIds.length) {
+      setMoveError('There are no scheduled papers in this shift to edit.');
+      return;
+    }
+    setMoveError('');
+    setMoveSuccess('');
+    setAxisTarget({
+      editType: 'shift',
+      label: `Shift ${shiftIndex + 1}`,
+      examIds,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+    });
+  };
+
+  const saveDepartmentAxisEdit = async () => {
+    if (!period?._id || !departmentSchoolId || !axisTarget || savingAxis) return;
+    setSavingAxis(true);
+    setMoveError('');
+    setMoveSuccess('');
+    try {
+      const payload = axisTarget.editType === 'date'
+        ? { school: departmentSchoolId, editType: 'date', examIds: axisTarget.examIds, targetDate: axisTarget.targetDate }
+        : { school: departmentSchoolId, editType: 'shift', examIds: axisTarget.examIds, startTime: axisTarget.startTime, endTime: axisTarget.endTime };
+      const response = await api.post(`/exams/periods/${period._id}/edit-department-schedule`, payload);
+      const updated = Number(response.data?.data?.updated || axisTarget.examIds.length);
+      setAxisTarget(null);
+      setMoveSuccess(
+        axisTarget.editType === 'date'
+          ? `Updated the date for ${updated} paper(s) in ${selectedSchedule?.name || 'this department'}.`
+          : `Updated the time for ${updated} paper(s) in ${axisTarget.label}.`
+      );
+      await onChanged();
+    } catch (err: any) {
+      setMoveError(err?.response?.data?.message || 'Could not update the department day or shift.');
+    } finally {
+      setSavingAxis(false);
+    }
   };
 
   const assignSubjectToCell = async (subject: string) => {
@@ -998,7 +1068,7 @@ function DepartmentalExamView({
             setMoveError('');
             setMoveSuccess('');
           }}
-          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || savingCell || resettingSchedule}
+          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || savingCell || savingAxis || resettingSchedule}
           className={`inline-flex h-[40px] shrink-0 items-center justify-center gap-1 rounded-xl border px-2 text-xs font-bold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:h-[42px] sm:gap-2 sm:px-4 sm:text-sm ${
             departmentEditMode
               ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
@@ -1012,7 +1082,7 @@ function DepartmentalExamView({
         <button
           type="button"
           onClick={() => setResetConfirmOpen(true)}
-          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || savingCell || resettingSchedule}
+          disabled={!selectedSchedule || selectedSchedule.exams.length === 0 || savingCell || savingAxis || resettingSchedule}
           className="inline-flex h-[40px] shrink-0 items-center justify-center gap-1 rounded-xl border border-red-200 bg-red-50 px-2 text-xs font-bold text-red-700 shadow-sm transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300 sm:h-[42px] sm:gap-2 sm:px-4 sm:text-sm"
         >
           <RotateCcw className="h-4 w-4" />
@@ -1033,7 +1103,7 @@ function DepartmentalExamView({
 
       {departmentEditMode && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
-          Tap any Shift cell — filled or blank — then choose a course. A checked course already has a timetable position; an unchecked course is currently unassigned.
+          Tap any Shift cell to assign or move a course. Use the pencil beside a Day/Date or Shift heading to change that date or time for this department only.
         </div>
       )}
       {moveError && (
@@ -1107,7 +1177,21 @@ function DepartmentalExamView({
                     {shifts.map((shift, index) => (
                       <Fragment key={shift.key}>
                         <th className="exam-department-shift-head border-b border-r border-[var(--color-border-default)] bg-primary-50/50 px-3 py-3 text-center dark:bg-primary-950/10">
-                          <div className="font-extrabold text-primary-700 dark:text-primary-300">Shift {index + 1}</div>
+                          <div className="flex items-center justify-center gap-2">
+                            <span className="font-extrabold text-primary-700 dark:text-primary-300">Shift {index + 1}</span>
+                            {departmentEditMode && (
+                              <button
+                                type="button"
+                                onClick={() => openShiftEditor(shift, index)}
+                                disabled={savingAxis || savingCell || resettingSchedule}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-amber-300 bg-white text-amber-700 hover:bg-amber-50 disabled:opacity-40 dark:border-amber-800 dark:bg-slate-900 dark:text-amber-300"
+                                title={`Edit Shift ${index + 1} time`}
+                                aria-label={`Edit Shift ${index + 1} time`}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
                           <div className="mt-0.5 text-[10px] font-semibold text-[var(--color-text-tertiary)]">{shift.startTime}–{shift.endTime}</div>
                         </th>
                         {index < shifts.length - 1 && (
@@ -1128,7 +1212,21 @@ function DepartmentalExamView({
                     return (
                       <tr key={date} className="align-top">
                         <td className="exam-department-day-col border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-4">
-                          <div className="text-[10px] font-extrabold uppercase tracking-wide text-primary-600">Day {dayIndex + 1}</div>
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="text-[10px] font-extrabold uppercase tracking-wide text-primary-600">Day {dayIndex + 1}</div>
+                            {departmentEditMode && (
+                              <button
+                                type="button"
+                                onClick={() => openDateEditor(date, dayIndex)}
+                                disabled={savingAxis || savingCell || resettingSchedule}
+                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-300 bg-white text-amber-700 hover:bg-amber-50 disabled:opacity-40 dark:border-amber-800 dark:bg-slate-900 dark:text-amber-300"
+                                title={`Edit Day ${dayIndex + 1} date`}
+                                aria-label={`Edit Day ${dayIndex + 1} date`}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
                           <div className="mt-1 font-bold text-[var(--color-text-primary)]">
                             {parsed.toLocaleDateString(undefined, { weekday: 'short' })}
                           </div>
@@ -1198,6 +1296,84 @@ function DepartmentalExamView({
             <span>{period?.name || 'Exam'} · {period?.academicYear || ''}</span>
           </div>
         </section>
+      )}
+
+      {axisTarget && (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/45 p-3 sm:items-center" onMouseDown={() => !savingAxis && setAxisTarget(null)}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-4 shadow-2xl sm:p-5"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-[var(--color-text-primary)]">
+                  {axisTarget.editType === 'date' ? `Edit ${axisTarget.label} Date` : `Edit ${axisTarget.label} Time`}
+                </h3>
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                  This change applies only to the selected department and updates {axisTarget.examIds.length} scheduled paper(s).
+                </p>
+              </div>
+              <button type="button" onClick={() => !savingAxis && setAxisTarget(null)} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)]">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {axisTarget.editType === 'date' ? (
+              <label className="mt-5 block">
+                <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">New exam date</span>
+                <input
+                  type="date"
+                  value={axisTarget.targetDate || ''}
+                  min={period?.startDate ? new Date(period.startDate).toISOString().slice(0, 10) : undefined}
+                  max={period?.endDate ? new Date(period.endDate).toISOString().slice(0, 10) : undefined}
+                  onChange={(event) => setAxisTarget((current) => current ? { ...current, targetDate: event.target.value } : current)}
+                  className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 text-sm font-semibold"
+                />
+              </label>
+            ) : (
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Start time</span>
+                  <input
+                    type="time"
+                    value={axisTarget.startTime || ''}
+                    onChange={(event) => setAxisTarget((current) => current ? { ...current, startTime: event.target.value } : current)}
+                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 text-sm font-semibold"
+                  />
+                </label>
+                <label>
+                  <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">End time</span>
+                  <input
+                    type="time"
+                    value={axisTarget.endTime || ''}
+                    onChange={(event) => setAxisTarget((current) => current ? { ...current, endTime: event.target.value } : current)}
+                    className="w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-3 text-sm font-semibold"
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAxisTarget(null)}
+                disabled={savingAxis}
+                className="rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-bold text-[var(--color-text-secondary)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveDepartmentAxisEdit()}
+                disabled={savingAxis || (axisTarget.editType === 'date' ? !axisTarget.targetDate : !axisTarget.startTime || !axisTarget.endTime)}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Pencil className="h-4 w-4" />
+                {savingAxis ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {cellTarget && selectedSchedule && cellTargetShift && (
