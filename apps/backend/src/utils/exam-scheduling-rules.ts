@@ -6,7 +6,13 @@ export interface ExamShiftRule {
   endTime: string;
 }
 
+export interface DepartmentShiftAssignment {
+  departmentId: string;
+  shiftIndexes: number[];
+}
+
 export interface ExamSchedulingRules {
+  departmentShiftAssignments: DepartmentShiftAssignment[];
   preventClassOverlap: boolean;
   allowSharedRooms: boolean;
   roomCapacityCheck: boolean;
@@ -77,7 +83,21 @@ export function normalizeExamSchedulingRules(value: any): ExamSchedulingRules {
   const allowedExamDays: number[] = Array.from(new Set<number>(normalizedAllowedExamDays))
     .sort((a: number, b: number) => a - b);
 
+  const departmentShiftAssignments = Array.isArray(value?.departmentShiftAssignments)
+    ? value.departmentShiftAssignments
+        .filter((item: any) => item && typeof item.departmentId === 'string' && item.departmentId.trim())
+        .map((item: any) => ({
+          departmentId: item.departmentId.trim().slice(0, 64),
+          shiftIndexes: Array.from(new Set<number>(
+            (Array.isArray(item.shiftIndexes) ? item.shiftIndexes : [])
+              .map((index: unknown) => Number(index))
+              .filter((index: number) => Number.isInteger(index) && index >= 0 && index < examShiftCount)
+          )).sort((a, b) => a - b),
+        }))
+    : [];
+
   return {
+    departmentShiftAssignments,
     preventClassOverlap: typeof value?.preventClassOverlap === 'boolean'
       ? value.preventClassOverlap
       : DEFAULT_EXAM_SCHEDULING_RULES.preventClassOverlap,
