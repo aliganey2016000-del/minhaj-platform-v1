@@ -906,15 +906,40 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     return true;
   };
 
+  // Rotate the preferred shift within each department (or band when no
+  // department assignments exist). This prevents Auto Generate from always
+  // choosing the first allowed shift and leaving later assigned shifts unused.
+  const nextShiftOffsetByGroup = new Map<string, number>();
   const bandOrder = ['primary-middle', 'secondary', 'other'];
   for (const band of bandOrder) {
     const bandGroups = byBand.get(band) || [];
     for (const group of bandGroups) {
       const groupCourses = Array.from(group.coursesByClass.entries());
-      const slot = slots.find((candidate) =>
-        group.allowedShiftIndexes.includes(candidate.shiftIndex)
-        && groupCourses.every(([classId]) => slotWorksForClass(classId, candidate))
-      );
+      const firstClass = classById.get(groupCourses[0]?.[0] || '');
+      const rotationKey = hasDepartmentShiftAssignments
+        ? String(firstClass?.department || band)
+        : band;
+      const allowedShiftIndexes = group.allowedShiftIndexes;
+      const shiftOffset = nextShiftOffsetByGroup.get(rotationKey) || 0;
+      const orderedShiftIndexes = [
+        ...allowedShiftIndexes.slice(shiftOffset),
+        ...allowedShiftIndexes.slice(0, shiftOffset),
+      ];
+      // Prefer the next assigned shift across the full date range before
+      // falling back to another date in the previously used shift.
+      const slot = orderedShiftIndexes
+        .flatMap((shiftIndex) => slots.filter((candidate) => candidate.shiftIndex === shiftIndex))
+        .find((candidate) =>
+          groupCourses.every(([classId]) => slotWorksForClass(classId, candidate))
+        );
+
+      if (slot) {
+        const chosenIndex = allowedShiftIndexes.indexOf(slot.shiftIndex);
+        nextShiftOffsetByGroup.set(
+          rotationKey,
+          (chosenIndex + 1) % allowedShiftIndexes.length,
+        );
+      }
 
       if (!slot) {
         const bandLabel = band === 'secondary'
