@@ -161,10 +161,12 @@ async function main() {
     section('Edit Department schedule — ObjectIds with digits are accepted');
     // -------------------------------------------------------------------
     const edit = await request(app).post(`/api/v1/exams/periods/${period._id}/edit-department-schedule`).set(auth).send({
-      editType: 'shift', examIds: [String(biology._id)], startTime: '11:00', endTime: '11:45',
+      editType: 'shift', examIds: [String(biology._id)], startTime: '11:05', endTime: '11:55',
     });
     assert(!/valid Exam is required|ids are invalid/i.test(edit.body?.message || ''), `ids accepted (status ${edit.status}: ${edit.body?.message || ''})`);
     assert(edit.status === 200, `edit succeeds (status ${edit.status})`);
+    const edited = await Exam.findById(biology._id).lean() as any;
+    assert(edited?.startTime === '11:05' && edited?.endTime === '11:55', `shift time updated (got ${edited?.startTime}–${edited?.endTime})`);
 
     console.log(`\n${'='.repeat(60)}`);
     console.log(failures === 0 ? 'ALL CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
