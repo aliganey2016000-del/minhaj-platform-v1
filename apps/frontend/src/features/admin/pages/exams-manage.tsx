@@ -421,7 +421,7 @@ function DepartmentalExamView({
   onChanged: () => Promise<void> | void;
 }) {
   const { user } = useAuth();
-  const [selectedDepartmentKey, setSelectedDepartmentKey] = useState('');
+  const [selectedDepartmentKeys, setSelectedDepartmentKeys] = useState<string[] | null>(null);
   const [printBranding, setPrintBranding] = useState<{ name?: string; branding?: { logo?: string } }>({});
   const [departmentEditMode, setDepartmentEditMode] = useState(false);
   const [cellTarget, setCellTarget] = useState<DepartmentCellTarget | null>(null);
@@ -607,19 +607,15 @@ function DepartmentalExamView({
     };
   }), [classes, dates, departmentDefinitions, allFixed, shifts]);
 
-  useEffect(() => {
-    if (!schedules.length) {
-      if (selectedDepartmentKey) setSelectedDepartmentKey('');
-      return;
-    }
-    if (selectedDepartmentKey && schedules.some((schedule) => schedule.key === selectedDepartmentKey)) return;
-    setSelectedDepartmentKey(schedules[0].key);
-  }, [schedules, selectedDepartmentKey]);
-
-  const selectedSchedule = useMemo(
-    () => schedules.find((schedule) => schedule.key === selectedDepartmentKey) || schedules[0],
-    [schedules, selectedDepartmentKey],
+  const selectedSchedules = useMemo(
+    () => selectedDepartmentKeys === null
+      ? schedules
+      : schedules.filter((schedule) => selectedDepartmentKeys.includes(schedule.key)),
+    [schedules, selectedDepartmentKeys],
   );
+  // Editing, resetting and printing are intentionally limited to one
+  // department at a time so a bulk selection can never mutate the wrong grid.
+  const selectedSchedule = selectedSchedules.length === 1 ? selectedSchedules[0] : undefined;
 
   const openCellPicker = (date: string, shiftIndex: number) => {
     if (!departmentEditMode || savingCell || resettingSchedule) return;
@@ -1041,24 +1037,23 @@ function DepartmentalExamView({
       `}</style>
 
       <div className="flex items-end gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3 shadow-sm sm:gap-3 sm:p-4">
-        <label className="min-w-0 flex-1">
-          <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Department</span>
-          <select
-            value={selectedSchedule?.key || ''}
-            onChange={(e) => {
-              setSelectedDepartmentKey(e.target.value);
+        <div className="min-w-0 flex-1">
+          <span className="mb-1.5 block text-xs font-bold text-[var(--color-text-secondary)]">Departments</span>
+          <CheckboxMultiFilter
+            label="All departments"
+            options={schedules.map((schedule) => ({ value: schedule.key, label: schedule.name }))}
+            selected={selectedDepartmentKeys}
+            onChange={(value) => {
+              setSelectedDepartmentKeys(value);
+              setDepartmentEditMode(false);
               setCellTarget(null);
+              setAxisTarget(null);
               setResetConfirmOpen(false);
               setMoveError('');
               setMoveSuccess('');
             }}
-            className="w-full min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3 py-2.5 text-sm font-semibold"
-          >
-            {schedules.map((schedule) => (
-              <option key={schedule.key} value={schedule.key}>{schedule.name}</option>
-            ))}
-          </select>
-        </label>
+          />
+        </div>
 
         <button
           type="button"
@@ -1117,12 +1112,14 @@ function DepartmentalExamView({
         </div>
       )}
 
-      {!selectedSchedule ? (
+      {selectedSchedules.length === 0 ? (
         <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">
-          No departments were found for the active classes in this examination.
+          {schedules.length === 0 ? 'No departments were found for the active classes in this examination.' : 'Select at least one department to view its schedule.'}
         </section>
-      ) : (
-        <section id="exam-department-print" className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+      ) : selectedSchedules.map((schedule) => {
+        const selectedSchedule = schedule;
+        return (
+        <section key={selectedSchedule.key} id="exam-department-print" className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
           <div className="exam-department-print-only exam-print-header">
             <div className="exam-print-brand">
               {departmentLogo ? (
@@ -1296,7 +1293,8 @@ function DepartmentalExamView({
             <span>{period?.name || 'Exam'} · {period?.academicYear || ''}</span>
           </div>
         </section>
-      )}
+        );
+      })}
 
       {axisTarget && (
         <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/45 p-3 sm:items-center" onMouseDown={() => !savingAxis && setAxisTarget(null)}>
