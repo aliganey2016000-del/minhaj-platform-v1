@@ -32,6 +32,7 @@ export const DEFAULT_EXAM_SHIFTS: ExamShiftRule[] = [
 ];
 
 export const DEFAULT_EXAM_SCHEDULING_RULES: ExamSchedulingRules = {
+  departmentShiftAssignments: [],
   preventClassOverlap: true,
   allowSharedRooms: true,
   roomCapacityCheck: true,
