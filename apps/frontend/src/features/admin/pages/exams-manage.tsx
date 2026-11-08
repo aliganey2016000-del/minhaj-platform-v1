@@ -1119,7 +1119,7 @@ function DepartmentalExamView({
       ) : selectedSchedules.map((schedule) => {
         const selectedSchedule = schedule;
         return (
-        <section id="exam-department-print" className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
+        <section key={selectedSchedule.key} id="exam-department-print" className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-sm">
           <div className="exam-department-print-only exam-print-header">
             <div className="exam-print-brand">
               {departmentLogo ? (
