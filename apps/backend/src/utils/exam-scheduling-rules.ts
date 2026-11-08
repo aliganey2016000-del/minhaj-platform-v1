@@ -128,3 +128,55 @@ export async function getExamSchedulingRulesForSchool(schoolId: unknown): Promis
   const school = await School.findById(schoolId).select('examSchedulingRules').lean() as any;
   return normalizeExamSchedulingRules(school?.examSchedulingRules);
 }
+
+export interface ClassShiftResolution {
+  /** Shift indexes (into rules.examShifts) this class may sit exams in. */
+  allowed: number[];
+  /** Set when Department Shift Assignment is configured but this class cannot use it. */
+  error?: string;
+}
+
+/**
+ * Which exam shifts a class may use. When no Department Shift Assignment is
+ * configured every shift is allowed; once any department has an assignment it
+ * is authoritative, so a class must belong to a department that has at least
+ * one assigned shift. Shared by Auto Generate and every manual placement path
+ * so the timetable can never drift away from the Scheduling Rules.
+ */
+export function resolveClassShiftIndexes(
+  rules: ExamSchedulingRules,
+  cls: { _id?: unknown; title?: string; section?: string; department?: unknown } | null | undefined,
+): ClassShiftResolution {
+  const all = rules.examShifts.map((_shift, index) => index);
+  if (!rules.departmentShiftAssignments.length) return { allowed: all };
+
+  const label = `${cls?.title || String(cls?._id || 'Unknown')}${cls?.section ? ` - ${cls.section}` : ''}`;
+  const rawDepartment = cls?.department as any;
+  const departmentId = String(rawDepartment?._id || rawDepartment || '');
+  if (!departmentId) {
+    return {
+      allowed: [],
+      error: `Class "${label}" has no department, but Department Shift Assignment is configured. Assign the class to a department in Classes.`,
+    };
+  }
+
+  const assignment = rules.departmentShiftAssignments.find((item) => String(item.departmentId) === departmentId);
+  if (!assignment) {
+    return {
+      allowed: [],
+      error: `The department of class "${label}" has no exam shifts in Department Shift Assignment. Select its shifts in Scheduling Rules.`,
+    };
+  }
+  if (!assignment.shiftIndexes.length) {
+    return {
+      allowed: [],
+      error: `The department of class "${label}" has no allowed exam shifts. Select at least one shift in Scheduling Rules.`,
+    };
+  }
+  return { allowed: [...assignment.shiftIndexes] };
+}
+
+/** Human-readable list of shift names for an error message, e.g. "Shift 3, Shift 4". */
+export function describeShiftIndexes(rules: ExamSchedulingRules, indexes: number[]): string {
+  return indexes.map((index) => rules.examShifts[index]?.name || `Shift ${index + 1}`).join(', ');
+}

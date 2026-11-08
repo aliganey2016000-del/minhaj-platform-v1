@@ -707,6 +707,11 @@ function DepartmentalExamView({
         displacedExamIds,
         targetDate: cellTarget.date,
         targetShiftIndex: cellTarget.shiftIndex,
+        // This view's columns come from the department's own exam times, so
+        // the column number is not the Scheduling Rules shift index. Send
+        // the cell's exact window; the backend resolves the real shift.
+        targetStartTime: shift.startTime,
+        targetEndTime: shift.endTime,
       });
       const placed = Number(response.data?.data?.placed || subjectGroup.examIds.length);
       const displaced = Number(response.data?.data?.displaced || 0);
