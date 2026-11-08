@@ -2026,27 +2026,40 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
                       );
                       const selected = assignment?.shiftIndexes || [];
                       return (
-                        <label key={department._id} className="min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3">
-                          <span className="mb-2 block text-xs font-bold text-[var(--color-text-primary)]">{department.name}</span>
-                          <select
-                            multiple
-                            size={Math.min(4, Math.max(2, rules.examShiftCount))}
-                            value={selected.map(String)}
-                            onChange={(event) => updateDepartmentShifts(
-                              department._id,
-                              Array.from(event.target.selectedOptions, (option) => Number(option.value)).sort((a, b) => a - b)
-                            )}
-                            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-2 text-sm"
-                            aria-label={`Exam shifts for ${department.name}`}
-                          >
-                            {rules.examShifts.slice(0, rules.examShiftCount).map((shift, index) => (
-                              <option key={index} value={index}>{shift.name}</option>
-                            ))}
-                          </select>
-                          <span className="mt-2 block text-[10px] text-[var(--color-text-tertiary)]">
-                            {selected.length ? selected.map((index) => rules.examShifts[index]?.name).filter(Boolean).join(', ') : 'No shift assigned'}
+                        <div key={department._id} className="min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3">
+                          <p className="mb-3 text-xs font-bold text-[var(--color-text-primary)]">{department.name}</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label={`Exam shifts for ${department.name}`}>
+                            {rules.examShifts.slice(0, rules.examShiftCount).map((shift, index) => {
+                              const checked = selected.includes(index);
+                              return (
+                                <label
+                                  key={index}
+                                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                                    checked
+                                      ? 'border-primary-500 bg-primary-50 text-primary-800 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-200'
+                                      : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(event) => {
+                                      const next = event.target.checked
+                                        ? [...selected, index]
+                                        : selected.filter((value) => value !== index);
+                                      updateDepartmentShifts(department._id, [...new Set(next)].sort((a, b) => a - b));
+                                    }}
+                                    className="h-4 w-4 shrink-0 rounded border-[var(--color-border-default)] accent-[var(--color-primary-600)]"
+                                  />
+                                  <span>{shift.name}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <span className="mt-3 block text-[10px] text-[var(--color-text-tertiary)]">
+                            {selected.length ? `${selected.length} shift${selected.length === 1 ? '' : 's'} selected: ${selected.map((index) => rules.examShifts[index]?.name).filter(Boolean).join(', ')}` : 'No shift assigned'}
                           </span>
-                        </label>
+                        </div>
                       );
                     })}
                   </div>
