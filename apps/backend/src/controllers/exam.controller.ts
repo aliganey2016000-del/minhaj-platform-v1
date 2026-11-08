@@ -656,7 +656,7 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
   if (!rules.allowedExamDays.length) throw new BadRequestError('Select at least one allowed exam day in Scheduling Rules.');
 
   const classes = await ClassModel.find({ school: schoolId, status: 'active' })
-    .select('_id title section school status')
+    .select('_id title section school status department')
     .sort({ title: 1, section: 1 })
     .lean() as any[];
   if (!classes.length) throw new BadRequestError('No active grades/classes were found for this school.');
@@ -673,6 +673,48 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
   if (!courses.length) throw new BadRequestError('No active courses were found for the school classes.');
 
   const classById = new Map(classes.map((cls) => [String(cls._id), cls]));
+
+  // Department shift assignments are authoritative when configured. Resolve
+  // them once per class so no generated slot can fall back to another
+  // department's shifts.
+  const hasDepartmentShiftAssignments = rules.departmentShiftAssignments.length > 0;
+  const departmentShiftsById = new Map<string, number[]>(
+    rules.departmentShiftAssignments.map((assignment) => [
+      String(assignment.departmentId),
+      assignment.shiftIndexes,
+    ])
+  );
+  const allShiftIndexes = rules.examShifts.map((_shift, index) => index);
+  const classShiftIndexesById = new Map<string, number[]>();
+
+  for (const cls of classes) {
+    const classId = String(cls._id);
+    if (!hasDepartmentShiftAssignments) {
+      classShiftIndexesById.set(classId, allShiftIndexes);
+      continue;
+    }
+
+    const departmentId = String(cls.department || '');
+    if (!departmentId) {
+      throw new BadRequestError(
+        `Class "${cls.title || classId}" has no department, but Department Shift Assignment is configured. Assign the class to a department before generating the timetable.`
+      );
+    }
+
+    const assignedShiftIndexes = departmentShiftsById.get(departmentId);
+    if (!assignedShiftIndexes) {
+      throw new BadRequestError(
+        `No exam shifts are assigned to the department of class "${cls.title || classId}". Configure its Department Shift Assignment before generating the timetable.`
+      );
+    }
+    if (!assignedShiftIndexes.length) {
+      throw new BadRequestError(
+        `The department assigned to class "${cls.title || classId}" has no allowed exam shifts. Select at least one shift in Scheduling Rules.`
+      );
+    }
+    classShiftIndexesById.set(classId, assignedShiftIndexes);
+  }
+
   const normalizeSubject = (value: unknown) => String(value || '')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -701,6 +743,7 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     band: 'primary-middle' | 'secondary' | 'other';
     subjectKey: string;
     subject: string;
+    allowedShiftIndexes: number[];
     coursesByClass: Map<string, any>;
   };
 
@@ -713,11 +756,16 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     if (!cls || !subjectKey) continue;
 
     const band = bandOf(cls);
-    const groupKey = `${band}::${subjectKey}`;
+    const departmentId = String(cls.department || '');
+    const allowedShiftIndexes = classShiftIndexesById.get(classId) || allShiftIndexes;
+    // Do not combine same-named subjects across departments with different
+    // shift assignments; each department must be scheduled independently.
+    const groupKey = `${hasDepartmentShiftAssignments ? `department:${departmentId}` : band}::${subjectKey}`;
     const group = grouped.get(groupKey) || {
       band,
       subjectKey,
       subject,
+      allowedShiftIndexes,
       coursesByClass: new Map<string, any>(),
     };
 
@@ -745,7 +793,6 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
   }
 
   const maxPerClassPerDay = Math.max(1, Number(rules.maxExamsPerClassPerDay) || 1);
-  const usableShiftsPerDay = Math.max(1, Math.min(rules.examShifts.length, maxPerClassPerDay));
   const courseCountByClass = new Map<string, number>();
   for (const group of groups) {
     for (const classId of group.coursesByClass.keys()) {
@@ -754,7 +801,11 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
   }
   const requiredDays = Math.max(
     1,
-    ...Array.from(courseCountByClass.values()).map((count) => Math.ceil(count / usableShiftsPerDay))
+    ...Array.from(courseCountByClass.entries()).map(([classId, count]) => {
+      const allowedCount = (classShiftIndexesById.get(classId) || allShiftIndexes).length;
+      const usableShiftsPerDay = Math.max(1, Math.min(allowedCount, maxPerClassPerDay));
+      return Math.ceil(count / usableShiftsPerDay);
+    })
   );
 
   const startDate = utcDateOnly(period.startDate);
@@ -861,7 +912,8 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     for (const group of bandGroups) {
       const groupCourses = Array.from(group.coursesByClass.entries());
       const slot = slots.find((candidate) =>
-        groupCourses.every(([classId]) => slotWorksForClass(classId, candidate))
+        group.allowedShiftIndexes.includes(candidate.shiftIndex)
+        && groupCourses.every(([classId]) => slotWorksForClass(classId, candidate))
       );
 
       if (!slot) {
