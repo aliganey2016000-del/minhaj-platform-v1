@@ -18,6 +18,7 @@ import { isOfflinePinReady } from '../../../lib/offline-teacher-pin';
 import { TeacherExamOfflineStatus } from '../components/teacher-exam-offline-status';
 import { cacheTeacherExamWorkspace, getCachedTeacherExamWorkspace, cacheTeacherExamPeriods, getCachedTeacherExamPeriods, cacheTeacherExamAttendance, cacheTeacherInvigilationRoster, cacheTeacherResultCourses, cacheTeacherResultRoster } from '../../../lib/teacher-offline-exams';
 import { prepareTeacherOfflineAppShell, saveVerifiedTeacherIdentity, offlineAttendanceOwner, cacheOfflineTeacherSidebar } from '../../../lib/teacher-offline-attendance';
+import { examWindow } from '../../../lib/school-time';
 
 type WorkspaceTab = 'schedule' | 'attendance' | 'results';
 type ResultStatusTab = 'pending' | 'submitted';
@@ -89,8 +90,9 @@ const dateKey = (value?: string) => {
 const dutyStatus = (assignment: Assignment): DutyStatus => {
   const day = dateKey(assignment.examDate);
   if (!day) return 'upcoming';
-  const start = new Date(`${day}T${assignment.startTime}:00`);
-  const end = new Date(`${day}T${assignment.endTime}:00`);
+  const examSlot = examWindow(day, assignment.startTime, assignment.endTime);
+  if (!examSlot) return 'upcoming';
+  const { start, end } = examSlot;
   const now = new Date();
   if (now < start) return 'upcoming';
   if (now <= end) return 'ongoing';

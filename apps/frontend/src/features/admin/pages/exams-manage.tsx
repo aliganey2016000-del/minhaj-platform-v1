@@ -12,6 +12,7 @@ import { toTitleCase } from '../../../lib/format';
 import { BackButton } from '../../shared/components/back-button';
 import { AcademicYearSelect } from '../../shared/components/academic-year-select';
 import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
+import { examWindow } from '../../../lib/school-time';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,9 +133,9 @@ function getEffectiveStatus(exam: Exam): string {
   if (exam.status === 'cancelled' || exam.status === 'completed') return exam.status;
   if (exam.autoSchedule || !exam.examDate || !exam.startTime || !exam.endTime) return exam.status;
 
-  const datePart = new Date(exam.examDate).toISOString().split('T')[0];
-  const start = new Date(`${datePart}T${exam.startTime}`);
-  const end = new Date(`${datePart}T${exam.endTime}`);
+  const examSlot = examWindow(exam.examDate, exam.startTime, exam.endTime);
+  if (!examSlot) return exam.status;
+  const { start, end } = examSlot;
   const now = new Date();
   if (now >= start && now <= end) return 'ongoing';
   if (now > end) return 'completed';
@@ -5688,7 +5689,7 @@ export function ExamsManage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950/30"><Trash2 className="h-5 w-5" /></div>
               <h2 className="text-lg font-bold">Bulk Delete Exams</h2>
             </div>
-            <p className="mb-5 text-sm text-[var(--color-text-secondary)]">Delete the selected <strong>{selected.size}</strong> exam{selected.size !== 1 ? 's' : ''}? This action cannot be undone.</p>
+            <p className="mb-5 text-sm text-[var(--color-text-secondary)]">Delete the selected <strong>{selected.size}</strong> exam{selected.size !== 1 ? 's' : ''}? They move to Trash with their papers, results and attendance, and an admin can restore them.</p>
             <div className="flex gap-2">
               <button type="button" onClick={() => setShowBulkDeleteModal(false)} disabled={bulkDeleting} className="flex-1 rounded-xl border border-[var(--color-border-default)] px-4 py-2.5 text-sm font-medium">Cancel</button>
               <button type="button" onClick={handleBulkDelete} disabled={bulkDeleting} className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{bulkDeleting ? 'Deleting...' : 'Delete ' + selected.size}</button>

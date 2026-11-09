@@ -11,6 +11,7 @@ import api from '../../../lib/axios';
 import { useAuth } from '../../../store/auth-context';
 import { BackButton } from '../../shared/components/back-button';
 import { ExamWorkspaceTabs } from '../components/exam-workspace-tabs';
+import { examWindow } from '../../../lib/school-time';
 
 // SECURITY: printAttendanceSheet() below writes raw template-literal HTML
 // into a popup window via document.write(), outside React's JSX escaping.
@@ -104,9 +105,9 @@ function getEffectiveStatus(e: ExamBrief): string {
   if (e.status === 'cancelled' || e.status === 'completed') return e.status;
   if (e.autoSchedule || !e.examDate || !e.startTime || !e.endTime) return e.status;
 
-  const datePart = new Date(e.examDate).toISOString().split('T')[0];
-  const start = new Date(`${datePart}T${e.startTime}`);
-  const end = new Date(`${datePart}T${e.endTime}`);
+  const examSlot = examWindow(e.examDate, e.startTime, e.endTime);
+  if (!examSlot) return e.status;
+  const { start, end } = examSlot;
   const now = new Date();
   if (now >= start && now <= end) return 'ongoing';
   if (now > end) return 'completed';

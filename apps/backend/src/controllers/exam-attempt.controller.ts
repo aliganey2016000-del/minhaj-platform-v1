@@ -15,6 +15,7 @@ import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/api-err
 import ensureStudentRecord from '../utils/ensure-student';
 import { sanitizeQuestionForStudent, gradeQuestionSet, questionFraction } from '../utils/question-engine';
 import { getAutoScheduleWindow, isWindowActive, isWindowPast } from '../utils/exam-eligibility';
+import { schoolWallTimeToDate, examDateKeyOf } from '../utils/school-date';
 
 /** Strips correct-answer fields (and shuffles options/choices/etc.) so students never receive them — same engine as course quizzes. */
 function sanitizeQuestion(q: IPaperQuestion) {
@@ -60,9 +61,12 @@ async function autoCheckIn(examId: unknown, studentId: unknown, userId: string, 
 function isWithinExamWindow(exam: { examDate?: Date; startTime?: string; endTime?: string; status: string }): boolean {
   if (exam.status === 'cancelled') return false;
   if (!exam.examDate || !exam.startTime || !exam.endTime) return false;
-  const datePart = new Date(exam.examDate).toISOString().split('T')[0];
-  const start = new Date(`${datePart}T${exam.startTime}`);
-  const end = new Date(`${datePart}T${exam.endTime}`);
+  // Start/end are school-local (Africa/Mogadishu) wall-clock times, not the
+  // server's UTC clock — see schoolWallTimeToDate.
+  const datePart = examDateKeyOf(exam.examDate);
+  const start = schoolWallTimeToDate(datePart, exam.startTime);
+  const end = schoolWallTimeToDate(datePart, exam.endTime);
+  if (!start || !end) return false;
   const now = new Date();
   return now >= start && now <= end;
 }
@@ -70,9 +74,8 @@ function isWithinExamWindow(exam: { examDate?: Date; startTime?: string; endTime
 /** Whether a fixed-schedule exam's window has fully finished — the earliest point review/results can be shown for it. Auto-scheduled exams use their own per-student window (see getAutoScheduleWindow) instead. */
 function isPastExamWindow(exam: { examDate?: Date; endTime?: string }): boolean {
   if (!exam.examDate || !exam.endTime) return false;
-  const datePart = new Date(exam.examDate).toISOString().split('T')[0];
-  const end = new Date(`${datePart}T${exam.endTime}`);
-  return new Date() > end;
+  const end = schoolWallTimeToDate(examDateKeyOf(exam.examDate), exam.endTime);
+  return !!end && new Date() > end;
 }
 
 /** The correct-answer value in the same shape evaluateQuestion compares a submitted answer against — normalized once here so the review screen can show "correct answer" per type without re-deriving it on the frontend. */
@@ -253,8 +256,7 @@ export const start = async (req: Request, res: Response): Promise<Response> => {
     open = isWithinExamWindow(exam);
     if (!open) throw new BadRequestError('This exam is not currently live.');
     if (exam.examDate && exam.endTime) {
-      const datePart = new Date(exam.examDate).toISOString().split('T')[0];
-      windowEnd = new Date(`${datePart}T${exam.endTime}`);
+      windowEnd = schoolWallTimeToDate(examDateKeyOf(exam.examDate), exam.endTime);
     }
   }
 

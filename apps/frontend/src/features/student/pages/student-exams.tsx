@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import api from '../../../lib/axios';
 import { toTitleCase } from '../../../lib/format';
+import { examWindow } from '../../../lib/school-time';
 
 interface Exam {
   _id: string;
@@ -73,9 +74,10 @@ function computeState(e: Exam): ExamState {
     return 'missed';
   }
   if (!e.examDate || !e.startTime || !e.endTime) return 'upcoming';
-  const date = e.examDate.split('T')[0];
-  const start = new Date(`${date}T${e.startTime}`).getTime();
-  const end = new Date(`${date}T${e.endTime}`).getTime();
+  const examSlot = examWindow(e.examDate, e.startTime, e.endTime);
+  if (!examSlot) return 'upcoming';
+  const start = examSlot.start.getTime();
+  const end = examSlot.end.getTime();
   const now = Date.now();
   if (now < start) return 'upcoming';
   if (now <= end) return 'active';

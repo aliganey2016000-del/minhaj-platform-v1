@@ -10,7 +10,7 @@ import { useAuth } from '../../../store/auth-context';
 
 interface TrashItem {
   _id: string;
-  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School' | 'Student';
+  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School' | 'Student' | 'Exam';
   label: string;
   school?: { _id: string; name: string } | null;
   deletedBy?: { _id: string; email: string } | null;
@@ -40,7 +40,7 @@ type ConfirmModalState =
   | { kind: 'empty' }
   | null;
 
-const ENTITY_TYPES: TrashItem['entityType'][] = ['Student', 'Parent', 'Teacher', 'Class', 'Course', 'School'];
+const ENTITY_TYPES: TrashItem['entityType'][] = ['Student', 'Parent', 'Teacher', 'Class', 'Course', 'Exam', 'School'];
 
 const TYPE_STYLES: Record<string, string> = {
   Student: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
@@ -49,11 +49,12 @@ const TYPE_STYLES: Record<string, string> = {
   Class: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
   Course: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   School: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  Exam: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
 };
 
 // Where to re-delete a just-restored entity if the admin clicks Undo.
 const ENTITY_DELETE_PATH: Record<string, string> = {
-  Student: '/students', Parent: '/parents', Teacher: '/teachers', Class: '/classes', Course: '/courses', School: '/schools',
+  Student: '/students', Parent: '/parents', Teacher: '/teachers', Class: '/classes', Course: '/courses', School: '/schools', Exam: '/exams',
 };
 
 const UNDO_WINDOW_MS = 7000;
