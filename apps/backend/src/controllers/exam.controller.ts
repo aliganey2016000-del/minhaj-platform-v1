@@ -22,6 +22,7 @@ import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-erro
 import ensureStudentRecord from '../utils/ensure-student';
 import { applyOrgFilter, assertOwnsOrg, getOwnTeacherRecord, assertOwnsExamIfTeacher, resolveOrgIdForCreate, resolveViewableOrgId } from '../utils/tenant-scope';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
+import { moveManyToTrash } from '../utils/trash';
 import { castObjectIdFilter } from '../utils/cast-object-id-filter';
 import { escapeRegex } from '../utils/escape-regex';
 import {
@@ -1870,6 +1871,52 @@ async function deleteExamDependents(examIds: unknown[]): Promise<void> {
   ]);
 }
 
+/**
+ * Deleting an exam is a soft delete: before anything is removed, the exam and
+ * every record hanging off it are snapshotted into Trash (one entry per exam,
+ * grouped as a batch when several are deleted together), so an admin can
+ * restore the exam with its paper, attempts, results and attendance intact.
+ */
+async function trashAndDeleteExams(req: Request, examIds: unknown[]): Promise<void> {
+  if (examIds.length === 0) return;
+  const filter = { exam: { $in: examIds } };
+  const dependentModels = [
+    ExamPaper, ExamAttempt, Result, ExamAttendance, ExamAttendanceLog,
+    SeatAllocation, ExamAppeal, ExamIncident, ExamEligibility,
+  ] as any[];
+
+  const [exams, ...dependentDocs] = await Promise.all([
+    Exam.find({ _id: { $in: examIds } }).populate('course', 'title').lean(),
+    ...dependentModels.map((model) => model.find(filter).lean()),
+  ]) as any[][];
+
+  const entries = exams.map((exam: any) => {
+    const examId = String(exam._id);
+    const course = exam.course as any;
+    const snapshots = [
+      // The primary snapshot must be the Exam itself (entityType === modelName),
+      // with its raw course id rather than the populated object.
+      { modelName: 'Exam', data: { ...exam, course: course?._id || course } },
+      ...dependentModels.flatMap((model, index) =>
+        (dependentDocs[index] || [])
+          .filter((doc: any) => String(doc.exam) === examId)
+          .map((doc: any) => ({ modelName: model.modelName, data: doc }))
+      ),
+    ];
+    const courseTitle = course?.title?.en || '';
+    return {
+      entityType: 'Exam' as const,
+      label: `${exam.title}${courseTitle ? ` — ${courseTitle}` : ''}`.slice(0, 200),
+      school: exam.school || null,
+      snapshots,
+    };
+  });
+
+  await moveManyToTrash(entries, req);
+  await deleteExamDependents(examIds);
+  await Exam.deleteMany({ _id: { $in: examIds } });
+}
+
 // DELETE /exams/:id
 export const remove = async (req: Request, res: Response): Promise<Response> => {
   const existing = await Exam.findById(req.params.id).populate('course', 'school teacher');
@@ -1877,9 +1924,8 @@ export const remove = async (req: Request, res: Response): Promise<Response> => 
   assertOwnsOrg(req, existing, 'school');
   await assertOwnsExamIfTeacher(req, existing);
 
-  await deleteExamDependents([existing._id]);
-  await Exam.findByIdAndDelete(req.params.id);
-  return ApiResponse.noContent(res, 'Exam deleted');
+  await trashAndDeleteExams(req, [existing._id]);
+  return ApiResponse.noContent(res, 'Exam moved to Trash');
 };
 
 // Canonical academic-year start (e.g. "2026" from "2026/27", "2026-2027",
@@ -2159,9 +2205,8 @@ export const bulkRemove = async (req: Request, res: Response): Promise<Response>
   }
 
   const idsToDelete = await Exam.find(filter).distinct('_id');
-  await deleteExamDependents(idsToDelete);
-  const result = await Exam.deleteMany(filter);
-  return ApiResponse.success(res, { deleted: result.deletedCount }, `Deleted ${result.deletedCount} exam(s)`);
+  await trashAndDeleteExams(req, idsToDelete);
+  return ApiResponse.success(res, { deleted: idsToDelete.length }, `Moved ${idsToDelete.length} exam(s) to Trash`);
 };
 
 // ---------------------------------------------------------------------------

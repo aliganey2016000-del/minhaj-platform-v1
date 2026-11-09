@@ -7,7 +7,7 @@
  */
 import { Request } from 'express';
 import mongoose from 'mongoose';
-import Trash, { ITrashSnapshot } from '../models/trash.model';
+import Trash, { ITrashSnapshot, TrashEntityType } from '../models/trash.model';
 import Student from '../models/student.model';
 import Parent from '../models/parent.model';
 import Teacher from '../models/teacher.model';
@@ -17,10 +17,27 @@ import School from '../models/school.model';
 import User from '../models/user.model';
 import Profile from '../models/profile.model';
 import ActivityLog from '../models/activity-log.model';
+import Exam from '../models/exam.model';
+import ExamPaper from '../models/exam-paper.model';
+import ExamAttempt from '../models/exam-attempt.model';
+import ExamAttendance from '../models/exam-attendance.model';
+import ExamAttendanceLog from '../models/exam-attendance-log.model';
+import ExamAppeal from '../models/exam-appeal.model';
+import ExamIncident from '../models/exam-incident.model';
+import ExamEligibility from '../models/exam-eligibility.model';
+import SeatAllocation from '../models/seat-allocation.model';
+import Result from '../models/result.model';
 import { NotFoundError, ForbiddenError } from './api-error';
 
 const MODEL_REGISTRY: Record<string, mongoose.Model<any>> = {
   Student, Parent, Teacher, Class: ClassModel, Course, School, User, Profile,
+  // A deleted exam is trashed together with everything that hangs off it
+  // (paper, attempts, results, attendance + audit log, seating, appeals,
+  // incidents, eligibility) so a restore brings the whole record back.
+  ...Object.fromEntries([
+    Exam, ExamPaper, ExamAttempt, Result, ExamAttendance, ExamAttendanceLog,
+    SeatAllocation, ExamAppeal, ExamIncident, ExamEligibility,
+  ].map((model) => [model.modelName, model as mongoose.Model<any>])),
 };
 
 // Fire-and-forget, never throws — the Trash action it's attached to must
@@ -53,7 +70,7 @@ export async function logTrashActivity(
 }
 
 export async function moveToTrash(opts: {
-  entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School' | 'Student';
+  entityType: TrashEntityType;
   label: string;
   school?: unknown;
   snapshots: ITrashSnapshot[];
@@ -76,7 +93,7 @@ export async function moveToTrash(opts: {
 // enough to hit the browser/proxy request timeout.
 export async function moveManyToTrash(
   entries: {
-    entityType: 'Parent' | 'Teacher' | 'Class' | 'Course' | 'School' | 'Student';
+    entityType: TrashEntityType;
     label: string;
     school?: unknown;
     snapshots: ITrashSnapshot[];

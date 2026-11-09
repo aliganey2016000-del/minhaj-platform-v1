@@ -13,6 +13,7 @@ import {
 import { Link } from 'react-router-dom';
 import api from '../../../lib/axios';
 import { TeacherExamWorkflowNav } from '../components/teacher-exam-workflow-nav';
+import { examWindow } from '../../../lib/school-time';
 
 type Assignment = {
   _id: string;
@@ -37,8 +38,9 @@ const dateKey = (value: string) => {
 
 const assignmentStatus = (assignment: Assignment): ViewStatus => {
   const day = dateKey(assignment.examDate);
-  const start = new Date(`${day}T${assignment.startTime}:00`);
-  const end = new Date(`${day}T${assignment.endTime}:00`);
+  const examSlot = examWindow(day, assignment.startTime, assignment.endTime);
+  if (!examSlot) return 'upcoming';
+  const { start, end } = examSlot;
   const now = new Date();
   if (now < start) return 'upcoming';
   if (now <= end) return 'active';

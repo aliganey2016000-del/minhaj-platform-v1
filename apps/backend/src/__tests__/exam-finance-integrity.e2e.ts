@@ -259,10 +259,16 @@ async function main() {
     assert((pmResult as any).status === 'failed', `60% fails against this exam's 80% passingMarks threshold (got ${(pmResult as any)?.status})`);
 
     section('Finding 5 & 6: attempt deadline is clamped to the window end, and a duplicate start is handled, not thrown');
+    // Exam times are school-local (Africa/Mogadishu) wall-clock times, so the
+    // window is built on that clock, not the server's UTC clock.
+    const mogadishuClock = (ms: number) => new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Africa/Mogadishu', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(new Date(ms));
+    const mogadishuDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Mogadishu' }).format(new Date());
     const tightExam = await Exam.create({
-      title: 'Tight Window Exam', course: course._id, school: school._id, examDate: new Date(),
-      startTime: new Date(Date.now() - 2000).toISOString().slice(11, 16),
-      endTime: new Date(Date.now() + 2 * 60000).toISOString().slice(11, 16), // closes in ~2 minutes
+      title: 'Tight Window Exam', course: course._id, school: school._id, examDate: new Date(`${mogadishuDay}T00:00:00.000Z`),
+      startTime: mogadishuClock(Date.now() - 60000),
+      endTime: mogadishuClock(Date.now() + 2 * 60000), // closes in ~2 minutes
       duration: 120, totalMarks: 1, passingMarks: 1, createdBy: admin._id, // a 2-hour duration that must be clamped
     });
     await ExamPaper.create({

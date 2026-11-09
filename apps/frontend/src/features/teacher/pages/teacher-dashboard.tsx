@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import api from '../../../lib/axios';
+import { schoolWallTimeToDate } from '../../../lib/school-time';
 
 interface CourseCard {
   _id: string;
@@ -86,7 +87,7 @@ const dutyStart = (duty: Duty) => {
   const date = new Date(duty.examDate);
   if (Number.isNaN(date.getTime())) return Number.MAX_SAFE_INTEGER;
   const day = date.toISOString().slice(0, 10);
-  return new Date(`${day}T${duty.startTime || '00:00'}:00`).getTime();
+  return schoolWallTimeToDate(day, duty.startTime || '00:00')?.getTime() ?? Number.MAX_SAFE_INTEGER;
 };
 
 export function TeacherDashboard() {
