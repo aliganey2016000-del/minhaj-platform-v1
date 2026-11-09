@@ -8,6 +8,8 @@ import * as XLSX from 'xlsx';
 import ExamRoom from '../models/exam-room.model';
 import ClassModel from '../models/class.model';
 import SeatAllocation from '../models/seat-allocation.model';
+import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules';
+import { savedSeatingShiftLoad } from '../utils/exam-shift-groups';
 import ExamSeatingPlan from '../models/exam-seating-plan.model';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError } from '../utils/api-error';
@@ -209,12 +211,16 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
       const seated = await ExamSeatingPlan.find({ room: existing._id })
         .select('academicYear examType')
         .lean() as any[];
-      const occupancyBySession = new Map<string, number>();
-      for (const row of seated) {
-        const sessionKey = `${row.academicYear}::${row.examType}`;
-        occupancyBySession.set(sessionKey, (occupancyBySession.get(sessionKey) || 0) + 1);
+      const sessionKeys = new Set(seated.map(row => `${row.academicYear}::${row.examType}`));
+      // Students in different exam shifts share the room's seats, so the
+      // occupancy that matters is the busiest shift of each session.
+      const rules = await getExamSchedulingRulesForSchool(existing.school);
+      let maxOccupied = 0;
+      for (const sessionKey of sessionKeys) {
+        const [academicYear, examType] = sessionKey.split('::');
+        const load = await savedSeatingShiftLoad(rules, { room: existing._id, academicYear, examType });
+        maxOccupied = Math.max(maxOccupied, load.peak(String(existing._id)));
       }
-      const maxOccupied = Math.max(0, ...occupancyBySession.values());
       if (capacity < maxOccupied) {
         throw new BadRequestError(
           `Cannot reduce ${existing.name}'s capacity to ${capacity}: ${maxOccupied} student(s) are already seated there for an exam session. Reassign or remove those seats first.`
