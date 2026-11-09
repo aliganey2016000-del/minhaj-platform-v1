@@ -168,6 +168,16 @@ async function main() {
     const edited = await Exam.findById(biology._id).lean() as any;
     assert(edited?.startTime === '11:05' && edited?.endTime === '11:55', `shift time updated (got ${edited?.startTime}–${edited?.endTime})`);
 
+    // -------------------------------------------------------------------
+    section('Edit Department schedule — a shorter shift shortens the paper too');
+    // -------------------------------------------------------------------
+    const shorter = await request(app).post(`/api/v1/exams/periods/${period._id}/edit-department-schedule`).set(auth).send({
+      editType: 'shift', examIds: [String(biology._id)], startTime: '11:05', endTime: '11:45',
+    });
+    assert(shorter.status === 200, `shortening succeeds (status ${shorter.status}: ${shorter.body?.message || ''})`);
+    const shortened = await Exam.findById(biology._id).lean() as any;
+    assert(shortened?.endTime === '11:45' && shortened?.duration === 40, `duration follows the window (got ${shortened?.endTime}, ${shortened?.duration} min)`);
+
     console.log(`\n${'='.repeat(60)}`);
     console.log(failures === 0 ? 'ALL CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
     console.log('='.repeat(60));

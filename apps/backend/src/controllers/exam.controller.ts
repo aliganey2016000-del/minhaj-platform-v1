@@ -1327,7 +1327,10 @@ export const editDepartmentSchedule = async (req: Request, res: Response): Promi
     const end = timeToMinutes(endTime);
     if (start < 0 || end < 0) throw new BadRequestError('Start Time and End Time must use HH:MM');
     if (end <= start) throw new BadRequestError('Shift End Time must be after Start Time');
-    updateFields = { startTime, endTime };
+    // A paper sits the whole shift, so its duration follows the new window
+    // (same as placing a paper into a shift cell). Without this, shortening a
+    // shift was rejected by durationValidation against the old duration.
+    updateFields = { startTime, endTime, duration: end - start };
   }
 
   const courseIds = exams.map((exam) => String(exam.course || '')).filter(Boolean);
@@ -1343,7 +1346,9 @@ export const editDepartmentSchedule = async (req: Request, res: Response): Promi
     const examDate = editType === 'date' ? targetDate : examDateKey(exam.examDate);
     const examStart = editType === 'shift' ? startTime : String(exam.startTime || '');
     const examEnd = editType === 'shift' ? endTime : String(exam.endTime || '');
-    const duration = Number(exam.duration || (timeToMinutes(examEnd) - timeToMinutes(examStart)));
+    const duration = editType === 'shift'
+      ? timeToMinutes(examEnd) - timeToMinutes(examStart)
+      : Number(exam.duration || (timeToMinutes(examEnd) - timeToMinutes(examStart)));
 
     await validateFixedExamSchedule({
       schoolId,
