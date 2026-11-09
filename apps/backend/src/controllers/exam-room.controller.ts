@@ -209,16 +209,16 @@ export const update = async (req: Request, res: Response): Promise<Response> => 
     // ExamSeatingPlan rows after this edit. Block the edit instead.
     if (capacity < Number(existing.capacity)) {
       const seated = await ExamSeatingPlan.find({ room: existing._id })
-        .select('academicYear examType')
+        .select('academicYear examType period')
         .lean() as any[];
-      const sessionKeys = new Set(seated.map(row => `${row.academicYear}::${row.examType}`));
+      const sessionKeys = new Set(seated.map(row => `${row.academicYear}::${row.examType}::${row.period || ''}`));
       // Students in different exam shifts share the room's seats, so the
       // occupancy that matters is the busiest shift of each session.
       const rules = await getExamSchedulingRulesForSchool(existing.school);
       let maxOccupied = 0;
       for (const sessionKey of sessionKeys) {
-        const [academicYear, examType] = sessionKey.split('::');
-        const load = await savedSeatingShiftLoad(rules, { room: existing._id, academicYear, examType });
+        const [academicYear, examType, period] = sessionKey.split('::');
+        const load = await savedSeatingShiftLoad(rules, { room: existing._id, academicYear, examType, period: period || null });
         maxOccupied = Math.max(maxOccupied, load.peak(String(existing._id)));
       }
       if (capacity < maxOccupied) {

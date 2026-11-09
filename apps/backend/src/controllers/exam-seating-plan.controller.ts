@@ -11,6 +11,7 @@ import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules';
 import { savedSeatingShiftLoad, classShiftIndexes } from '../utils/exam-shift-groups';
+import { resolveSeatingScope, seatingScopeFilter, SeatingScope } from '../utils/exam-seating-scope';
 
 const COLUMNS = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Seat'];
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
@@ -19,10 +20,33 @@ const classOf = (s: any) => norm([s?.class?.title, s?.class?.section].filter(Boo
 const examTypeValue = (v: string) => { const x=key(v); if(x==='mid'||x==='mid exam'||x==='midterm') return 'mid'; if(x==='final'||x==='final exam') return 'final'; return ''; };
 
 async function schoolForStudent(req: Request, student: any) { if(student.school){assertOwnOrg(req,student,'school');return student.school;} return null; }
-async function populate(q: any) { return q.populate('room','name building capacity').populate({path:'student',populate:[{path:'profile',select:'firstName lastName'},{path:'class',select:'title section academicYear shiftMode department',populate:{path:'department',select:'name'}},{path:'school',select:'name'}],select:'studentId profile school class department shiftMode'}).lean(); }
+async function populate(q: any) { return q.populate('room','name building capacity').populate({path:'student',populate:[{path:'profile',select:'firstName lastName'},{path:'class',select:'title section academicYear shiftMode department',populate:{path:'department',select:'name'}},{path:'school',select:'name'}],select:'studentId profile school class department shiftMode status'}).lean(); }
 function payload(a: any) { const s=a?.student; return {...a,student:s?{...s,organization:s.school?.name||'',department:s.class?.department?.name||s.department||'',className:classOf(s),shift:s.class?.shiftMode||s.shiftMode||'',academicYear:s.class?.academicYear||''}:s}; }
 
-export const list = async (req: Request,res: Response) => { const q=req.query as any; let filter:any={}; if(q.academicYear)filter.academicYear=norm(q.academicYear); if(q.examType)filter.examType=examTypeValue(q.examType); filter=applyOrgFilter(req,filter,'school'); const rows=await populate(ExamSeatingPlan.find(filter).sort({room:1,deskNumber:1})); return ApiResponse.success(res,rows.map(payload)); };
+// Rows whose student was deleted or is no longer active (e.g. test data,
+// graduated students) are not part of the live allocation: they are hidden
+// from the list and counts, and removed by the next generate or Reset.
+const isLiveRow = (row: any) => Boolean(row?.student?._id) && row.student.status === 'active';
+
+/** Org filter for a scope: a period's own organization, else the caller's tenant filter. */
+function scopedPlanFilter(req: Request, scope: SeatingScope) {
+  const filter: Record<string, unknown> = seatingScopeFilter(scope);
+  return scope.school ? { ...filter, school: scope.school } : applyOrgFilter(req, filter, 'school');
+}
+
+export const list = async (req: Request,res: Response) => {
+  const q=req.query as any;
+  const scope=await resolveSeatingScope(req,{periodId:q.periodId,academicYear:q.academicYear,examType:q.examType},false);
+  let filter:any={};
+  if(scope) filter=scopedPlanFilter(req,scope);
+  else {
+    if(q.academicYear)filter.academicYear=norm(q.academicYear);
+    if(q.examType)filter.examType=examTypeValue(q.examType);
+    filter=applyOrgFilter(req,filter,'school');
+  }
+  const rows=await populate(ExamSeatingPlan.find(filter).sort({room:1,deskNumber:1}));
+  return ApiResponse.success(res,rows.filter(isLiveRow).map(payload));
+};
 
 export const rooms = async (req: Request,res: Response) => {
   const schoolId = resolveViewableOrgId(req, req.query.school);
@@ -38,14 +62,17 @@ export const rooms = async (req: Request,res: Response) => {
 
 export const stats = async (req: Request,res: Response) => {
   const q=req.query as any;
-  const year=norm(q.academicYear);
-  const type=examTypeValue(q.examType);
-  if(!year||!type) return ApiResponse.success(res,{totalStudents:0,assigned:0,unassigned:0,locked:0,roomsUsed:0});
+  const scope=await resolveSeatingScope(req,{periodId:q.periodId,academicYear:q.academicYear,examType:q.examType},false);
+  if(!scope) return ApiResponse.success(res,{totalStudents:0,assigned:0,unassigned:0,locked:0,roomsUsed:0});
 
-  const studentFilter=applyOrgFilter(req,{status:'active'},'school');
-  const planFilter=applyOrgFilter(req,{academicYear:year,examType:type},'school');
-  const [totalStudents,assigned,locked,roomIds]=await Promise.all([
-    Student.countDocuments(studentFilter),
+  const studentFilter=scope.school?{status:'active',school:scope.school}:applyOrgFilter(req,{status:'active'},'school');
+  const activeStudentIds=await Student.distinct('_id',studentFilter);
+  // Only rows of currently active students count — rows left behind by
+  // deleted/inactive students would otherwise push "assigned" past the
+  // real student total.
+  const planFilter={...scopedPlanFilter(req,scope),student:{$in:activeStudentIds}};
+  const totalStudents=activeStudentIds.length;
+  const [assigned,locked,roomIds]=await Promise.all([
     ExamSeatingPlan.countDocuments(planFilter),
     ExamSeatingPlan.countDocuments({...planFilter,locked:true}),
     ExamSeatingPlan.distinct('room',planFilter),
@@ -61,10 +88,9 @@ export const stats = async (req: Request,res: Response) => {
 };
 
 export const add = async (req: Request,res: Response) => {
-  const {organization,studentId,room,seat,academicYear,examType}=req.body as any;
-  if(!studentId||!room||!academicYear||!examType) throw new BadRequestError('Student ID, Room, Academic Year and Exam Type are required');
-  const t=examTypeValue(examType);
-  if(!t) throw new BadRequestError('Exam Type must be Mid Exam or Final');
+  const {organization,studentId,room,seat,academicYear,examType,periodId}=req.body as any;
+  if(!studentId||!room) throw new BadRequestError('Student ID and Room are required');
+  const seatingScope=(await resolveSeatingScope(req,{periodId,academicYear,examType}))!;
   const student=await Student.findOne({studentId:norm(studentId)})
     .populate('profile','firstName lastName')
     .populate({path:'class',select:'title section academicYear shiftMode department',populate:{path:'department',select:'name'}})
@@ -77,7 +103,7 @@ export const add = async (req: Request,res: Response) => {
   if(!roomDoc) throw new NotFoundError('Exam room');
   assertOwnOrg(req,roomDoc,'school');
   const seatValue=norm(seat) || `__ROOM_ONLY__${String(student._id)}`;
-  const scope={school:schoolId,academicYear:norm(academicYear),examType:t};
+  const scope={school:schoolId,...seatingScopeFilter(seatingScope)};
   if(await ExamSeatingPlan.exists({...scope,student:student._id})) throw new BadRequestError('This student already has a room assignment for this Academic Year and Exam Type');
   if(!seatValue.startsWith('__ROOM_ONLY__') && await ExamSeatingPlan.exists({...scope,room:roomDoc._id,deskNumber:seatValue})) throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`);
 
@@ -94,7 +120,7 @@ export const add = async (req: Request,res: Response) => {
     }
   }
 
-  const created=await ExamSeatingPlan.create({student:student._id,room:roomDoc._id,deskNumber:seatValue,academicYear:norm(academicYear),examType:t,school:schoolId});
+  const created=await ExamSeatingPlan.create({student:student._id,room:roomDoc._id,deskNumber:seatValue,academicYear:seatingScope.academicYear,examType:seatingScope.examType,period:seatingScope.period,school:schoolId});
   const row=await populate(ExamSeatingPlan.findById(created._id));
   return ApiResponse.success(res,payload(row),'Room assignment added');
 };
@@ -104,19 +130,20 @@ export const update = async (req: Request,res: Response) => {
   if(!row) throw new NotFoundError('Seating assignment');
   assertOwnOrg(req,row,'school');
   const {room,seat,academicYear,examType,locked}=req.body as any;
-  const t=examType?examTypeValue(examType):row.examType;
+  // A period's rows always keep that period's year/type.
+  const t=row.period?row.examType:(examType?examTypeValue(examType):row.examType);
   if(!t) throw new BadRequestError('Invalid Exam Type');
   const roomDoc=await ExamRoom.findOne({name:norm(room),capacityMode:{ $ne:'auto' },allocationEnabled:{ $ne:false },...(row.school?{school:row.school}:{})}).lean();
   if(!roomDoc) throw new NotFoundError('Exam room');
   assertOwnOrg(req,roomDoc,'school');
   const requestedSeat=norm(seat);
   const seatValue=requestedSeat || (String(row.deskNumber||'').startsWith('__ROOM_ONLY__') ? String(row.deskNumber) : `__ROOM_ONLY__${String(row.student)}`);
-  const nextAcademicYear=norm(academicYear||row.academicYear);
+  const nextAcademicYear=row.period?row.academicYear:norm(academicYear||row.academicYear);
 
   if(!seatValue.startsWith('__ROOM_ONLY__')){
     const seatTaken=await ExamSeatingPlan.exists({
       _id:{$ne:row._id}, school:row.school||null, academicYear:nextAcademicYear,
-      examType:t, room:roomDoc._id, deskNumber:seatValue,
+      examType:t, period:row.period||null, room:roomDoc._id, deskNumber:seatValue,
     });
     if(seatTaken) throw new BadRequestError(`Seat "${seatValue}" is already occupied in ${roomDoc.name}`);
   }
@@ -125,7 +152,7 @@ export const update = async (req: Request,res: Response) => {
   if(rules.roomCapacityCheck){
     const load=await savedSeatingShiftLoad(rules,{
       _id:{$ne:row._id}, school:row.school||null, academicYear:nextAcademicYear,
-      examType:t, room:roomDoc._id,
+      examType:t, period:row.period||null, room:roomDoc._id,
     });
     const studentDoc=await Student.findById(row.student).select('class').populate({path:'class',select:'title section department'}).lean() as any;
     const occupied=load.loadFor(String(roomDoc._id),classShiftIndexes(rules,studentDoc?.class||null));
@@ -194,7 +221,7 @@ function suggestSeat(allRooms: any[], seenSeats: Set<string>): { room: string; s
   return null;
 }
 
-async function validateRows(req: Request, rows: Record<string, unknown>[]) {
+async function validateRows(req: Request, rows: Record<string, unknown>[], seatingScope: SeatingScope | null = null) {
   const ids = rows.map((r) => norm(r['Student ID']).toUpperCase()).filter(Boolean);
   const students = (await Student.find({ studentId: { $in: ids } })
     .populate('profile', 'firstName lastName')
@@ -218,12 +245,15 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
     };
     try {
       if (!student) throw new Error(`Student ${studentId} was not found`);
-      if (!row.organization || !row.department || !row.className || !row.shift || !row.studentName || !row.academicYear || !row.examType || !row.room || !row.seat) throw new Error('All 10 columns are required');
-      const t = examTypeValue(row.examType);
+      // Imported into an exam period, the period decides the year and type,
+      // so those two columns are optional and ignored.
+      if (!row.organization || !row.department || !row.className || !row.shift || !row.studentName || (!seatingScope && (!row.academicYear || !row.examType)) || !row.room || !row.seat) throw new Error('All 10 columns are required');
+      const t = seatingScope ? seatingScope.examType : examTypeValue(row.examType);
       if (!t) throw new Error('Exam Type must be Mid Exam or Final');
-      if (!academicYear) academicYear = row.academicYear;
+      const rowYear = seatingScope ? seatingScope.academicYear : row.academicYear;
+      if (!academicYear) academicYear = rowYear;
       if (!type) type = t;
-      if (key(row.academicYear) !== key(academicYear) || t !== type) throw new Error('All rows must use the same Academic Year and Exam Type');
+      if (key(rowYear) !== key(academicYear) || t !== type) throw new Error('All rows must use the same Academic Year and Exam Type');
       if (!school) {
         school = student.school;
       }
@@ -245,14 +275,14 @@ async function validateRows(req: Request, rows: Record<string, unknown>[]) {
       // chairs, etc). Only a genuine room+seat collision above is blocked;
       // see the module comment and seating-import-smart-fix.e2e.ts.
       seenSeats.add(seatKey);
-      docs.push({ student: student._id, room: roomDoc._id, deskNumber: row.seat, academicYear: row.academicYear, examType: t, school: school?._id || null });
+      docs.push({ student: student._id, room: roomDoc._id, deskNumber: row.seat, academicYear: rowYear, examType: t, period: seatingScope?.period || null, school: school?._id || null });
     } catch (e: any) {
       row.status = 'error';
       row.message = e.message;
     }
     preview.push(row);
   }
-  return { preview, docs, school, academicYear, examType: type };
+  return { preview, docs, school, academicYear, examType: type, period: seatingScope?.period || null };
 }
 
 function rowsFromJsonBody(req: Request): Record<string, unknown>[] {
@@ -265,8 +295,9 @@ function rowsFromJsonBody(req: Request): Record<string, unknown>[] {
   }));
 }
 
-export const previewImport = async (req: Request, res: Response) => { const r = await validateRows(req, readRowsFromFile(req)); return ApiResponse.success(res, r.preview); };
-export const importExcel = async (req: Request, res: Response) => { const r = await validateRows(req, readRowsFromFile(req)); const errors = r.preview.filter((x: any) => x.status === 'error'); if (errors.length) throw new BadRequestError(`Import blocked: ${errors.length} row(s) need correction`); await ExamSeatingPlan.deleteMany({ school: r.school?._id || r.school || null, academicYear: r.academicYear, examType: r.examType }); if (r.docs.length) await ExamSeatingPlan.insertMany(r.docs); return ApiResponse.success(res, { imported: r.docs.length }, `Imported ${r.docs.length} seating assignments`); };
+const importScope = (req: Request) => resolveSeatingScope(req, { periodId: (req.query as any)?.periodId || req.body?.periodId }, false);
+export const previewImport = async (req: Request, res: Response) => { const r = await validateRows(req, readRowsFromFile(req), await importScope(req)); return ApiResponse.success(res, r.preview); };
+export const importExcel = async (req: Request, res: Response) => { const r = await validateRows(req, readRowsFromFile(req), await importScope(req)); const errors = r.preview.filter((x: any) => x.status === 'error'); if (errors.length) throw new BadRequestError(`Import blocked: ${errors.length} row(s) need correction`); await ExamSeatingPlan.deleteMany({ school: r.school?._id || r.school || null, academicYear: r.academicYear, examType: r.examType, period: r.period }); if (r.docs.length) await ExamSeatingPlan.insertMany(r.docs); return ApiResponse.success(res, { imported: r.docs.length, academicYear: r.academicYear, examType: r.examType }, `Imported ${r.docs.length} seating assignments`); };
 
 // ---------------------------------------------------------------------------
 // validateRowsJson / importRows — the "Apply Fix" round trip. After a
@@ -276,6 +307,15 @@ export const importExcel = async (req: Request, res: Response) => { const r = aw
 // directly — no need to re-upload/re-edit the original spreadsheet.
 // ---------------------------------------------------------------------------
 
-export const validateRowsJson = async (req: Request, res: Response) => { const r = await validateRows(req, rowsFromJsonBody(req)); return ApiResponse.success(res, r.preview); };
-export const importRows = async (req: Request, res: Response) => { const r = await validateRows(req, rowsFromJsonBody(req)); const errors = r.preview.filter((x: any) => x.status === 'error'); if (errors.length) throw new BadRequestError(`Import blocked: ${errors.length} row(s) need correction`); await ExamSeatingPlan.deleteMany({ school: r.school?._id || r.school || null, academicYear: r.academicYear, examType: r.examType }); if (r.docs.length) await ExamSeatingPlan.insertMany(r.docs); return ApiResponse.success(res, { imported: r.docs.length }, `Imported ${r.docs.length} seating assignments`); };
+export const validateRowsJson = async (req: Request, res: Response) => { const r = await validateRows(req, rowsFromJsonBody(req), await importScope(req)); return ApiResponse.success(res, r.preview); };
+export const importRows = async (req: Request, res: Response) => { const r = await validateRows(req, rowsFromJsonBody(req), await importScope(req)); const errors = r.preview.filter((x: any) => x.status === 'error'); if (errors.length) throw new BadRequestError(`Import blocked: ${errors.length} row(s) need correction`); await ExamSeatingPlan.deleteMany({ school: r.school?._id || r.school || null, academicYear: r.academicYear, examType: r.examType, period: r.period }); if (r.docs.length) await ExamSeatingPlan.insertMany(r.docs); return ApiResponse.success(res, { imported: r.docs.length, academicYear: r.academicYear, examType: r.examType }, `Imported ${r.docs.length} seating assignments`); };
+
+// POST /exams/seating-plan/reset — removes the whole allocation of an exam
+// period (or a legacy year + type), locked rows included, e.g. to clear
+// test data before generating the real plan.
+export const reset = async (req: Request, res: Response) => {
+  const scope = (await resolveSeatingScope(req, { periodId: req.body?.periodId, academicYear: req.body?.academicYear, examType: req.body?.examType }))!;
+  const result = await ExamSeatingPlan.deleteMany(scopedPlanFilter(req, scope));
+  return ApiResponse.success(res, { deleted: result.deletedCount }, `Removed ${result.deletedCount} room assignment(s)${scope.periodName ? ` from ${scope.periodName}` : ''}`);
+};
 export const downloadTemplate=async(_req:Request,res:Response)=>{const sample=[['Minhaj','Department','Class A','Morning','ST001','Ahmed Ali','2026/27','Mid Exam','Room 01','A01']];const buffer=buildXlsxBuffer(COLUMNS,sample,'Exam Seating');res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');res.setHeader('Content-Disposition','attachment; filename=exam-seating-master-template.xlsx');res.end(buffer);};
