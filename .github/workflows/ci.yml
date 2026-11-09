@@ -201,6 +201,9 @@ jobs:
       - name: Room Plan shares rooms across exam-shift groups
         run: npm run test:exam-seating-shift-groups
 
+      - name: Room Allocation is scoped to its exam period (reset, stats, invigilator)
+        run: npm run test:exam-seating-period-scope
+
       - name: Class Schedule edge-case regressions
         run: npx ts-node src/__tests__/class-schedule-edge-cases.e2e.ts
 

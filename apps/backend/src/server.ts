@@ -87,6 +87,7 @@ async function startServer() {
     const { sendInstallmentReminders } = await import('./services/installment-reminder.service');
     const { sendAttendanceVoiceReminders } = await import('./services/attendance-voice-reminder.service');
     const { repairStudentRegistrationIndex } = await import('./scripts/repair-student-registration-index');
+    const { repairExamSeatingIndexes } = await import('./scripts/repair-exam-seating-indexes');
     const { backfillContentSchools } = await import('./utils/content-school-backfill');
 
     const appModule = await import('./app');
@@ -132,6 +133,9 @@ async function startServer() {
     // group is logged and skipped instead of thrown.
     void repairStudentRegistrationIndex().catch((error) =>
       console.error('repairStudentRegistrationIndex failed:', error),
+    );
+    void repairExamSeatingIndexes().catch((error) =>
+      console.error('repairExamSeatingIndexes failed:', error),
     );
     void backfillContentSchools()
       .then((result) => console.log('Content school backfill:', JSON.stringify(result)))

@@ -46,6 +46,7 @@
     "test:exam-department-shifts": "ts-node src/__tests__/exam-department-shift-assignment.e2e.ts",
     "test:exam-trash-timezone": "ts-node src/__tests__/exam-trash-and-timezone.e2e.ts",
     "test:exam-seating-shift-groups": "ts-node src/__tests__/exam-seating-shift-groups.e2e.ts",
+    "test:exam-seating-period-scope": "ts-node src/__tests__/exam-seating-period-scope.e2e.ts",
     "test:class-department-filter": "ts-node src/__tests__/class-department-filter.e2e.ts",
     "test:institution-structure-tenant-isolation": "ts-node src/__tests__/institution-structure-tenant-isolation.e2e.ts",
     "test:tenant-data-integrity": "ts-node src/__tests__/tenant-data-integrity.e2e.ts",

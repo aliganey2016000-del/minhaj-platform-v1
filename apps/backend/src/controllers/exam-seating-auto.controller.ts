@@ -14,16 +14,10 @@ import {
 } from '../utils/exam-room-plan-settings';
 import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules';
 import { classShiftIndexes, peakShiftDemand, shiftSetKey, ShiftRoomLoad } from '../utils/exam-shift-groups';
+import { resolveSeatingScope, seatingScopeFilter } from '../utils/exam-seating-scope';
 
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
 const key = (v: unknown) => norm(v).toLowerCase();
-
-const examTypeValue = (v: string) => {
-  const x = key(v);
-  if (x === 'mid' || x === 'mid exam' || x === 'midterm') return 'mid';
-  if (x === 'final' || x === 'final exam') return 'final';
-  return '';
-};
 
 const classLabel = (s: any) => norm([s?.class?.title, s?.class?.section].filter(Boolean).join(' '));
 const departmentLabel = (s: any) => norm(s?.class?.department?.name || s?.department?.name || s?.department || '');
@@ -209,14 +203,15 @@ export const generate = async (req: Request, res: Response) => {
     studentRoomOverrides = [],
     capacityOverrideRoomIds = [],
     shift = '',
+    periodId = '',
   } = req.body as any;
 
-  const year = norm(academicYear);
-  const type = examTypeValue(norm(examType));
-  const allocationSeed = norm(seed) || `${year}|${type}|default`;
-
-  if (!year) throw new BadRequestError('Academic Year is required');
-  if (!type) throw new BadRequestError('Exam Type must be Mid Exam or Final');
+  // Opened from an exam period, the allocation belongs to that period and
+  // takes its academic year / type from it; otherwise the legacy year + type.
+  const seatingScope = (await resolveSeatingScope(req, { periodId, academicYear, examType }))!;
+  const year = seatingScope.academicYear;
+  const type = seatingScope.examType;
+  const allocationSeed = norm(seed) || `${seatingScope.period ? String(seatingScope.period) : `${year}|${type}`}|default`;
 
   let targetSchoolId: string | null = null;
   if (req.user?.role === 'org_admin') {
@@ -538,7 +533,10 @@ export const generate = async (req: Request, res: Response) => {
     );
   }
 
-  const scope: any = { academicYear: year, examType: type, school: targetSchoolId };
+  if (seatingScope.school && String(seatingScope.school) !== targetSchoolId) {
+    throw new BadRequestError('The selected Exam belongs to another Organization');
+  }
+  const scope: any = { ...seatingScopeFilter(seatingScope), school: targetSchoolId };
   const selectedIds = selected.map(s => s._id);
   const selectedIdStrings = new Set(selectedIds.map(id => String(id)));
   const existingRows = await ExamSeatingPlan.find({
@@ -936,6 +934,11 @@ export const generate = async (req: Request, res: Response) => {
       student: { $in: selectedIds },
       locked: { $ne: true },
     });
+    // Rows of students who were deleted or are no longer active (e.g. test
+    // data) are never part of a new plan; drop them instead of letting them
+    // pile up on top of every regenerated allocation.
+    const activeStudentIds = await Student.distinct('_id', { school: targetSchoolId, status: 'active' });
+    await ExamSeatingPlan.deleteMany({ ...scope, student: { $nin: activeStudentIds } });
   }
 
   const docs: any[] = assignments
@@ -946,6 +949,7 @@ export const generate = async (req: Request, res: Response) => {
       deskNumber: `__ROOM_ONLY__${String(item.student._id)}`,
       academicYear: year,
       examType: type,
+      period: seatingScope.period,
       school: targetSchoolId,
       locked: false,
     }));

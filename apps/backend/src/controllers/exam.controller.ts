@@ -2063,8 +2063,15 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
     .populate('room', 'name building')
     .lean();
   const myAcademicYearKey = currentAcademicYearKey;
+  // Seats saved for an exam period (Room Allocation opened from that period)
+  // win for that period's exams; legacy year + Mid/Final rows cover the rest.
+  const seatByPeriod = new Map<string, any>();
   const seatByType = new Map<string, any>();
   for (const s of seating as any[]) {
+    if (s.period) {
+      if (!seatByPeriod.has(String(s.period))) seatByPeriod.set(String(s.period), s);
+      continue;
+    }
     const seatYear = academicYearStartKey(s.academicYear);
     if (myAcademicYearKey && seatYear && seatYear !== myAcademicYearKey) continue;
     if (!seatByType.has(s.examType)) seatByType.set(s.examType, s);
@@ -2072,7 +2079,8 @@ export const getMyExams = async (req: Request, res: Response): Promise<Response>
 
   const examsWithSeating = result.map((e: any) => {
     const type = examTypeOf(e);
-    const seat = type ? seatByType.get(type) : (seatByType.size === 1 ? seatByType.values().next().value : null);
+    const periodSeat = e.period ? seatByPeriod.get(String(e.period?._id || e.period)) : null;
+    const seat = periodSeat || (type ? seatByType.get(type) : (seatByType.size === 1 ? seatByType.values().next().value : null));
     return {
       ...e,
       mySeatRoom: seat?.room?.name || '',

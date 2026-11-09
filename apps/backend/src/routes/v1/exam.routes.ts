@@ -71,6 +71,8 @@ router.post('/seating-plan/import-rows', adminOrTeacher, asyncHandler(masterSeat
 // Automatic room assignment changes many student records at once, so only
 // administrators may execute it. org_admin is tenant-scoped inside the controller.
 router.post('/seating-plan/auto-generate', adminOnly, asyncHandler(autoSeatController.generate));
+// Clears a whole period's (or legacy year + type) allocation, locked rows included.
+router.post('/seating-plan/reset', adminOnly, asyncHandler(masterSeatController.reset));
 
 // Room-based exam invigilation: admin assigns one teacher per physical room/session.
 // Assigned teachers then receive exactly the mixed-grade students in that room.

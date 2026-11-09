@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -16,6 +16,7 @@ import {
   Plus,
   Printer,
   RefreshCw,
+  RotateCcw,
   Search,
   Square,
   Trash2,
@@ -143,6 +144,14 @@ const readonly = `${input} bg-[var(--color-surface-secondary)] text-[var(--color
 const nameOf = (s?: Student) => [s?.profile?.firstName, s?.profile?.lastName].filter(Boolean).join(' ') || '';
 const academicYearLabel = (y: number) => `${y}-${y + 1}`;
 const currentAcademicYear = academicYearLabel(new Date().getFullYear());
+/**
+ * The exam period this Room Allocation belongs to (opened from e.g.
+ * MONTHLY EXAM I). With a period, the allocation is that period's own: the
+ * server takes the academic year and exam type from it, so no Mid/Final or
+ * year picker is shown anywhere on the page.
+ */
+const SeatingPeriodContext = createContext<{ periodId: string; periodName: string }>({ periodId: '', periodName: '' });
+
 const emptyFields: Fields = {
   organization:'',
   department:'',
@@ -194,7 +203,7 @@ function Modal({ title, close, children, wide = false }: { title:string; close:(
   </div>;
 }
 
-function Actions({ add, imp, exp, auto }: { add:()=>void; imp:()=>void; exp:()=>void; auto:()=>void }) {
+function Actions({ add, imp, exp, auto, reset }: { add:()=>void; imp:()=>void; exp:()=>void; auto:()=>void; reset:()=>void }) {
   const [open,setOpen]=useState(false);
   const ref=useRef<HTMLDivElement>(null);
   useEffect(()=>{
@@ -211,6 +220,8 @@ function Actions({ add, imp, exp, auto }: { add:()=>void; imp:()=>void; exp:()=>
       <button onClick={()=>run(add)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Plus size={17}/>Add Room Assignment</button>
       <button onClick={()=>run(imp)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Upload size={17}/>Import Excel</button>
       <button onClick={()=>run(exp)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-[var(--color-surface-secondary)]"><Download size={17}/>Export</button>
+      <div className="my-1 border-t border-[var(--color-border-subtle)]"/>
+      <button onClick={()=>run(reset)} className="flex w-full gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><RotateCcw size={17}/>Reset Allocation</button>
     </div>}
   </div>;
 }
@@ -267,6 +278,7 @@ function Field({label,value,onChange,editable=false,children}:{label:string;valu
 }
 
 function FieldsGrid({fields,setField,rooms,lockedStudent=false}:{fields:Fields;setField:(k:keyof Fields,v:string)=>void;rooms:Room[];lockedStudent?:boolean}) {
+  const {periodId,periodName}=useContext(SeatingPeriodContext);
   return <div className="grid gap-4 md:grid-cols-2">
     <Field label="Organization" value={fields.organization} onChange={v=>setField('organization',v)} editable={!lockedStudent}/>
     <Field label="Department" value={fields.department} onChange={v=>setField('department',v)} editable={!lockedStudent}/>
@@ -274,12 +286,16 @@ function FieldsGrid({fields,setField,rooms,lockedStudent=false}:{fields:Fields;s
     <Field label="Shift" value={fields.shift} onChange={v=>setField('shift',v)} editable={!lockedStudent}/>
     <Field label="Student ID" value={fields.studentId} onChange={v=>setField('studentId',v)} editable={!lockedStudent}/>
     <Field label="Student Name" value={fields.studentName} onChange={v=>setField('studentName',v)} editable={!lockedStudent}/>
+    {periodId
+      ?<Field label="Exam" value={periodName||'This exam'}/>
+      :<>
     <Field label="Academic Year" editable><AcademicYearSelect value={fields.academicYear} onChange={v=>setField('academicYear',v)} required/></Field>
     <Field label="Exam Type" editable>
       <select className={input} value={fields.examType} onChange={e=>setField('examType',e.target.value)}>
         <option value="">Select exam type...</option><option value="mid">Mid Exam</option><option value="final">Final</option>
       </select>
     </Field>
+      </>}
     <Field label="Room" editable>
       <select className={input} value={fields.room} onChange={e=>setField('room',e.target.value)} required>
         <option value="">Select room...</option>
@@ -290,6 +306,7 @@ function FieldsGrid({fields,setField,rooms,lockedStudent=false}:{fields:Fields;s
 }
 
 function AddModal({rooms,close,onSaved}:{rooms:Room[];close:()=>void;onSaved:()=>void}) {
+  const {periodId}=useContext(SeatingPeriodContext);
   const [fields,setFields]=useState<Fields>(emptyFields);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
@@ -297,7 +314,7 @@ function AddModal({rooms,close,onSaved}:{rooms:Room[];close:()=>void;onSaved:()=
   const submit=async(e:FormEvent)=>{
     e.preventDefault();
     setBusy(true);setError('');
-    try{await api.post('/exams/seating-plan',fields);onSaved();close()}
+    try{await api.post('/exams/seating-plan',periodId?{...fields,periodId}:fields);onSaved();close()}
     catch(err:any){setError(err.response?.data?.message||'Failed to add room assignment')}
     finally{setBusy(false)}
   };
@@ -376,6 +393,7 @@ const asJsonRows=(rows:PreviewRow[])=>rows.map(x=>({
 }));
 
 function ImportModal({close,onImported}:{close:()=>void;onImported:(info:{academicYear:string;examType:'mid'|'final';count:number})=>void}) {
+  const {periodId}=useContext(SeatingPeriodContext);
   const [file,setFile]=useState<File|null>(null);
   const [rows,setRows]=useState<PreviewRow[]>([]);
   const [busy,setBusy]=useState(false);
@@ -388,7 +406,7 @@ function ImportModal({close,onImported}:{close:()=>void;onImported:(info:{academ
     if(!file)return;
     setBusy(true);setError('');
     try{
-      const f=new FormData();f.append('file',file);
+      const f=new FormData();f.append('file',file);if(periodId)f.append('periodId',periodId);
       const r=await api.post('/exams/seating-plan/import-preview',f);
       const data=r.data.data||[];
       setRows(data);setPreviewed(true);setUsingFixedRows(false);
@@ -402,7 +420,7 @@ function ImportModal({close,onImported}:{close:()=>void;onImported:(info:{academ
     setFixingRow(r.row);setError('');
     const updated=rows.map(x=>x.row===r.row?{...x,room:r.suggestion!.room,seat:r.suggestion!.seat}:x);
     try{
-      const res=await api.post('/exams/seating-plan/validate-rows',{rows:asJsonRows(updated)});
+      const res=await api.post('/exams/seating-plan/validate-rows',{rows:asJsonRows(updated),periodId:periodId||undefined});
       const data=res.data.data||[];
       setRows(data);setUsingFixedRows(true);
       setError(data.some((x:PreviewRow)=>x.status==='error')?'Some rows still need correction.':'');
@@ -414,10 +432,10 @@ function ImportModal({close,onImported}:{close:()=>void;onImported:(info:{academ
     if(!previewed||rows.some(r=>r.status==='error'))return;
     setBusy(true);setError('');
     try{
-      if(usingFixedRows)await api.post('/exams/seating-plan/import-rows',{rows:asJsonRows(rows)});
+      if(usingFixedRows)await api.post('/exams/seating-plan/import-rows',{rows:asJsonRows(rows),periodId:periodId||undefined});
       else{
         if(!file)return;
-        const f=new FormData();f.append('file',file);
+        const f=new FormData();f.append('file',file);if(periodId)f.append('periodId',periodId);
         await api.post('/exams/seating-plan/import',f);
       }
       const first=rows[0]||{} as PreviewRow;
@@ -549,8 +567,9 @@ function AutoGenerateModal({
   close:()=>void;
   onGenerated:(info:{message:string;academicYear:string;examType:'mid'|'final'})=>void;
 }) {
+  const {periodId,periodName}=useContext(SeatingPeriodContext);
   const [year,setYear]=useState(initialYear||currentAcademicYear);
-  const [type,setType]=useState(initialType||'');
+  const [type,setType]=useState(initialType||(periodId?'mid':''));
   const [org,setOrg]=useState(selectedOrg);
   const [classIds,setClassIds]=useState<string[]>(()=>initialClassIds||[]);
   const [roomIds,setRoomIds]=useState<string[]>(()=>initialRoomIds||[]);
@@ -582,6 +601,7 @@ function AutoGenerateModal({
   const resetPreview=()=>{setPreview(null);setError('')};
 
   const payload=(previewOnly:boolean)=>({
+    periodId:periodId||undefined,
     academicYear:year,
     examType:type,
     organization:org,
@@ -630,14 +650,16 @@ function AutoGenerateModal({
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{hasExactPlan?'The editable Grade / Class quotas from Plan Rooms are locked here. Preview verifies the exact distribution before saving.':'Students are mixed across the selected grades, room capacity is enforced, locked students stay where they are, and nothing is saved until you confirm the preview.'}</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      {periodId
+        ?<Field label="Exam" value={periodName||'This exam'}/>
+        :<div className="grid gap-4 md:grid-cols-2">
         <Field label="Academic Year" editable><AcademicYearSelect value={year} onChange={v=>{setYear(v);resetPreview()}} required/></Field>
         <Field label="Exam Type" editable>
           <select className={input} value={type} onChange={e=>{setType(e.target.value);resetPreview()}} required>
             <option value="">Select...</option><option value="mid">Mid Exam</option><option value="final">Final</option>
           </select>
         </Field>
-      </div>
+      </div>}
 
       <div>
         <p className="mb-2 text-sm font-semibold">Organization</p>
@@ -838,7 +860,13 @@ export function ExamSeatingCenterV3() {
   const contextExamType: 'mid' | 'final' | '' = rawContextExamType === 'mid' || rawContextExamType === 'final' ? rawContextExamType : '';
   const contextStartDate = workspaceSearchParams.get('startDate') || '';
   const contextEndDate = workspaceSearchParams.get('endDate') || '';
-  const hasExamContext = Boolean(contextPeriodId && contextAcademicYear && contextExamType);
+  // Opened from an exam period: the allocation is that period's own, so the
+  // year / Mid-Final pickers are hidden and every call carries the periodId.
+  const hasExamContext = Boolean(contextPeriodId);
+  const periodContextValue = useMemo(
+    () => ({ periodId: contextPeriodId, periodName: contextExamName }),
+    [contextPeriodId, contextExamName],
+  );
 
   const [orgs,setOrgs]=useState<Org[]>([]);
   const [classes,setClasses]=useState<ClassItem[]>([]);
@@ -846,7 +874,7 @@ export function ExamSeatingCenterV3() {
   const [allocations,setAllocations]=useState<Allocation[]>([]);
   const [stats,setStats]=useState<AllocationStats>({totalStudents:0,assigned:0,unassigned:0,locked:0,roomsUsed:0});
   const [year,setYear]=useState(contextAcademicYear || currentAcademicYear);
-  const [type,setType]=useState(contextExamType);
+  const [type,setType]=useState<''|'mid'|'final'>(contextExamType||(contextPeriodId?'mid':''));
   const [query,setQuery]=useState('');
   const [filterField,setFilterField]=useState<'class'|'shift'|'academicYear'|'examType'|'room'|''>('');
   const [filterValue,setFilterValue]=useState('');
@@ -891,11 +919,12 @@ export function ExamSeatingCenterV3() {
   };
 
   const loadSeating=async(y=year,t=type)=>{
-    if(!y||!t){setAllocations([]);setStats({totalStudents:0,assigned:0,unassigned:0,locked:0,roomsUsed:0});return}
+    if(!contextPeriodId&&(!y||!t)){setAllocations([]);setStats({totalStudents:0,assigned:0,unassigned:0,locked:0,roomsUsed:0});return}
+    const params=contextPeriodId?{periodId:contextPeriodId}:{academicYear:y,examType:t};
     try{
       const [a,s]=await Promise.all([
-        api.get('/exams/seating-plan',{params:{academicYear:y,examType:t}}),
-        api.get('/exams/seating-plan/stats',{params:{academicYear:y,examType:t}}),
+        api.get('/exams/seating-plan',{params}),
+        api.get('/exams/seating-plan/stats',{params}),
       ]);
       setAllocations(a.data.data||[]);
       setStats(s.data.data||{totalStudents:0,assigned:0,unassigned:0,locked:0,roomsUsed:0});
@@ -906,6 +935,7 @@ export function ExamSeatingCenterV3() {
   useEffect(()=>{
     if (contextAcademicYear) setYear(contextAcademicYear);
     if (contextExamType) setType(contextExamType);
+    else if (contextPeriodId) setType('mid');
   },[contextAcademicYear,contextExamType]);
   useEffect(()=>{void loadSeating()},[year,type]);
   useEffect(()=>{
@@ -1132,6 +1162,20 @@ export function ExamSeatingCenterV3() {
     invigilatorSearchParams.toString() ? '?' + invigilatorSearchParams.toString() : ''
   );
 
+  const resetAllocation=async()=>{
+    const scopeLabel=contextExamName||(year&&type?`${year} · ${type==='mid'?'Mid Exam':'Final'}`:'');
+    if(!contextPeriodId&&(!year||!type)){setError('Select an Academic Year and Exam Type first.');return}
+    if(!window.confirm(`Reset the Room Allocation${scopeLabel?` for ${scopeLabel}`:''}? Every room assignment in it, locked ones included, will be removed. Rooms and the Room Plan are not affected.`))return;
+    setError('');setMessage('');
+    try{
+      const body=contextPeriodId?{periodId:contextPeriodId}:{academicYear:year,examType:type};
+      const{data}=await api.post('/exams/seating-plan/reset',body);
+      setSelectedIds([]);
+      setMessage(data.message||'Room Allocation reset.');
+      await loadSeating();
+    }catch(err:any){setError(err.response?.data?.message||'Could not reset the Room Allocation')}
+  };
+
   const confirmReviewedRoomPlan = async (defaults: AutoDefaults) => {
     if (!defaults.academicYear || !defaults.examType) {
       throw new Error('Academic Year and Exam Type are required.');
@@ -1145,6 +1189,7 @@ export function ExamSeatingCenterV3() {
 
     const seed = String(Date.now());
     const payload = {
+      periodId: contextPeriodId || undefined,
       academicYear: defaults.academicYear,
       examType: defaults.examType,
       organization: orgForAuto,
@@ -1202,7 +1247,7 @@ export function ExamSeatingCenterV3() {
     </div>
   </div>;
 
-  return <div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
+  return <SeatingPeriodContext.Provider value={periodContextValue}><div className="p-4 pt-5 sm:p-6 sm:pt-6 lg:p-8 lg:pt-8">
     <div className="mx-auto max-w-screen-2xl space-y-5">
       <BackButton fallback={scheduleFallback}/>
 
@@ -1213,7 +1258,7 @@ export function ExamSeatingCenterV3() {
             {contextSubtitle || 'Smart mixed-grade room allocation with preview, locking, drag-and-drop moves and capacity protection.'}
           </p>
         </div>
-        <Actions add={()=>setModal('add')} imp={()=>setModal('import')} exp={exportCsv} auto={()=>{setAutoDefaults(null);setModal('auto')}}/>
+        <Actions add={()=>setModal('add')} imp={()=>setModal('import')} exp={exportCsv} auto={()=>{setAutoDefaults(null);setModal('auto')}} reset={()=>void resetAllocation()}/>
       </div>
 
       <ExamWorkspaceTabs />
@@ -1421,7 +1466,12 @@ export function ExamSeatingCenterV3() {
 
       {modal==='add'&&<AddModal rooms={activeAllocationRooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment added successfully.');void loadSeating()}}/>}
       {modal==='edit'&&editing&&<EditModal allocation={editing} rooms={activeAllocationRooms} close={()=>setModal(null)} onSaved={()=>{setMessage('Room assignment updated successfully.');void loadSeating()}}/>}
-      {modal==='import'&&<ImportModal close={()=>setModal(null)} onImported={(info)=>{setYear(info.academicYear);setType(info.examType);setMessage(`Imported ${info.count} room assignments successfully.`);void loadSeating(info.academicYear,info.examType)}}/>}
+      {modal==='import'&&<ImportModal close={()=>setModal(null)} onImported={(info)=>{
+        setMessage(`Imported ${info.count} room assignments successfully.`);
+        // In an exam period the period is the scope; the file's year/type columns are ignored.
+        if(contextPeriodId){void loadSeating();return}
+        setYear(info.academicYear);setType(info.examType);void loadSeating(info.academicYear,info.examType);
+      }}/>}
       {modal==='auto'&&<AutoGenerateModal
         orgs={orgs}
         classes={classes}
@@ -1459,7 +1509,7 @@ export function ExamSeatingCenterV3() {
         onExport={exportRoom}
       />}
     </div>
-  </div>;
+  </div></SeatingPeriodContext.Provider>;
 }
 
 export default ExamSeatingCenterV3;

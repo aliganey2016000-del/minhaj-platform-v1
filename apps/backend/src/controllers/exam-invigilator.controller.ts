@@ -4,6 +4,7 @@ import Exam from '../models/exam.model';
 import ExamPeriod from '../models/exam-period.model';
 import ExamRoom from '../models/exam-room.model';
 import ExamSeatingPlan from '../models/exam-seating-plan.model';
+import { periodExamType } from '../utils/exam-seating-scope';
 import ExamInvigilatorAssignment from '../models/exam-invigilator-assignment.model';
 import ExamInvigilatorTeacherAttendance, { type ExamInvigilatorTeacherAttendanceStatus } from '../models/exam-invigilator-teacher-attendance.model';
 import ExamAttendance from '../models/exam-attendance.model';
@@ -89,6 +90,28 @@ async function resolveExamType(period: any): Promise<'mid' | 'final'> {
   throw new BadRequestError('Could not determine whether this Exam is Mid or Final.');
 }
 
+/**
+ * Seating rows that belong to an exam period. Room Allocation now saves a
+ * period's own rows (with `period`); periods allocated before that still use
+ * the legacy academic year + Mid/Final rows. A period with neither yet (and
+ * a name that says neither Mid nor Final, e.g. MONTHLY EXAM I) simply has an
+ * empty allocation instead of failing the whole Invigilator page.
+ */
+async function periodSeating(period: any): Promise<{ filter: Record<string, unknown>; examType: 'mid' | 'final' }> {
+  if (await ExamSeatingPlan.exists({ school: period.school, period: period._id })) {
+    return { filter: { school: period.school, period: period._id }, examType: periodExamType(period) };
+  }
+  try {
+    const examType = await resolveExamType(period);
+    return {
+      filter: { school: period.school, academicYear: period.academicYear, examType, period: null },
+      examType,
+    };
+  } catch {
+    return { filter: { school: period.school, period: period._id }, examType: periodExamType(period) };
+  }
+}
+
 async function loadPeriod(req: Request, periodId: string) {
   if (!mongoose.isValidObjectId(periodId)) throw new BadRequestError('A valid Exam is required');
   const schoolId = resolveViewableOrgId(req, req.query.school || req.body?.school);
@@ -163,10 +186,9 @@ async function buildRoomRoster(assignment: any) {
     if (classId && !examByClass.has(classId)) examByClass.set(classId, exam);
   }
 
+  const { filter: seatingFilter } = await periodSeating(period);
   const allocations = await ExamSeatingPlan.find({
-    school: assignment.school,
-    academicYear: period.academicYear,
-    examType: assignment.examType,
+    ...seatingFilter,
     room: assignment.room,
   })
     .populate({
@@ -217,7 +239,7 @@ async function buildRoomRoster(assignment: any) {
 export const context = async (req: Request, res: Response): Promise<Response> => {
   const periodId = clean(req.query.periodId);
   const period = await loadPeriod(req, periodId);
-  const examType = await resolveExamType(period);
+  const { filter: seatingFilter, examType } = await periodSeating(period);
   const { start, end } = period.startDate
     ? dayBounds(period.startDate)
     : { start: new Date(0), end: new Date('2999-12-31T00:00:00.000Z') };
@@ -238,11 +260,7 @@ export const context = async (req: Request, res: Response): Promise<Response> =>
     .sort({ examDate: 1, startTime: 1 })
     .lean() as any[];
 
-  const seating = await ExamSeatingPlan.find({
-    school: period.school,
-    academicYear: period.academicYear,
-    examType,
-  })
+  const seating = await ExamSeatingPlan.find(seatingFilter)
     .populate({
       path: 'student',
       select: 'class',
@@ -404,7 +422,7 @@ export const assign = async (req: Request, res: Response): Promise<Response> => 
   }
 
   const period = await loadPeriod(req, periodId);
-  const examType = await resolveExamType(period);
+  const { examType } = await periodSeating(period);
   const { start, end } = dayBounds(examDate);
 
   const [room, teacher, matchingExam, teacherAttendance] = await Promise.all([
@@ -513,7 +531,7 @@ export const bulkAssign = async (req: Request, res: Response): Promise<Response>
   }
 
   const period = await loadPeriod(req, periodId);
-  const examType = await resolveExamType(period);
+  const { examType } = await periodSeating(period);
   const { start, end } = dayBounds(examDate);
 
   const matchingExam = await Exam.exists({
