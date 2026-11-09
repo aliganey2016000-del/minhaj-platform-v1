@@ -12,6 +12,8 @@ import {
   getEffectiveRoomCapacity,
   getExamRoomPlanSettingsForSchool,
 } from '../utils/exam-room-plan-settings';
+import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules';
+import { classShiftIndexes, peakShiftDemand, shiftSetKey, ShiftRoomLoad } from '../utils/exam-shift-groups';
 
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
 const key = (v: unknown) => norm(v).toLowerCase();
@@ -131,12 +133,15 @@ function roomBalanceScore(roomStudents: any[], allStudents: any[]): number {
   return Math.max(0, Math.min(100, Math.round((1 - totalVariation / 2) * 100)));
 }
 
-function roomReport(rooms: any[], assignments: any[], allStudents: any[]) {
+function roomReport(rooms: any[], assignments: any[], allStudents: any[], peakOf: (roomId: string) => number) {
   return rooms.map(room => {
     const assigned = assignments.filter(a => String(a.roomId) === String(room._id));
     const capacity = Math.max(0, Number(room.capacity) || 0);
     const roomStudents = assigned.map(a => a.student);
     const score = roomBalanceScore(roomStudents, allStudents);
+    // Students in different exam shifts share the room's seats, so what must
+    // fit is the busiest shift, not every student assigned to the room.
+    const peakStudents = peakOf(String(room._id));
 
     return {
       roomId: room._id,
@@ -144,7 +149,8 @@ function roomReport(rooms: any[], assignments: any[], allStudents: any[]) {
       building: room.building,
       capacity,
       students: assigned.length,
-      remainingCapacity: Math.max(capacity - assigned.length, 0),
+      peakStudents,
+      remainingCapacity: Math.max(capacity - peakStudents, 0),
       locked: assigned.filter(a => a.locked).length,
       balanceScore: score,
       balanceLabel: score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : 'Needs Review',
@@ -225,6 +231,7 @@ export const generate = async (req: Request, res: Response) => {
   const school = await School.findById(targetSchoolId).select('_id').lean();
   if (!school) throw new BadRequestError('Selected Organization was not found');
   const roomPlanSettings = await getExamRoomPlanSettingsForSchool(targetSchoolId);
+  const schedulingRules = await getExamSchedulingRulesForSchool(targetSchoolId);
 
   const normalizedDepartmentIds = Array.isArray(departmentIds)
     ? departmentIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
@@ -302,6 +309,26 @@ export const generate = async (req: Request, res: Response) => {
     .lean() as any[];
 
   if (!targetClasses.length) throw new BadRequestError('Select at least one active Grade / Class');
+
+  // Exam shifts each class sits in (Department Shift Assignment). Classes in
+  // different shifts never sit together, so they share rooms and seats.
+  // Resolved from the raw department id: Department Shift Assignment is keyed
+  // by id, and a populated department is null whenever its document is gone.
+  const rawDepartmentByClass = new Map(
+    (await ClassModel.find({ _id: { $in: targetClasses.map(cls => cls._id) } }).select('_id department').lean() as any[])
+      .map(cls => [String(cls._id), cls.department || null])
+  );
+  const shiftsByClass = new Map<string, number[]>(
+    targetClasses.map(cls => [
+      String(cls._id),
+      classShiftIndexes(schedulingRules, { ...cls, department: rawDepartmentByClass.get(String(cls._id)) }),
+    ])
+  );
+  const allShiftIndexes = schedulingRules.examShifts.length
+    ? schedulingRules.examShifts.map((_shift, index) => index)
+    : [0];
+  const shiftsOfClass = (classId: string) => shiftsByClass.get(String(classId)) || allShiftIndexes;
+  const shiftsOfStudent = (student: any) => shiftsOfClass(String(student?.class?._id || student?.class || ''));
 
   const classIdsForStudents = targetClasses.map(c => c._id);
   const students = await Student.find({
@@ -467,16 +494,16 @@ export const generate = async (req: Request, res: Response) => {
         }
       }
 
-      const plannedByRoom = new Map<string, number>();
-      for (const quotas of quotaPlanMap.values()) {
+      const plannedLoad = new ShiftRoomLoad();
+      for (const [classId, quotas] of quotaPlanMap.entries()) {
         for (const [roomId, count] of quotas.entries()) {
-          plannedByRoom.set(roomId, (plannedByRoom.get(roomId) || 0) + count);
+          plannedLoad.add(roomId, shiftsOfClass(classId), count);
         }
       }
 
       for (const room of selectedRooms) {
         const roomId = String(room._id);
-        const planned = plannedByRoom.get(roomId) || 0;
+        const planned = plannedLoad.peak(roomId);
         const effectiveCapacity = effectiveCapacityByRoom.get(roomId) || 0;
         const allowedCapacity = allowedCapacityByRoom.get(roomId) || 0;
         if (planned > allowedCapacity) {
@@ -495,9 +522,19 @@ export const generate = async (req: Request, res: Response) => {
   const totalEffectiveCapacity = Array.from(effectiveCapacityByRoom.values()).reduce((sum, capacity) => sum + capacity, 0);
   const totalAllowedCapacity = Array.from(allowedCapacityByRoom.values()).reduce((sum, capacity) => sum + capacity, 0);
   const capacityForRequest = hasExactQuotaPlan ? totalAllowedCapacity : totalEffectiveCapacity;
-  if (capacityForRequest < selected.length) {
+  const studentsByShiftSet = new Map<string, { shifts: number[]; count: number }>();
+  for (const student of selected) {
+    const shifts = shiftsOfStudent(student);
+    const entry = studentsByShiftSet.get(shiftSetKey(shifts)) || { shifts, count: 0 };
+    entry.count += 1;
+    studentsByShiftSet.set(shiftSetKey(shifts), entry);
+  }
+  // Seats needed = students in the busiest exam shift, since other shifts
+  // reuse the same seats.
+  const seatsNeeded = peakShiftDemand(Array.from(studentsByShiftSet.values()));
+  if (capacityForRequest < seatsNeeded) {
     throw new BadRequestError(
-      `Insufficient operational capacity: ${selected.length} students selected but the chosen rooms allow ${capacityForRequest}. Add a room, resolve remaining students with an approved capacity override, or adjust Room Plan Settings.`
+      `Insufficient operational capacity: ${seatsNeeded} students sit in the busiest exam shift but the chosen rooms allow ${capacityForRequest}. Add a room, resolve remaining students with an approved capacity override, or adjust Room Plan Settings.`
     );
   }
 
@@ -554,6 +591,7 @@ export const generate = async (req: Request, res: Response) => {
   const studentById = new Map(selected.map(student => [String(student._id), student]));
   const lockedStudentIds = new Set(lockedRows.map(row => String(row.student)));
   const initialCounts = new Map<string, number>();
+  const lockedLoad = new ShiftRoomLoad();
   const assignments: Array<{ roomId: any; student: any; locked: boolean; allocationId?: any }> = [];
 
   for (const row of lockedRows) {
@@ -561,6 +599,7 @@ export const generate = async (req: Request, res: Response) => {
     if (!student || !selectedIdStrings.has(String(row.student))) continue;
     const roomId = String(row.room);
     initialCounts.set(roomId, (initialCounts.get(roomId) || 0) + 1);
+    lockedLoad.add(roomId, shiftsOfStudent(student), 1);
     assignments.push({
       roomId: row.room,
       student,
@@ -570,8 +609,8 @@ export const generate = async (req: Request, res: Response) => {
   }
 
   for (const room of selectedRooms) {
-    const lockedCount = initialCounts.get(String(room._id)) || 0;
     const roomId = String(room._id);
+    const lockedCount = lockedLoad.peak(roomId);
     const allowedCapacity = allowedCapacityByRoom.get(roomId) || 0;
     if (lockedCount > allowedCapacity) {
       throw new BadRequestError(`${room.name} has more locked students than its allowed capacity of ${allowedCapacity}`);
@@ -588,7 +627,7 @@ export const generate = async (req: Request, res: Response) => {
   );
 
   if (hasExactQuotaPlan) {
-    const currentCounts = new Map<string, number>(initialCounts);
+    const currentLoad = lockedLoad.clone();
     const roomById = new Map(selectedRooms.map(room => [String(room._id), room]));
     const studentsByClass = new Map<string, any[]>();
     const lockedByClassRoom = new Map<string, number>();
@@ -608,10 +647,11 @@ export const generate = async (req: Request, res: Response) => {
       manualByClassRoom.set(keyValue, list);
 
       const allowedCapacity = allowedCapacityByRoom.get(item.roomId) || 0;
-      if ((currentCounts.get(item.roomId) || 0) + 1 > allowedCapacity) {
+      const studentShifts = shiftsOfStudent(student);
+      if (currentLoad.loadFor(item.roomId, studentShifts) + 1 > allowedCapacity) {
         throw new BadRequestError(`${room.name} exceeds its allowed capacity of ${allowedCapacity}.`);
       }
-      currentCounts.set(item.roomId, (currentCounts.get(item.roomId) || 0) + 1);
+      currentLoad.add(item.roomId, studentShifts, 1);
       assignments.push({
         roomId: room._id,
         student,
@@ -676,7 +716,8 @@ export const generate = async (req: Request, res: Response) => {
         }
 
         const allowedCapacity = allowedCapacityByRoom.get(roomId) || 0;
-        if ((currentCounts.get(roomId) || 0) + needed > allowedCapacity) {
+        const classShifts = shiftsOfClass(classId);
+        if (currentLoad.loadFor(roomId, classShifts) + needed > allowedCapacity) {
           throw new BadRequestError(`${room.name} would exceed its allowed capacity of ${allowedCapacity} under the exact Room Plan.`);
         }
 
@@ -688,7 +729,7 @@ export const generate = async (req: Request, res: Response) => {
         }
 
         cursor += chosen.length;
-        currentCounts.set(roomId, (currentCounts.get(roomId) || 0) + chosen.length);
+        currentLoad.add(roomId, classShifts, chosen.length);
         chosen.forEach(student => assignments.push({
           roomId: room._id,
           student,
@@ -703,7 +744,7 @@ export const generate = async (req: Request, res: Response) => {
       }
     }
   } else if (roomPlanMap.size) {
-    const currentCounts = new Map<string, number>(initialCounts);
+    const currentLoad = lockedLoad.clone();
     const roomById = new Map(selectedRooms.map(room => [String(room._id), room]));
     const studentsByClass = new Map<string, any[]>();
 
@@ -735,11 +776,13 @@ export const generate = async (req: Request, res: Response) => {
         throw new BadRequestError('A selected class has no available Rooms in the Room Plan');
       }
 
+      const classShifts = shiftsOfClass(classGroup.classId);
+      const roomLoad = (roomId: string) => currentLoad.loadFor(roomId, classShifts);
       const remainingCapacity = allowedRooms.reduce((sum, room) => {
         const roomId = String(room._id);
         if (frozenRoomIds.has(roomId)) return sum;
         const effectiveCapacity = effectiveCapacityByRoom.get(roomId) || 0;
-        return sum + Math.max(0, effectiveCapacity - (currentCounts.get(roomId) || 0));
+        return sum + Math.max(0, effectiveCapacity - roomLoad(roomId));
       }, 0);
 
       if (remainingCapacity < classGroup.group.length) {
@@ -762,17 +805,17 @@ export const generate = async (req: Request, res: Response) => {
           .filter(room => {
             const id = String(room._id);
             const effectiveCapacity = effectiveCapacityByRoom.get(id) || 0;
-            return !frozenRoomIds.has(id) && (currentCounts.get(id) || 0) < effectiveCapacity;
+            return !frozenRoomIds.has(id) && roomLoad(id) < effectiveCapacity;
           })
           .sort((a, b) => {
             const aId = String(a._id);
             const bId = String(b._id);
             const aCapacity = Math.max(1, effectiveCapacityByRoom.get(aId) || 1);
             const bCapacity = Math.max(1, effectiveCapacityByRoom.get(bId) || 1);
-            const aRatio = (currentCounts.get(aId) || 0) / aCapacity;
-            const bRatio = (currentCounts.get(bId) || 0) / bCapacity;
+            const aRatio = roomLoad(aId) / aCapacity;
+            const bRatio = roomLoad(bId) / bCapacity;
             return aRatio - bRatio
-              || (currentCounts.get(aId) || 0) - (currentCounts.get(bId) || 0)
+              || roomLoad(aId) - roomLoad(bId)
               || String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
           });
 
@@ -782,7 +825,7 @@ export const generate = async (req: Request, res: Response) => {
         }
 
         const roomId = String(room._id);
-        currentCounts.set(roomId, (currentCounts.get(roomId) || 0) + 1);
+        currentLoad.add(roomId, classShifts, 1);
         assignments.push({
           roomId: room._id,
           student,
@@ -791,23 +834,41 @@ export const generate = async (req: Request, res: Response) => {
       }
     }
   } else {
-    const mixed = roundRobinMix(availableStudents, allocationSeed);
-    const targets = balancedRoomTargets(planningRooms, mixed.length, initialCounts, frozenRoomIds);
-    let cursor = 0;
+    // Each exam-shift group gets the full set of rooms: students who never
+    // sit at the same time reuse the same seats. Grades are only mixed with
+    // classes that actually sit alongside them.
+    const runningLoad = lockedLoad.clone();
+    const studentsByShiftKey = new Map<string, { shifts: number[]; students: any[] }>();
+    for (const student of availableStudents) {
+      const shifts = shiftsOfStudent(student);
+      const entry = studentsByShiftKey.get(shiftSetKey(shifts)) || { shifts, students: [] };
+      entry.students.push(student);
+      studentsByShiftKey.set(shiftSetKey(shifts), entry);
+    }
 
-    for (const room of selectedRooms) {
-      const roomId = String(room._id);
-      const lockedCount = initialCounts.get(roomId) || 0;
-      const finalTarget = targets.get(roomId) || lockedCount;
-      const needed = Math.max(0, finalTarget - lockedCount);
-      const group = mixed.slice(cursor, cursor + needed);
-      cursor += group.length;
+    for (const [shiftKey, entry] of Array.from(studentsByShiftKey.entries()).sort(([a], [b]) => a.localeCompare(b))) {
+      const mixed = roundRobinMix(entry.students, `${allocationSeed}|shifts:${shiftKey}`);
+      const groupCounts = new Map<string, number>(
+        selectedRooms.map(room => [String(room._id), runningLoad.loadFor(String(room._id), entry.shifts)])
+      );
+      const targets = balancedRoomTargets(planningRooms, mixed.length, groupCounts, frozenRoomIds);
+      let cursor = 0;
 
-      group.forEach(student => assignments.push({
-        roomId: room._id,
-        student,
-        locked: false,
-      }));
+      for (const room of selectedRooms) {
+        const roomId = String(room._id);
+        const startCount = groupCounts.get(roomId) || 0;
+        const finalTarget = targets.get(roomId) || startCount;
+        const needed = Math.max(0, finalTarget - startCount);
+        const group = mixed.slice(cursor, cursor + needed);
+        cursor += group.length;
+        runningLoad.add(roomId, entry.shifts, group.length);
+
+        group.forEach(student => assignments.push({
+          roomId: room._id,
+          student,
+          locked: false,
+        }));
+      }
     }
   }
 
@@ -815,11 +876,13 @@ export const generate = async (req: Request, res: Response) => {
     throw new BadRequestError('Could not place every selected student into the chosen rooms');
   }
 
-  const breakdown = roomReport(selectedRooms, assignments, selected);
+  const finalLoad = new ShiftRoomLoad();
+  for (const item of assignments) finalLoad.add(String(item.roomId), shiftsOfStudent(item.student), 1);
+  const breakdown = roomReport(selectedRooms, assignments, selected, roomId => finalLoad.peak(roomId));
   const issues = [
     ...breakdown
-      .filter(room => room.students > room.capacity)
-      .map(room => `${room.room} exceeds capacity by ${room.students - room.capacity}`),
+      .filter(room => room.peakStudents > room.capacity)
+      .map(room => `${room.room} exceeds capacity by ${room.peakStudents - room.capacity}`),
   ];
 
   const responseData = {
@@ -838,7 +901,13 @@ export const generate = async (req: Request, res: Response) => {
     totalCapacity,
     effectiveCapacity: totalEffectiveCapacity,
     allowedCapacity: totalAllowedCapacity,
-    freeCapacity: Math.max(0, totalAllowedCapacity - selected.length),
+    freeCapacity: Math.max(0, totalAllowedCapacity - seatsNeeded),
+    seatsNeeded,
+    shiftGroups: Array.from(studentsByShiftSet.values()).map(group => ({
+      shifts: group.shifts,
+      shiftNames: group.shifts.map(index => schedulingRules.examShifts[index]?.name || `Shift ${index + 1}`),
+      students: group.count,
+    })),
     capacityOverrideRooms: Array.from(capacityOverrideSet),
     manuallyResolvedStudents: normalizedStudentRoomOverrides.length,
     roomPlanSettings,

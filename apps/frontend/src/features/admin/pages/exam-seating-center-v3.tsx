@@ -112,6 +112,8 @@ type PreviewRoom = {
   building?: string;
   capacity: number;
   students: number;
+  /** Students in the room's busiest exam shift — other shifts reuse the same seats. */
+  peakStudents?: number;
   remainingCapacity: number;
   locked: number;
   balanceScore: number;
@@ -697,11 +699,11 @@ function AutoGenerateModal({
         <div className="grid gap-3 md:grid-cols-2">
           {preview.roomBreakdown.map(room=><div key={room.roomId} className="rounded-2xl border border-emerald-200 bg-[var(--color-surface-primary)] p-4 dark:border-emerald-900/40">
             <div className="flex items-start justify-between gap-3">
-              <div><p className="font-bold">{room.room}</p><p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main'} · {room.students}/{room.capacity}</p></div>
+              <div><p className="font-bold">{room.room}</p><p className="text-xs text-[var(--color-text-tertiary)]">{room.building||'Main'} · {room.peakStudents??room.students}/{room.capacity}{room.peakStudents!==undefined&&room.peakStudents!==room.students?` per shift · ${room.students} across all shifts`:''}</p></div>
               <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${room.balanceScore>=90?'bg-emerald-100 text-emerald-700':room.balanceScore>=75?'bg-amber-100 text-amber-700':'bg-red-100 text-red-700'}`}>{room.balanceScore}% · {room.balanceLabel}</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-surface-secondary)]">
-              <div className="h-full rounded-full bg-primary-600" style={{width:`${Math.min(100,Math.round((room.students/Math.max(1,room.capacity))*100))}%`}}/>
+              <div className="h-full rounded-full bg-primary-600" style={{width:`${Math.min(100,Math.round(((room.peakStudents??room.students)/Math.max(1,room.capacity))*100))}%`}}/>
             </div>
             <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">{room.classes.map(c=>`${c.name}: ${c.count}`).join(' · ')||'No students'}</p>
             {room.locked>0&&<p className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-700"><Lock size={12}/>{room.locked} locked</p>}

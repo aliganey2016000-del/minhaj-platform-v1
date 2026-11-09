@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import ExamSeatingPlan from '../models/exam-seating-plan.model';
+import ClassModel from '../models/class.model';
 import ExamRoom from '../models/exam-room.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
@@ -9,6 +10,7 @@ import { assertOwnOrg, applyOrgFilter, resolveViewableOrgId } from '../utils/ten
 import { assertSafeSpreadsheetUpload } from '../utils/spreadsheet-upload';
 import { buildXlsxBuffer } from '../utils/xlsx-buffer';
 import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules';
+import { savedSeatingShiftLoad, classShiftIndexes } from '../utils/exam-shift-groups';
 
 const COLUMNS = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Seat'];
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
@@ -81,7 +83,12 @@ export const add = async (req: Request,res: Response) => {
 
   const rules=await getExamSchedulingRulesForSchool(schoolId);
   if(rules.roomCapacityCheck){
-    const occupied=await ExamSeatingPlan.countDocuments({...scope,room:roomDoc._id});
+    // Students in other exam shifts (e.g. Secondary vs Primary) reuse the
+    // room's seats, so only students sitting in the same shifts count.
+    const load=await savedSeatingShiftLoad(rules,{...scope,room:roomDoc._id});
+    // Raw department id: the populated department is null if its document is gone.
+    const rawClass=student.class?._id?await ClassModel.findById(student.class._id).select('title section department').lean():null;
+    const occupied=load.loadFor(String(roomDoc._id),classShiftIndexes(rules,rawClass));
     if(occupied>=Number(roomDoc.capacity||0)){
       throw new BadRequestError(`${roomDoc.name} is full (${occupied}/${roomDoc.capacity} seats used)`);
     }
@@ -116,10 +123,12 @@ export const update = async (req: Request,res: Response) => {
 
   const rules=await getExamSchedulingRulesForSchool(row.school);
   if(rules.roomCapacityCheck){
-    const occupied=await ExamSeatingPlan.countDocuments({
+    const load=await savedSeatingShiftLoad(rules,{
       _id:{$ne:row._id}, school:row.school||null, academicYear:nextAcademicYear,
       examType:t, room:roomDoc._id,
     });
+    const studentDoc=await Student.findById(row.student).select('class').populate({path:'class',select:'title section department'}).lean() as any;
+    const occupied=load.loadFor(String(roomDoc._id),classShiftIndexes(rules,studentDoc?.class||null));
     if(occupied>=Number(roomDoc.capacity||0)){
       throw new BadRequestError(`${roomDoc.name} is full (${occupied}/${roomDoc.capacity} seats used)`);
     }

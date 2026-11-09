@@ -68,6 +68,11 @@ export type RoomPlanSettings = {
 
 type SchoolRef = { _id?: string; name?: string } | string;
 
+type ShiftRules = {
+  examShifts: Array<{ name?: string; startTime?: string; endTime?: string }>;
+  departmentShiftAssignments: Array<{ departmentId: string; shiftIndexes: number[] }>;
+};
+
 type ClassItem = {
   _id: string;
   title: string;
@@ -335,6 +340,68 @@ export function PlanRoomsPanel({
     return () => { cancelled = true; };
   }, [resolvedSchoolId]);
 
+  // Department Shift Assignment from the exam Scheduling Rules. Classes that
+  // sit their papers in different exam shifts (e.g. Primary Shift 1-2,
+  // Secondary Shift 3-4) never sit at the same time, so they reuse the same
+  // rooms and seats and are only mixed with classes from their own shifts.
+  const [shiftRules, setShiftRules] = useState<ShiftRules | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/exams/schedule-rules', { params: resolvedSchoolId ? { school: resolvedSchoolId } : undefined })
+      .then(response => {
+        if (cancelled) return;
+        const rules = response.data?.data?.rules || {};
+        setShiftRules({
+          examShifts: Array.isArray(rules.examShifts) ? rules.examShifts : [],
+          departmentShiftAssignments: Array.isArray(rules.departmentShiftAssignments) ? rules.departmentShiftAssignments : [],
+        });
+      })
+      .catch(() => { if (!cancelled) setShiftRules(null); });
+    return () => { cancelled = true; };
+  }, [resolvedSchoolId]);
+
+  const allShiftIndexes = useMemo(
+    () => Array.from({ length: Math.max(1, shiftRules?.examShifts.length || 1) }, (_, index) => index),
+    [shiftRules],
+  );
+  const shiftsByClassId = useMemo(() => {
+    const map = new Map<string, number[]>();
+    const assignments = shiftRules?.departmentShiftAssignments || [];
+    classes.forEach(cls => {
+      const departmentId = typeof cls.department === 'string' ? cls.department : cls.department?._id || '';
+      const assignment = assignments.find(item => String(item.departmentId) === String(departmentId));
+      const shifts = assignments.length && assignment?.shiftIndexes?.length
+        ? assignment.shiftIndexes.filter(index => index < allShiftIndexes.length)
+        : allShiftIndexes;
+      map.set(cls._id, shifts.length ? shifts : allShiftIndexes);
+    });
+    return map;
+  }, [classes, shiftRules, allShiftIndexes]);
+  const shiftsOfClass = (classId: string) => shiftsByClassId.get(classId) || allShiftIndexes;
+  const shiftNames = (shifts: number[]) => shifts
+    .map(index => shiftRules?.examShifts[index]?.name || 'Shift ' + (index + 1))
+    .join(', ');
+  const shiftGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; shifts: number[]; classes: ClassItem[]; students: number }>();
+    activeClasses.forEach(cls => {
+      const shifts = shiftsByClassId.get(cls._id) || allShiftIndexes;
+      const groupKey = shifts.join(',');
+      const group = groups.get(groupKey) || { key: groupKey, shifts, classes: [], students: 0 };
+      group.classes.push(cls);
+      group.students += studentCounts[cls._id] || 0;
+      groups.set(groupKey, group);
+    });
+    return Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key));
+  }, [activeClasses, shiftsByClassId, allShiftIndexes, studentCounts]);
+  // Seats the school needs at once: the students sitting in the busiest shift.
+  const peakStudentDemand = useMemo(() => {
+    const perShift = new Map<number, number>();
+    shiftGroups.forEach(group => group.shifts.forEach(shift =>
+      perShift.set(shift, (perShift.get(shift) || 0) + group.students)
+    ));
+    return Math.max(0, ...perShift.values());
+  }, [shiftGroups]);
+
   const classById = useMemo(() => new Map(activeClasses.map(c => [c._id, c])), [activeClasses]);
   const roomById = useMemo(() => new Map(sortedRooms.map(r => [r._id, r])), [sortedRooms]);
   const rowOf = (roomId: string) => planRows.find(row => row.roomId === roomId) || { roomId, allocations: [] };
@@ -357,8 +424,10 @@ export function PlanRoomsPanel({
     const roomCount = Math.max(1, sortedRooms.length);
     const totalPhysical = sortedRooms.reduce((sum, room) => sum + Math.max(0, Number(room.capacity) || 0), 0);
     const averagePhysical = totalPhysical / roomCount;
-    const targetStudentsPerRoom = activeStudentTotal > 0
-      ? Math.ceil(activeStudentTotal / roomCount)
+    // Rooms are reused by every exam-shift group, so size them for the
+    // busiest shift rather than for every student at once.
+    const targetStudentsPerRoom = peakStudentDemand > 0
+      ? Math.ceil(peakStudentDemand / roomCount)
       : Math.max(1, Math.round(averagePhysical * 0.75));
     const preferredGrades = activeClasses.length >= 3 ? 3 : 2;
     const recommendedPortion = clamp(
@@ -398,10 +467,10 @@ export function PlanRoomsPanel({
       autoRepairInvalidPlan: true,
       priorityMode: 'balanced_security',
     };
-  }, [sortedRooms, activeClasses.length, activeStudentTotal]);
+  }, [sortedRooms, activeClasses.length, peakStudentDemand]);
 
   const recommendedTargetPerRoom = sortedRooms.length
-    ? Math.ceil(activeStudentTotal / sortedRooms.length)
+    ? Math.ceil(peakStudentDemand / sortedRooms.length)
     : 0;
 
   const applyRecommendedSettings = () => {
@@ -488,9 +557,28 @@ export function PlanRoomsPanel({
     return targets;
   };
 
-  const roomUsed = (roomId: string, rows: PlanRoomRow[] = planRows) =>
-    (rows.find(row => row.roomId === roomId)?.allocations || [])
-      .reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
+  // Seats a room needs: its busiest exam shift. With `classId`, the load in
+  // the shifts that class sits in (what it actually shares the room with).
+  const roomUsed = (roomId: string, rows: PlanRoomRow[] = planRows, classId?: string) => {
+    const perShift = new Map<number, number>();
+    (rows.find(row => row.roomId === roomId)?.allocations || []).forEach(allocation => {
+      const quota = Math.max(0, Number(allocation.quota) || 0);
+      shiftsOfClass(allocation.classId).forEach(shift => perShift.set(shift, (perShift.get(shift) || 0) + quota));
+    });
+    const shifts = classId ? shiftsOfClass(classId) : Array.from(perShift.keys());
+    return shifts.reduce((max, shift) => Math.max(max, perShift.get(shift) || 0), 0);
+  };
+  const roomShiftBreakdown = (roomId: string) => shiftGroups.length > 1
+    ? shiftGroups
+        .map(group => {
+          const load = (rowOf(roomId).allocations || [])
+            .filter(allocation => shiftsOfClass(allocation.classId).join(',') === group.key)
+            .reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
+          return load > 0 ? shiftNames(group.shifts) + ': ' + load : '';
+        })
+        .filter(Boolean)
+        .join(' · ')
+    : '';
 
   const generateSmartPlan = async () => {
     setLocalError('');
@@ -508,457 +596,483 @@ export function PlanRoomsPanel({
       setLocalError('No active students were found in the active classes.');
       return;
     }
-    if (totalRoomCapacity < activeStudentTotal) {
+    if (totalRoomCapacity < peakStudentDemand) {
       setSettingsMessage(
-        'Physical room capacity is short by ' + (activeStudentTotal - totalRoomCapacity)
+        'Physical room capacity is short by ' + (peakStudentDemand - totalRoomCapacity)
         + ' seat(s). The smart plan will keep the safe allocation and let you resolve the remaining students by Class with an Admin-approved Room override.'
       );
     }
-    if (totalOperationalCapacity < activeStudentTotal) {
+    if (totalOperationalCapacity < peakStudentDemand) {
       setSettingsMessage(
         'Operational capacity is below the student total. The smart plan will keep the safe allocation and show the remaining students for manual Room selection and approved overrides.'
       );
     }
 
-    const roomsByCapacity = sortedRooms.slice().sort((a, b) =>
-      effectiveCapacity(b) - effectiveCapacity(a)
-      || a.name.localeCompare(b.name, undefined, { numeric: true })
-    );
+    // Plan each exam-shift group on its own with every room available: groups
+    // in different shifts never sit together, so they reuse the same seats,
+    // and grades are only mixed with classes that sit alongside them.
+    const planShiftGroup = (groupClasses: ClassItem[], groupStudentTotal: number) => {
+      const roomsByCapacity = sortedRooms.slice().sort((a, b) =>
+        effectiveCapacity(b) - effectiveCapacity(a)
+        || a.name.localeCompare(b.name, undefined, { numeric: true })
+      );
 
-    const usedRooms: Room[] = [];
-    let selectedCapacity = 0;
-    for (const room of roomsByCapacity) {
-      usedRooms.push(room);
-      selectedCapacity += effectiveCapacity(room);
-      if (selectedCapacity >= activeStudentTotal) break;
-    }
-
-    if (!settings.useMinimumRooms) {
-      let targetCapacity = usedRooms.reduce((sum, room) =>
-        sum + Math.max(1, Math.floor(effectiveCapacity(room) * settings.targetRoomOccupancyPercent / 100)), 0);
+      const usedRooms: Room[] = [];
+      let selectedCapacity = 0;
       for (const room of roomsByCapacity) {
-        if (usedRooms.some(item => item._id === room._id)) continue;
-        const projectedAverage = activeStudentTotal / (usedRooms.length + 1);
-        if (targetCapacity >= activeStudentTotal || projectedAverage < settings.minimumStudentsPerUsedRoom) break;
         usedRooms.push(room);
-        targetCapacity += Math.max(1, Math.floor(effectiveCapacity(room) * settings.targetRoomOccupancyPercent / 100));
-      }
-    }
-
-    const targets = buildRoomTargets(usedRooms, activeStudentTotal);
-    const averageTarget = activeStudentTotal / Math.max(1, usedRooms.length);
-    const targetRoomHint = Math.max(
-      settings.minSplitPortion * settings.minimumGradesPerRoom,
-      Math.round(averageTarget),
-    );
-
-    type Portion = {
-      id: string;
-      classId: string;
-      gradeKey: string;
-      gradeNumber: number | null;
-      count: number;
-    };
-
-    const portions: Portion[] = [];
-    activeClasses.forEach(cls => {
-      const total = studentCounts[cls._id] || 0;
-      if (!total) return;
-
-      let parts = 1;
-      if (!(settings.keepSmallClassesTogether && total <= settings.smallClassThreshold) && total > settings.maxClassPortion) {
-        let desiredMax = settings.maxClassPortion;
-        if (settings.priorityMode === 'maximum_mixing') {
-          desiredMax = Math.min(
-            desiredMax,
-            Math.max(settings.minSplitPortion, Math.floor(targetRoomHint / settings.preferredGradesPerRoom)),
-          );
-        } else if (settings.priorityMode === 'balanced_security') {
-          desiredMax = Math.min(
-            desiredMax,
-            Math.max(
-              settings.minSplitPortion,
-              Math.floor(targetRoomHint * settings.maxSameGradeSharePercent / 100),
-            ),
-          );
-        }
-
-        parts = Math.max(1, Math.ceil(total / Math.max(1, desiredMax)));
-        while (parts > 1 && Math.floor(total / parts) < settings.minSplitPortion) parts -= 1;
+        selectedCapacity += effectiveCapacity(room);
+        if (selectedCapacity >= groupStudentTotal) break;
       }
 
-      let splitCounts = equalSplit(total, parts);
-      if (!settings.splitBalanceEqual && parts > 1) {
-        const maxPart = Math.max(settings.minSplitPortion, Math.ceil(total / parts));
-        splitCounts = [];
-        let remaining = total;
-        while (remaining > 0) {
-          const count = Math.min(maxPart, remaining);
-          splitCounts.push(count);
-          remaining -= count;
-        }
-        if (splitCounts.length > 1 && splitCounts[splitCounts.length - 1] < settings.minSplitPortion) {
-          const shortage = settings.minSplitPortion - splitCounts[splitCounts.length - 1];
-          const donorIndex = splitCounts.length - 2;
-          if (splitCounts[donorIndex] - shortage >= settings.minSplitPortion) {
-            splitCounts[donorIndex] -= shortage;
-            splitCounts[splitCounts.length - 1] += shortage;
-          } else {
-            splitCounts = equalSplit(total, parts);
-          }
+      if (!settings.useMinimumRooms) {
+        let targetCapacity = usedRooms.reduce((sum, room) =>
+          sum + Math.max(1, Math.floor(effectiveCapacity(room) * settings.targetRoomOccupancyPercent / 100)), 0);
+        for (const room of roomsByCapacity) {
+          if (usedRooms.some(item => item._id === room._id)) continue;
+          const projectedAverage = groupStudentTotal / (usedRooms.length + 1);
+          if (targetCapacity >= groupStudentTotal || projectedAverage < settings.minimumStudentsPerUsedRoom) break;
+          usedRooms.push(room);
+          targetCapacity += Math.max(1, Math.floor(effectiveCapacity(room) * settings.targetRoomOccupancyPercent / 100));
         }
       }
 
-      splitCounts.forEach((count, index) => {
-        portions.push({
-          id: cls._id + '-' + index,
-          classId: cls._id,
-          gradeKey: gradeKeyOf(cls),
-          gradeNumber: numericGrade(cls),
-          count,
-        });
-      });
-    });
+      const targets = buildRoomTargets(usedRooms, groupStudentTotal);
+      const averageTarget = groupStudentTotal / Math.max(1, usedRooms.length);
+      const targetRoomHint = Math.max(
+        settings.minSplitPortion * settings.minimumGradesPerRoom,
+        Math.round(averageTarget),
+      );
 
-    portions.sort((a, b) => b.count - a.count || (a.gradeNumber ?? 999) - (b.gradeNumber ?? 999) || a.id.localeCompare(b.id));
-
-    const generatedRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
-    const loadByRoom = new Map<string, number>(sortedRooms.map(room => [room._id, 0]));
-    const mixSignatures = new Map<string, number>();
-    let fallbackRoomsActivated = 0;
-    let relaxedMixPlacements = 0;
-    let rebalancedStudents = 0;
-
-    const addQuota = (roomId: string, classId: string, amount: number) => {
-      const row = generatedRows.find(item => item.roomId === roomId)!;
-      const existing = row.allocations.find(item => item.classId === classId);
-      if (existing) existing.quota += amount;
-      else row.allocations.push({ classId, quota: amount });
-      loadByRoom.set(roomId, (loadByRoom.get(roomId) || 0) + amount);
-    };
-
-    const roomGradeCounts = (roomId: string) => {
-      const row = generatedRows.find(item => item.roomId === roomId)!;
-      const map = new Map<string, number>();
-      row.allocations.forEach(allocation => {
-        const cls = classById.get(allocation.classId);
-        if (!cls || allocation.quota <= 0) return;
-        const grade = gradeKeyOf(cls);
-        map.set(grade, (map.get(grade) || 0) + allocation.quota);
-      });
-      return map;
-    };
-
-    const roomHasClass = (roomId: string, classId: string) =>
-      generatedRows.find(item => item.roomId === roomId)?.allocations.some(item => item.classId === classId && item.quota > 0) || false;
-
-    const gradeDistanceScore = (portion: Portion, grades: Map<string, number>) => {
-      if (portion.gradeNumber === null || !grades.size) return 0;
-      const existingNumbers = Array.from(grades.keys())
-        .map(key => Number(key.replace('grade-', '')))
-        .filter(Number.isFinite);
-      if (!existingNumbers.length) return 0;
-      return Math.min(...existingNumbers.map(value => Math.abs(value - Number(portion.gradeNumber))));
-    };
-
-    const queue = portions.slice();
-    const unresolvedByClass = new Map<string, number>();
-    let guard = 0;
-    while (queue.length && guard < 5000) {
-      guard += 1;
-      const portion = queue.shift()!;
-      const buildCandidates = (allowExtraGradeMix: boolean) => {
-        const eligibleRooms = usedRooms
-          .filter(room => {
-            const row = generatedRows.find(item => item.roomId === room._id)!;
-            const grades = roomGradeCounts(room._id);
-            const existingClassCount = row.allocations.find(item => item.classId === portion.classId)?.quota || 0;
-            if ((loadByRoom.get(room._id) || 0) + portion.count > effectiveCapacity(room)) return false;
-            if (existingClassCount + portion.count > settings.maxClassPortion) return false;
-            if (!allowExtraGradeMix && !grades.has(portion.gradeKey) && grades.size >= settings.preferredGradesPerRoom) return false;
-            return true;
-          });
-
-        const freshRoomsForClass = settings.spreadSameClassAcrossRooms
-          ? eligibleRooms.filter(room => !roomHasClass(room._id, portion.classId))
-          : [];
-        const candidatePool = freshRoomsForClass.length ? freshRoomsForClass : eligibleRooms;
-
-        return candidatePool
-          .map(room => {
-            const load = loadByRoom.get(room._id) || 0;
-            const target = targets.get(room._id) || 0;
-            const grades = roomGradeCounts(room._id);
-            const gradeAlready = grades.has(portion.gradeKey);
-            const distinct = grades.size;
-            const projectedLoad = load + portion.count;
-            const projectedGradeCount = (grades.get(portion.gradeKey) || 0) + portion.count;
-            const projectedShare = projectedLoad > 0 ? projectedGradeCount / projectedLoad * 100 : 0;
-            const distance = gradeDistanceScore(portion, grades);
-            let score = Math.abs(projectedLoad - target) * 5;
-
-            if (projectedLoad > target) score += (projectedLoad - target) * 12;
-            if (!gradeAlready && distinct < settings.preferredGradesPerRoom) score -= 90;
-            if (!gradeAlready && distinct >= settings.preferredGradesPerRoom) score += allowExtraGradeMix ? 45 : 1000;
-            if (gradeAlready && distinct < settings.minimumGradesPerRoom) score += 120;
-            if (settings.avoidSameClassSectionsTogether && roomHasClass(room._id, portion.classId)) score += 180;
-            if (settings.avoidSameClassSectionsTogether && gradeAlready && !roomHasClass(room._id, portion.classId)) score += 140;
-            if (projectedShare > settings.maxSameGradeSharePercent) {
-              score += (projectedShare - settings.maxSameGradeSharePercent) * (settings.priorityMode === 'maximum_mixing' ? 5 : 2);
-            }
-            if (!gradeAlready && distance >= settings.preferredGradeDistance) score -= Math.min(40, distance * 8);
-            if (settings.priorityMode === 'maximum_room_usage') score -= load * 0.5;
-            if (settings.priorityMode === 'maximum_mixing' && !gradeAlready) score -= 40;
-
-            if (settings.avoidRepeatGradeMix && !gradeAlready) {
-              const projectedSignature = Array.from(new Set([...grades.keys(), portion.gradeKey])).sort().join('|');
-              const repeated = generatedRows.filter(other => {
-                if (other.roomId === room._id) return false;
-                const otherGrades = Array.from(roomGradeCounts(other.roomId).keys()).sort().join('|');
-                return otherGrades && otherGrades === projectedSignature;
-              }).length;
-              score += repeated * 35;
-            }
-
-            return { room, score };
-          })
-          .sort((a, b) => a.score - b.score || a.room.name.localeCompare(b.room.name, undefined, { numeric: true }));
+      type Portion = {
+        id: string;
+        classId: string;
+        gradeKey: string;
+        gradeNumber: number | null;
+        count: number;
       };
 
-      let candidates = buildCandidates(false);
+      const portions: Portion[] = [];
+      groupClasses.forEach(cls => {
+        const total = studentCounts[cls._id] || 0;
+        if (!total) return;
 
-      if (candidates.length) {
-        addQuota(candidates[0].room._id, portion.classId, portion.count);
-        continue;
-      }
+        let parts = 1;
+        if (!(settings.keepSmallClassesTogether && total <= settings.smallClassThreshold) && total > settings.maxClassPortion) {
+          let desiredMax = settings.maxClassPortion;
+          if (settings.priorityMode === 'maximum_mixing') {
+            desiredMax = Math.min(
+              desiredMax,
+              Math.max(settings.minSplitPortion, Math.floor(targetRoomHint / settings.preferredGradesPerRoom)),
+            );
+          } else if (settings.priorityMode === 'balanced_security') {
+            desiredMax = Math.min(
+              desiredMax,
+              Math.max(
+                settings.minSplitPortion,
+                Math.floor(targetRoomHint * settings.maxSameGradeSharePercent / 100),
+              ),
+            );
+          }
 
-      // Before weakening any mix preference, activate another allowed Room.
-      const nextUnusedRoom = roomsByCapacity.find(room =>
-        !usedRooms.some(activeRoom => activeRoom._id === room._id)
-      );
-      if (nextUnusedRoom) {
-        usedRooms.push(nextUnusedRoom);
-        fallbackRoomsActivated += 1;
+          parts = Math.max(1, Math.ceil(total / Math.max(1, desiredMax)));
+          while (parts > 1 && Math.floor(total / parts) < settings.minSplitPortion) parts -= 1;
+        }
 
-        const refreshedTargets = buildRoomTargets(usedRooms, activeStudentTotal);
-        targets.clear();
-        refreshedTargets.forEach((value, roomId) => targets.set(roomId, value));
+        let splitCounts = equalSplit(total, parts);
+        if (!settings.splitBalanceEqual && parts > 1) {
+          const maxPart = Math.max(settings.minSplitPortion, Math.ceil(total / parts));
+          splitCounts = [];
+          let remaining = total;
+          while (remaining > 0) {
+            const count = Math.min(maxPart, remaining);
+            splitCounts.push(count);
+            remaining -= count;
+          }
+          if (splitCounts.length > 1 && splitCounts[splitCounts.length - 1] < settings.minSplitPortion) {
+            const shortage = settings.minSplitPortion - splitCounts[splitCounts.length - 1];
+            const donorIndex = splitCounts.length - 2;
+            if (splitCounts[donorIndex] - shortage >= settings.minSplitPortion) {
+              splitCounts[donorIndex] -= shortage;
+              splitCounts[splitCounts.length - 1] += shortage;
+            } else {
+              splitCounts = equalSplit(total, parts);
+            }
+          }
+        }
 
-        queue.unshift(portion);
-        continue;
-      }
+        splitCounts.forEach((count, index) => {
+          portions.push({
+            id: cls._id + '-' + index,
+            classId: cls._id,
+            gradeKey: gradeKeyOf(cls),
+            gradeNumber: numericGrade(cls),
+            count,
+          });
+        });
+      });
 
-      // Preferred Grades / Room is a preference, not a reason to leave
-      // students unassigned when active Rooms still have safe capacity.
-      candidates = buildCandidates(true);
-      if (candidates.length) {
-        addQuota(candidates[0].room._id, portion.classId, portion.count);
-        relaxedMixPlacements += 1;
-        continue;
-      }
+      portions.sort((a, b) => b.count - a.count || (a.gradeNumber ?? 999) - (b.gradeNumber ?? 999) || a.id.localeCompare(b.id));
 
-      if (portion.count >= settings.minSplitPortion * 2) {
-        const split = equalSplit(portion.count, 2);
-        queue.unshift(
-          { ...portion, id: portion.id + '-b', count: split[1] },
-          { ...portion, id: portion.id + '-a', count: split[0] },
+      const generatedRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
+      const loadByRoom = new Map<string, number>(sortedRooms.map(room => [room._id, 0]));
+      let fallbackRoomsActivated = 0;
+      let relaxedMixPlacements = 0;
+      let rebalancedStudents = 0;
+
+      const addQuota = (roomId: string, classId: string, amount: number) => {
+        const row = generatedRows.find(item => item.roomId === roomId)!;
+        const existing = row.allocations.find(item => item.classId === classId);
+        if (existing) existing.quota += amount;
+        else row.allocations.push({ classId, quota: amount });
+        loadByRoom.set(roomId, (loadByRoom.get(roomId) || 0) + amount);
+      };
+
+      const roomGradeCounts = (roomId: string) => {
+        const row = generatedRows.find(item => item.roomId === roomId)!;
+        const map = new Map<string, number>();
+        row.allocations.forEach(allocation => {
+          const cls = classById.get(allocation.classId);
+          if (!cls || allocation.quota <= 0) return;
+          const grade = gradeKeyOf(cls);
+          map.set(grade, (map.get(grade) || 0) + allocation.quota);
+        });
+        return map;
+      };
+
+      const roomHasClass = (roomId: string, classId: string) =>
+        generatedRows.find(item => item.roomId === roomId)?.allocations.some(item => item.classId === classId && item.quota > 0) || false;
+
+      const gradeDistanceScore = (portion: Portion, grades: Map<string, number>) => {
+        if (portion.gradeNumber === null || !grades.size) return 0;
+        const existingNumbers = Array.from(grades.keys())
+          .map(key => Number(key.replace('grade-', '')))
+          .filter(Number.isFinite);
+        if (!existingNumbers.length) return 0;
+        return Math.min(...existingNumbers.map(value => Math.abs(value - Number(portion.gradeNumber))));
+      };
+
+      const queue = portions.slice();
+      const unresolvedByClass = new Map<string, number>();
+      let guard = 0;
+      while (queue.length && guard < 5000) {
+        guard += 1;
+        const portion = queue.shift()!;
+        const buildCandidates = (allowExtraGradeMix: boolean) => {
+          const eligibleRooms = usedRooms
+            .filter(room => {
+              const row = generatedRows.find(item => item.roomId === room._id)!;
+              const grades = roomGradeCounts(room._id);
+              const existingClassCount = row.allocations.find(item => item.classId === portion.classId)?.quota || 0;
+              if ((loadByRoom.get(room._id) || 0) + portion.count > effectiveCapacity(room)) return false;
+              if (existingClassCount + portion.count > settings.maxClassPortion) return false;
+              if (!allowExtraGradeMix && !grades.has(portion.gradeKey) && grades.size >= settings.preferredGradesPerRoom) return false;
+              return true;
+            });
+
+          const freshRoomsForClass = settings.spreadSameClassAcrossRooms
+            ? eligibleRooms.filter(room => !roomHasClass(room._id, portion.classId))
+            : [];
+          const candidatePool = freshRoomsForClass.length ? freshRoomsForClass : eligibleRooms;
+
+          return candidatePool
+            .map(room => {
+              const load = loadByRoom.get(room._id) || 0;
+              const target = targets.get(room._id) || 0;
+              const grades = roomGradeCounts(room._id);
+              const gradeAlready = grades.has(portion.gradeKey);
+              const distinct = grades.size;
+              const projectedLoad = load + portion.count;
+              const projectedGradeCount = (grades.get(portion.gradeKey) || 0) + portion.count;
+              const projectedShare = projectedLoad > 0 ? projectedGradeCount / projectedLoad * 100 : 0;
+              const distance = gradeDistanceScore(portion, grades);
+              let score = Math.abs(projectedLoad - target) * 5;
+
+              if (projectedLoad > target) score += (projectedLoad - target) * 12;
+              if (!gradeAlready && distinct < settings.preferredGradesPerRoom) score -= 90;
+              if (!gradeAlready && distinct >= settings.preferredGradesPerRoom) score += allowExtraGradeMix ? 45 : 1000;
+              if (gradeAlready && distinct < settings.minimumGradesPerRoom) score += 120;
+              if (settings.avoidSameClassSectionsTogether && roomHasClass(room._id, portion.classId)) score += 180;
+              if (settings.avoidSameClassSectionsTogether && gradeAlready && !roomHasClass(room._id, portion.classId)) score += 140;
+              if (projectedShare > settings.maxSameGradeSharePercent) {
+                score += (projectedShare - settings.maxSameGradeSharePercent) * (settings.priorityMode === 'maximum_mixing' ? 5 : 2);
+              }
+              if (!gradeAlready && distance >= settings.preferredGradeDistance) score -= Math.min(40, distance * 8);
+              if (settings.priorityMode === 'maximum_room_usage') score -= load * 0.5;
+              if (settings.priorityMode === 'maximum_mixing' && !gradeAlready) score -= 40;
+
+              if (settings.avoidRepeatGradeMix && !gradeAlready) {
+                const projectedSignature = Array.from(new Set([...grades.keys(), portion.gradeKey])).sort().join('|');
+                const repeated = generatedRows.filter(other => {
+                  if (other.roomId === room._id) return false;
+                  const otherGrades = Array.from(roomGradeCounts(other.roomId).keys()).sort().join('|');
+                  return otherGrades && otherGrades === projectedSignature;
+                }).length;
+                score += repeated * 35;
+              }
+
+              return { room, score };
+            })
+            .sort((a, b) => a.score - b.score || a.room.name.localeCompare(b.room.name, undefined, { numeric: true }));
+        };
+
+        let candidates = buildCandidates(false);
+
+        if (candidates.length) {
+          addQuota(candidates[0].room._id, portion.classId, portion.count);
+          continue;
+        }
+
+        // Before weakening any mix preference, activate another allowed Room.
+        const nextUnusedRoom = roomsByCapacity.find(room =>
+          !usedRooms.some(activeRoom => activeRoom._id === room._id)
         );
-        continue;
-      }
+        if (nextUnusedRoom) {
+          usedRooms.push(nextUnusedRoom);
+          fallbackRoomsActivated += 1;
 
-      unresolvedByClass.set(
-        portion.classId,
-        (unresolvedByClass.get(portion.classId) || 0) + portion.count,
-      );
-    }
+          const refreshedTargets = buildRoomTargets(usedRooms, groupStudentTotal);
+          targets.clear();
+          refreshedTargets.forEach((value, roomId) => targets.set(roomId, value));
 
-    if (queue.length) {
-      queue.forEach(portion => {
+          queue.unshift(portion);
+          continue;
+        }
+
+        // Preferred Grades / Room is a preference, not a reason to leave
+        // students unassigned when active Rooms still have safe capacity.
+        candidates = buildCandidates(true);
+        if (candidates.length) {
+          addQuota(candidates[0].room._id, portion.classId, portion.count);
+          relaxedMixPlacements += 1;
+          continue;
+        }
+
+        if (portion.count >= settings.minSplitPortion * 2) {
+          const split = equalSplit(portion.count, 2);
+          queue.unshift(
+            { ...portion, id: portion.id + '-b', count: split[1] },
+            { ...portion, id: portion.id + '-a', count: split[0] },
+          );
+          continue;
+        }
+
         unresolvedByClass.set(
           portion.classId,
           (unresolvedByClass.get(portion.classId) || 0) + portion.count,
         );
-      });
-      queue.splice(0, queue.length);
-    }
-
-    if (settings.autoRepairInvalidPlan) {
-      const gradeSetOf = (row: PlanRoomRow) => new Set(
-        row.allocations
-          .filter(item => item.quota > 0)
-          .map(item => {
-            const cls = classById.get(item.classId);
-            return cls ? gradeKeyOf(cls) : '';
-          })
-          .filter(Boolean)
-      );
-
-      for (const targetRow of generatedRows) {
-        const targetLoad = loadByRoom.get(targetRow.roomId) || 0;
-        const targetGrades = gradeSetOf(targetRow);
-        if (!targetLoad || targetGrades.size >= settings.minimumGradesPerRoom) continue;
-
-        const targetAllocation = targetRow.allocations.find(item => item.quota > 0);
-        const targetClass = targetAllocation ? classById.get(targetAllocation.classId) : null;
-        if (!targetAllocation || !targetClass) continue;
-        const targetGrade = gradeKeyOf(targetClass);
-
-        for (const donorRow of generatedRows) {
-          if (donorRow.roomId === targetRow.roomId || !(loadByRoom.get(donorRow.roomId) || 0)) continue;
-          const donorGrades = gradeSetOf(donorRow);
-          if (donorGrades.size < settings.minimumGradesPerRoom) continue;
-
-          const donorAllocation = donorRow.allocations.find(item => {
-            if (item.quota <= 1) return false;
-            const cls = classById.get(item.classId);
-            return cls ? gradeKeyOf(cls) !== targetGrade : false;
-          });
-          if (!donorAllocation) continue;
-
-          const swapCount = Math.max(
-            1,
-            Math.min(
-              settings.minSplitPortion,
-              donorAllocation.quota - 1,
-              targetAllocation.quota,
-            ),
-          );
-          if (swapCount <= 0) continue;
-
-          donorAllocation.quota -= swapCount;
-          targetAllocation.quota -= swapCount;
-          const donorGetsTarget = donorRow.allocations.find(item => item.classId === targetAllocation.classId);
-          if (donorGetsTarget) donorGetsTarget.quota += swapCount;
-          else donorRow.allocations.push({ classId: targetAllocation.classId, quota: swapCount });
-
-          const targetGetsDonor = targetRow.allocations.find(item => item.classId === donorAllocation.classId);
-          if (targetGetsDonor) targetGetsDonor.quota += swapCount;
-          else targetRow.allocations.push({ classId: donorAllocation.classId, quota: swapCount });
-          break;
-        }
       }
-    }
 
-    // Final Rebalance Pass:
-    // Once every student is placed, move small quota counts from rooms above
-    // their target into rooms below target. This keeps the same class totals
-    // while tightening room loads around the balanced target.
-    const unresolvedBeforeBalance = Array.from(unresolvedByClass.values())
-      .reduce((sum, count) => sum + count, 0);
+      if (queue.length) {
+        queue.forEach(portion => {
+          unresolvedByClass.set(
+            portion.classId,
+            (unresolvedByClass.get(portion.classId) || 0) + portion.count,
+          );
+        });
+        queue.splice(0, queue.length);
+      }
 
-    if (unresolvedBeforeBalance === 0 && usedRooms.length > 1) {
-      const finalTargets = buildRoomTargets(usedRooms, activeStudentTotal);
-      const tolerance = Math.max(0, Math.trunc(settings.occupancyBalanceTolerance || 0));
-      let balanceGuard = 0;
+      if (settings.autoRepairInvalidPlan) {
+        const gradeSetOf = (row: PlanRoomRow) => new Set(
+          row.allocations
+            .filter(item => item.quota > 0)
+            .map(item => {
+              const cls = classById.get(item.classId);
+              return cls ? gradeKeyOf(cls) : '';
+            })
+            .filter(Boolean)
+        );
 
-      while (balanceGuard < 1000) {
-        balanceGuard += 1;
+        for (const targetRow of generatedRows) {
+          const targetLoad = loadByRoom.get(targetRow.roomId) || 0;
+          const targetGrades = gradeSetOf(targetRow);
+          if (!targetLoad || targetGrades.size >= settings.minimumGradesPerRoom) continue;
 
-        const donors = usedRooms
-          .map(room => ({
-            room,
-            load: loadByRoom.get(room._id) || 0,
-            target: finalTargets.get(room._id) || 0,
-          }))
-          .filter(item => item.load > item.target + tolerance)
-          .sort((a, b) => (b.load - b.target) - (a.load - a.target));
+          const targetAllocation = targetRow.allocations.find(item => item.quota > 0);
+          const targetClass = targetAllocation ? classById.get(targetAllocation.classId) : null;
+          if (!targetAllocation || !targetClass) continue;
+          const targetGrade = gradeKeyOf(targetClass);
 
-        const receivers = usedRooms
-          .map(room => ({
-            room,
-            load: loadByRoom.get(room._id) || 0,
-            target: finalTargets.get(room._id) || 0,
-          }))
-          .filter(item =>
-            item.load < item.target - tolerance
-            && item.load < effectiveCapacity(item.room)
-          )
-          .sort((a, b) => (b.target - b.load) - (a.target - a.load));
+          for (const donorRow of generatedRows) {
+            if (donorRow.roomId === targetRow.roomId || !(loadByRoom.get(donorRow.roomId) || 0)) continue;
+            const donorGrades = gradeSetOf(donorRow);
+            if (donorGrades.size < settings.minimumGradesPerRoom) continue;
 
-        if (!donors.length || !receivers.length) break;
-
-        let moved = false;
-
-        for (const donor of donors) {
-          if (moved) break;
-          const donorRow = generatedRows.find(row => row.roomId === donor.room._id);
-          if (!donorRow) continue;
-
-          for (const receiver of receivers) {
-            if (moved) break;
-            if (receiver.room._id === donor.room._id) continue;
-
-            const receiverRow = generatedRows.find(row => row.roomId === receiver.room._id);
-            if (!receiverRow) continue;
-
-            const receiverGrades = roomGradeCounts(receiver.room._id);
-
-            const candidateAllocations = donorRow.allocations
-              .filter(allocation => allocation.quota > 0)
-              .map(allocation => {
-                const cls = classById.get(allocation.classId);
-                if (!cls) return null;
-
-                const existingTarget = receiverRow.allocations.find(
-                  item => item.classId === allocation.classId
-                );
-                if (settings.spreadSameClassAcrossRooms && existingTarget) return null;
-
-                const receiverClassCount = existingTarget?.quota || 0;
-                const donorExcess = donor.load - donor.target;
-                const receiverDeficit = receiver.target - receiver.load;
-                const receiverSpace = effectiveCapacity(receiver.room) - receiver.load;
-                const classSpace = Math.max(0, settings.maxClassPortion - receiverClassCount);
-                const maxMove = Math.min(
-                  allocation.quota,
-                  donorExcess,
-                  receiverDeficit,
-                  receiverSpace,
-                  classSpace,
-                );
-                if (maxMove <= 0) return null;
-
-                const grade = gradeKeyOf(cls);
-                const addsNewGrade = !receiverGrades.has(grade);
-                const gradePenalty = addsNewGrade && receiverGrades.size >= settings.preferredGradesPerRoom
-                  ? 50
-                  : 0;
-                const projectedLoad = receiver.load + maxMove;
-                const projectedTargetGap = Math.abs(projectedLoad - receiver.target);
-
-                return {
-                  allocation,
-                  maxMove,
-                  score: gradePenalty + projectedTargetGap,
-                };
-              })
-              .filter(Boolean)
-              .sort((a:any, b:any) => a.score - b.score || b.maxMove - a.maxMove);
-
-            const candidate = candidateAllocations[0] as any;
-            if (!candidate) continue;
-
-            const amount = Math.max(1, Math.trunc(candidate.maxMove));
-            candidate.allocation.quota -= amount;
-
-            const targetAllocation = receiverRow.allocations.find(
-              item => item.classId === candidate.allocation.classId
-            );
-            if (targetAllocation) targetAllocation.quota += amount;
-            else receiverRow.allocations.push({
-              classId: candidate.allocation.classId,
-              quota: amount,
+            const donorAllocation = donorRow.allocations.find(item => {
+              if (item.quota <= 1) return false;
+              const cls = classById.get(item.classId);
+              return cls ? gradeKeyOf(cls) !== targetGrade : false;
             });
+            if (!donorAllocation) continue;
 
-            loadByRoom.set(donor.room._id, donor.load - amount);
-            loadByRoom.set(receiver.room._id, receiver.load + amount);
-            rebalancedStudents += amount;
-            moved = true;
+            const swapCount = Math.max(
+              1,
+              Math.min(
+                settings.minSplitPortion,
+                donorAllocation.quota - 1,
+                targetAllocation.quota,
+              ),
+            );
+            if (swapCount <= 0) continue;
+
+            donorAllocation.quota -= swapCount;
+            targetAllocation.quota -= swapCount;
+            const donorGetsTarget = donorRow.allocations.find(item => item.classId === targetAllocation.classId);
+            if (donorGetsTarget) donorGetsTarget.quota += swapCount;
+            else donorRow.allocations.push({ classId: targetAllocation.classId, quota: swapCount });
+
+            const targetGetsDonor = targetRow.allocations.find(item => item.classId === donorAllocation.classId);
+            if (targetGetsDonor) targetGetsDonor.quota += swapCount;
+            else targetRow.allocations.push({ classId: donorAllocation.classId, quota: swapCount });
+            break;
           }
         }
-
-        if (!moved) break;
       }
+
+      // Final Rebalance Pass:
+      // Once every student is placed, move small quota counts from rooms above
+      // their target into rooms below target. This keeps the same class totals
+      // while tightening room loads around the balanced target.
+      const unresolvedBeforeBalance = Array.from(unresolvedByClass.values())
+        .reduce((sum, count) => sum + count, 0);
+
+      if (unresolvedBeforeBalance === 0 && usedRooms.length > 1) {
+        const finalTargets = buildRoomTargets(usedRooms, groupStudentTotal);
+        const tolerance = Math.max(0, Math.trunc(settings.occupancyBalanceTolerance || 0));
+        let balanceGuard = 0;
+
+        while (balanceGuard < 1000) {
+          balanceGuard += 1;
+
+          const donors = usedRooms
+            .map(room => ({
+              room,
+              load: loadByRoom.get(room._id) || 0,
+              target: finalTargets.get(room._id) || 0,
+            }))
+            .filter(item => item.load > item.target + tolerance)
+            .sort((a, b) => (b.load - b.target) - (a.load - a.target));
+
+          const receivers = usedRooms
+            .map(room => ({
+              room,
+              load: loadByRoom.get(room._id) || 0,
+              target: finalTargets.get(room._id) || 0,
+            }))
+            .filter(item =>
+              item.load < item.target - tolerance
+              && item.load < effectiveCapacity(item.room)
+            )
+            .sort((a, b) => (b.target - b.load) - (a.target - a.load));
+
+          if (!donors.length || !receivers.length) break;
+
+          let moved = false;
+
+          for (const donor of donors) {
+            if (moved) break;
+            const donorRow = generatedRows.find(row => row.roomId === donor.room._id);
+            if (!donorRow) continue;
+
+            for (const receiver of receivers) {
+              if (moved) break;
+              if (receiver.room._id === donor.room._id) continue;
+
+              const receiverRow = generatedRows.find(row => row.roomId === receiver.room._id);
+              if (!receiverRow) continue;
+
+              const receiverGrades = roomGradeCounts(receiver.room._id);
+
+              const candidateAllocations = donorRow.allocations
+                .filter(allocation => allocation.quota > 0)
+                .map(allocation => {
+                  const cls = classById.get(allocation.classId);
+                  if (!cls) return null;
+
+                  const existingTarget = receiverRow.allocations.find(
+                    item => item.classId === allocation.classId
+                  );
+                  if (settings.spreadSameClassAcrossRooms && existingTarget) return null;
+
+                  const receiverClassCount = existingTarget?.quota || 0;
+                  const donorExcess = donor.load - donor.target;
+                  const receiverDeficit = receiver.target - receiver.load;
+                  const receiverSpace = effectiveCapacity(receiver.room) - receiver.load;
+                  const classSpace = Math.max(0, settings.maxClassPortion - receiverClassCount);
+                  const maxMove = Math.min(
+                    allocation.quota,
+                    donorExcess,
+                    receiverDeficit,
+                    receiverSpace,
+                    classSpace,
+                  );
+                  if (maxMove <= 0) return null;
+
+                  const grade = gradeKeyOf(cls);
+                  const addsNewGrade = !receiverGrades.has(grade);
+                  const gradePenalty = addsNewGrade && receiverGrades.size >= settings.preferredGradesPerRoom
+                    ? 50
+                    : 0;
+                  const projectedLoad = receiver.load + maxMove;
+                  const projectedTargetGap = Math.abs(projectedLoad - receiver.target);
+
+                  return {
+                    allocation,
+                    maxMove,
+                    score: gradePenalty + projectedTargetGap,
+                  };
+                })
+                .filter(Boolean)
+                .sort((a:any, b:any) => a.score - b.score || b.maxMove - a.maxMove);
+
+              const candidate = candidateAllocations[0] as any;
+              if (!candidate) continue;
+
+              const amount = Math.max(1, Math.trunc(candidate.maxMove));
+              candidate.allocation.quota -= amount;
+
+              const targetAllocation = receiverRow.allocations.find(
+                item => item.classId === candidate.allocation.classId
+              );
+              if (targetAllocation) targetAllocation.quota += amount;
+              else receiverRow.allocations.push({
+                classId: candidate.allocation.classId,
+                quota: amount,
+              });
+
+              loadByRoom.set(donor.room._id, donor.load - amount);
+              loadByRoom.set(receiver.room._id, receiver.load + amount);
+              rebalancedStudents += amount;
+              moved = true;
+            }
+          }
+
+          if (!moved) break;
+        }
+      }
+      return { generatedRows, unresolvedByClass, fallbackRoomsActivated, relaxedMixPlacements, rebalancedStudents };
+    };
+
+    const generatedRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
+    const unresolvedByClass = new Map<string, number>();
+    const mixSignatures = new Map<string, number>();
+    let fallbackRoomsActivated = 0;
+    let relaxedMixPlacements = 0;
+    let rebalancedStudents = 0;
+    for (const group of shiftGroups) {
+      if (!group.students) continue;
+      const result = planShiftGroup(group.classes, group.students);
+      result.generatedRows.forEach(groupRow => {
+        const row = generatedRows.find(item => item.roomId === groupRow.roomId);
+        if (row) row.allocations.push(...groupRow.allocations.filter(item => item.quota > 0));
+      });
+      result.unresolvedByClass.forEach((count, classId) =>
+        unresolvedByClass.set(classId, (unresolvedByClass.get(classId) || 0) + count)
+      );
+      fallbackRoomsActivated += result.fallbackRoomsActivated;
+      relaxedMixPlacements += result.relaxedMixPlacements;
+      rebalancedStudents += result.rebalancedStudents;
     }
 
     generatedRows.forEach(row => {
@@ -1007,7 +1121,7 @@ export function PlanRoomsPanel({
     for (const row of planRows) {
       const room = roomById.get(row.roomId);
       if (!room) continue;
-      const used = row.allocations.reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
+      const used = roomUsed(row.roomId);
       const operationalCapacity = effectiveCapacity(room);
       const physicalCapacity = Math.max(0, Number(room.capacity) || 0);
       if (used > physicalCapacity && !capacityOverrideRoomIds.includes(room._id)) {
@@ -1283,7 +1397,7 @@ export function PlanRoomsPanel({
                 <span className="text-3xl font-bold">{sortedRooms.length}</span>
                 <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">{totalOperationalCapacity} operational seats</span>
               </div>
-              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{totalRoomCapacity} physical seats · {activeStudentTotal} active students.</p>
+              <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{totalRoomCapacity} physical seats · {activeStudentTotal} active students{shiftGroups.length > 1 ? ' · ' + peakStudentDemand + ' in the busiest shift' : ''}.</p>
             </div>
           </div>
         </div>
@@ -1334,7 +1448,7 @@ export function PlanRoomsPanel({
                 <div>
                   <p className="font-bold text-primary-800 dark:text-primary-200">Recommended from current data</p>
                   <p className="mt-1 text-sm text-primary-700/90 dark:text-primary-300/90">
-                    {activeStudentTotal} active students · {sortedRooms.length} active Rooms · about {recommendedTargetPerRoom} students per Room.
+                    {activeStudentTotal} active students · {sortedRooms.length} active Rooms · about {recommendedTargetPerRoom} students per Room{shiftGroups.length > 1 ? ' in each exam shift' : ''}.
                   </p>
                 </div>
                 <button type="button" onClick={applyRecommendedSettings} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white">
@@ -1537,7 +1651,12 @@ export function PlanRoomsPanel({
                         <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'}</p>
                       </td>
                       <td className="px-4 py-4 text-lg font-bold">{capacity}</td>
-                      <td className="px-4 py-4 text-lg font-bold">{assigned}</td>
+                      <td className="px-4 py-4">
+                        <p className="text-lg font-bold">{assigned}</p>
+                        {roomShiftBreakdown(room._id) && (
+                          <p className="mt-0.5 text-[11px] font-semibold text-[var(--color-text-tertiary)]">{roomShiftBreakdown(room._id)}</p>
+                        )}
+                      </td>
                       <td className="px-4 py-4">
                         {balance > 0 ? (
                           <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-700">
@@ -1600,7 +1719,7 @@ export function PlanRoomsPanel({
                           .map(room => {
                             const row = rowOf(room._id);
                             const classAssigned = row.allocations.find(allocation => allocation.classId === item.cls._id)?.quota || 0;
-                            const totalLoad = roomUsed(room._id);
+                            const totalLoad = roomUsed(room._id, planRows, item.cls._id);
                             const capacity = Math.max(0, Number(room.capacity) || 0);
                             const free = capacity - totalLoad;
                             const key = item.cls._id + '::' + room._id;
@@ -1704,8 +1823,11 @@ export function PlanRoomsPanel({
                           </p>
                         )}
                       </td>
-                      <td className="px-4 py-4 text-lg font-bold">
-                        {used}/{capacity}
+                      <td className="px-4 py-4">
+                        <p className="text-lg font-bold">{used}/{capacity}</p>
+                        {roomShiftBreakdown(room._id) && (
+                          <p className="mt-0.5 text-[11px] font-semibold text-[var(--color-text-tertiary)]">{roomShiftBreakdown(room._id)}</p>
+                        )}
                       </td>
                       <td className="px-4 py-4">
                         <div className="min-w-[620px] overflow-hidden rounded-xl border">
@@ -1779,7 +1901,9 @@ export function PlanRoomsPanel({
       </div>
 
       {activeClasses.some(cls => departmentNameOf(cls)) && (
-        <p className="text-xs text-[var(--color-text-tertiary)]">Department labels remain visible in Class Management; room mixing here is based on Grade number, not Primary/Secondary department.</p>
+        <p className="text-xs text-[var(--color-text-tertiary)]">{shiftGroups.length > 1
+            ? 'Departments that sit in different exam shifts (' + shiftGroups.map(group => shiftNames(group.shifts)).join(' / ') + ') share every room and seat, and grades are only mixed with classes from the same shifts.'
+            : 'All classes sit in the same exam shifts, so every student needs their own seat and grades are mixed across the whole school.'}</p>
       )}
     </div>
   );

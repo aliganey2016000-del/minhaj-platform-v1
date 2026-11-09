@@ -198,6 +198,9 @@ jobs:
       - name: Exam delete goes to Trash; exam windows use school time
         run: npm run test:exam-trash-timezone
 
+      - name: Room Plan shares rooms across exam-shift groups
+        run: npm run test:exam-seating-shift-groups
+
       - name: Class Schedule edge-case regressions
         run: npx ts-node src/__tests__/class-schedule-edge-cases.e2e.ts
 
