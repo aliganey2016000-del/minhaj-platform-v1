@@ -3819,6 +3819,14 @@ function ExamTimetable({
 
   useEffect(() => {
     if (!scheduleActionRequest || scheduleActionRequest.id <= lastScheduleActionRequest.current || rulesLoading) return;
+    // Opened from another view, the grid first restores its last-used period
+    // and only then switches to the focused one. Wait for that switch so a
+    // period action (Auto Generate, status, reuse) never hits the wrong exam.
+    if (
+      focusedPeriodId
+      && selectedPeriod?._id !== focusedPeriodId
+      && periods.some((period) => period._id === focusedPeriodId)
+    ) return;
 
     lastScheduleActionRequest.current = scheduleActionRequest.id;
     const { action } = scheduleActionRequest;
@@ -3846,7 +3854,9 @@ function ExamTimetable({
 
     onScheduleActionRequestHandled(scheduleActionRequest.id);
   }, [
+    focusedPeriodId,
     onScheduleActionRequestHandled,
+    periods,
     rulesLoading,
     scheduleActionRequest,
     selectedPeriod,
@@ -5159,6 +5169,18 @@ export function ExamsManage() {
   };
 
   const selectedPeriodMeta = examPeriods.find((period) => period._id === selectedExamPeriodId);
+  // The Table Grid reports the menu's period context while it is open. In By
+  // Department / List it is not mounted, so the menu falls back to the period
+  // this page has open — otherwise every period action stays disabled there.
+  const effectiveScheduleMenuContext: ExamScheduleMenuContext = viewMode === 'table' || !selectedPeriodMeta
+    ? scheduleMenuContext
+    : {
+        hasSelectedPeriod: true,
+        periodId: selectedPeriodMeta._id,
+        periodStatus: selectedPeriodMeta.status,
+        perspective: scheduleMenuContext.perspective,
+        busy: false,
+      };
   const overviewPeriods = examPeriods.filter((period) => !overviewYear || period.academicYear === overviewYear);
 
   useEffect(() => {
@@ -5267,7 +5289,7 @@ export function ExamsManage() {
                       if (selectedExamPeriodId) setViewMode('department');
                     }}
                     departmentViewActive={viewMode === 'department'}
-                    scheduleContext={scheduleMenuContext}
+                    scheduleContext={effectiveScheduleMenuContext}
                     onBulkDelete={() => setShowBulkDeleteModal(true)}
                     selectedCount={selected.size}
                   />
@@ -5494,7 +5516,7 @@ export function ExamsManage() {
                       if (selectedExamPeriodId) setViewMode('department');
                     }}
                     departmentViewActive={viewMode === 'department'}
-                    scheduleContext={scheduleMenuContext}
+                    scheduleContext={effectiveScheduleMenuContext}
                     onBulkDelete={() => setShowBulkDeleteModal(true)}
                     selectedCount={selected.size}
                   />
