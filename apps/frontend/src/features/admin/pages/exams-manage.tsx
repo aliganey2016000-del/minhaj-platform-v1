@@ -571,9 +571,17 @@ function DepartmentalExamView({
       subjectGroups.set(subject, current);
     }
 
+    // Only show the shift columns this department actually sits exams in
+    // (e.g. Primary: Shift 1-2, Secondary: Shift 3-4). Unplaced records count
+    // too, so the grid keeps its shape after Reset.
+    const departmentShifts = shifts.filter((shift) => departmentExams.some((exam) =>
+      exam.startTime === shift.startTime && exam.endTime === shift.endTime
+    ));
+    const scheduleShifts = departmentShifts.length ? departmentShifts : shifts;
+
     const cells = new Map<string, Array<{ subject: string }>>();
     dates.forEach((date) => {
-      shifts.forEach((shift) => {
+      scheduleShifts.forEach((shift) => {
         const subjects = new Set<string>();
         placedExams
           .filter((exam) =>
@@ -603,6 +611,7 @@ function DepartmentalExamView({
         a.subject.localeCompare(b.subject, undefined, { numeric: true, sensitivity: 'base' })
       ),
       classCount: classIds.size,
+      shifts: scheduleShifts,
       cells,
     };
   }), [classes, dates, departmentDefinitions, allFixed, shifts]);
@@ -685,7 +694,7 @@ function DepartmentalExamView({
 
   const assignSubjectToCell = async (subject: string) => {
     if (!period?._id || !departmentSchoolId || !selectedSchedule || !cellTarget) return;
-    const shift = shifts[cellTarget.shiftIndex];
+    const shift = selectedSchedule.shifts[cellTarget.shiftIndex];
     const subjectGroup = selectedSchedule.subjects.find((item) => item.subject === subject);
     if (!shift || !subjectGroup?.examIds.length) return;
 
@@ -751,13 +760,16 @@ function DepartmentalExamView({
     }
   };
 
-  const cellTargetShift = cellTarget ? shifts[cellTarget.shiftIndex] : undefined;
+  const cellTargetShift = cellTarget && selectedSchedule ? selectedSchedule.shifts[cellTarget.shiftIndex] : undefined;
+  // Keep each column's school-wide shift number (Secondary's 10:00 column is
+  // still "Shift 3") even though a department only shows its own columns.
+  const shiftNumber = (shift: { key: string }) => shifts.findIndex((item) => item.key === shift.key) + 1;
   const cellTargetItems = cellTarget && cellTargetShift && selectedSchedule
     ? selectedSchedule.cells.get(`${cellTarget.date}::${cellTargetShift.key}`) || []
     : [];
   const cellTargetSubjects = new Set(cellTargetItems.map((item) => item.subject));
 
-  const minWidth = Math.max(760, 170 + shifts.length * 260 + Math.max(0, shifts.length - 1) * 110);
+  const minWidthFor = (columnCount: number) => Math.max(760, 170 + columnCount * 260 + Math.max(0, columnCount - 1) * 110);
   const departmentSchoolName = printBranding.name
     || (typeof period?.school === 'object' ? period.school?.name : '')
     || (user as any)?.organizationName
@@ -1170,25 +1182,25 @@ function DepartmentalExamView({
             </div>
           ) : (
             <div className="exam-department-scroll max-w-full overflow-x-hidden overscroll-x-contain sm:overflow-x-auto [scrollbar-width:thin]">
-              <table className="exam-department-table w-full border-collapse text-xs sm:text-sm" style={{ minWidth, tableLayout: 'fixed' }}>
+              <table className="exam-department-table w-full border-collapse text-xs sm:text-sm" style={{ minWidth: minWidthFor(selectedSchedule.shifts.length), tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
                     <th className="exam-department-day-col w-40 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
                       Day / Date
                     </th>
-                    {shifts.map((shift, index) => (
+                    {selectedSchedule.shifts.map((shift, index) => (
                       <Fragment key={shift.key}>
                         <th className="exam-department-shift-head border-b border-r border-[var(--color-border-default)] bg-primary-50/50 px-3 py-3 text-center dark:bg-primary-950/10">
                           <div className="flex items-center justify-center gap-2">
-                            <span className="font-extrabold text-primary-700 dark:text-primary-300">Shift {index + 1}</span>
+                            <span className="font-extrabold text-primary-700 dark:text-primary-300">Shift {shiftNumber(shift)}</span>
                             {departmentEditMode && (
                               <button
                                 type="button"
-                                onClick={() => openShiftEditor(shift, index)}
+                                onClick={() => openShiftEditor(shift, shiftNumber(shift) - 1)}
                                 disabled={savingAxis || savingCell || resettingSchedule}
                                 className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-amber-300 bg-white text-amber-700 hover:bg-amber-50 disabled:opacity-40 dark:border-amber-800 dark:bg-slate-900 dark:text-amber-300"
-                                title={`Edit Shift ${index + 1} time`}
-                                aria-label={`Edit Shift ${index + 1} time`}
+                                title={`Edit Shift ${shiftNumber(shift)} time`}
+                                aria-label={`Edit Shift ${shiftNumber(shift)} time`}
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
@@ -1196,11 +1208,11 @@ function DepartmentalExamView({
                           </div>
                           <div className="mt-0.5 text-[10px] font-semibold text-[var(--color-text-tertiary)]">{shift.startTime}–{shift.endTime}</div>
                         </th>
-                        {index < shifts.length - 1 && (
+                        {index < selectedSchedule.shifts.length - 1 && (
                           <th className="exam-department-break-col w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50/50 px-2 py-3 text-center dark:bg-amber-950/10">
                             <div className="text-[10px] font-extrabold uppercase text-amber-700 dark:text-amber-300">Break</div>
                             <div className="mt-0.5 text-[9px] font-semibold text-amber-600/80 dark:text-amber-400">
-                              {shift.endTime}–{shifts[index + 1].startTime}
+                              {shift.endTime}–{selectedSchedule.shifts[index + 1].startTime}
                             </div>
                           </th>
                         )}
@@ -1236,7 +1248,7 @@ function DepartmentalExamView({
                             {parsed.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}
                           </div>
                         </td>
-                        {shifts.map((shift, index) => {
+                        {selectedSchedule.shifts.map((shift, index) => {
                           const items = selectedSchedule.cells.get(`${date}::${shift.key}`) || [];
                           return (
                             <Fragment key={shift.key}>
@@ -1278,7 +1290,7 @@ function DepartmentalExamView({
                                   </div>
                                 )}
                               </td>
-                              {index < shifts.length - 1 && (
+                              {index < selectedSchedule.shifts.length - 1 && (
                                 <td className="exam-department-break-col border-b border-r border-[var(--color-border-default)] bg-amber-50/20 p-2 text-center align-middle dark:bg-amber-950/5">
                                   <span className="exam-department-break-label text-[9px] font-bold uppercase tracking-wide text-amber-600">Break</span>
                                 </td>
@@ -1390,7 +1402,7 @@ function DepartmentalExamView({
                 <h3 className="text-base font-bold text-[var(--color-text-primary)]">Choose Course</h3>
                 <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
                   {new Date(`${cellTarget.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' })}
-                  {' · '}Shift {cellTarget.shiftIndex + 1} · {cellTargetShift.startTime}–{cellTargetShift.endTime}
+                  {' · '}Shift {shiftNumber(cellTargetShift)} · {cellTargetShift.startTime}–{cellTargetShift.endTime}
                 </p>
               </div>
               <button type="button" onClick={() => !savingCell && setCellTarget(null)} className="rounded-lg p-2 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-secondary)]">
@@ -5001,7 +5013,9 @@ export function ExamsManage() {
   const openExamPeriod = (period: ExamPeriod) => {
     setSelectedExamPeriodId(period._id);
     setExamDetailOpen(true);
-    setViewMode('table');
+    // An opened exam period lands on By Department; By Date / By Class stay
+    // one click away in the schedule menu.
+    setViewMode('department');
     setStatusFilters(null);
     setScheduleFilters(null);
     setClassFilters(null);
@@ -5140,12 +5154,12 @@ export function ExamsManage() {
     const period = examPeriods.find((item) => item._id === periodId);
     if (!period) return;
 
-    // Only reset the display when the URL switches to a different exam period.
-    // Do not force "table" on every viewMode change: that would immediately
-    // undo the user's selection of the Departmental View.
+    // Only reset the display when the URL switches to a different exam period,
+    // and then default to By Department. Do not force it on every viewMode
+    // change: that would undo the user's own choice of By Date / By Class.
     if (selectedExamPeriodId !== periodId) {
       setSelectedExamPeriodId(periodId);
-      setViewMode('table');
+      setViewMode('department');
     }
     if (!examDetailOpen) setExamDetailOpen(true);
   }, [workspaceSearchParams, examPeriods, selectedExamPeriodId, examDetailOpen]);
