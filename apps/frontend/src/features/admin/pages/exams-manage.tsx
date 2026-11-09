@@ -3399,6 +3399,25 @@ function ExamTimetable({
     [periodClasses, selectedClassId],
   );
 
+  // By Class only shows the shift columns this class actually sits papers in
+  // (e.g. Secondary: Shift 3-4). With nothing scheduled yet it falls back to
+  // the shifts assigned to the class's department, then to every shift.
+  const classShiftIndexes = useMemo(() => {
+    const used = rules.examShifts
+      .map((_, index) => index)
+      .filter((index) => classRows.some((row) => row.slots[index]?.length));
+    if (used.length) return used;
+    const department = selectedClass?.department as unknown;
+    const departmentId = typeof department === 'string'
+      ? department
+      : String((department as { _id?: string } | null | undefined)?._id || '');
+    const assigned = (rules.departmentShiftAssignments || [])
+      .find((item) => String(item.departmentId) === departmentId)?.shiftIndexes
+      .filter((index) => index < rules.examShifts.length) || [];
+    return assigned.length ? assigned : rules.examShifts.map((_, index) => index);
+  }, [classRows, rules.departmentShiftAssignments, rules.examShifts, selectedClass]);
+  const classTableMinWidth = Math.max(720, 190 + classShiftIndexes.length * 230 + Math.max(0, classShiftIndexes.length - 1) * 105);
+
   const selectedClassExamIds = useMemo(
     () => periodExams
       .filter((exam) => exam.course?.class?._id === selectedClassId)
@@ -4442,29 +4461,32 @@ function ExamTimetable({
               </div>
             </div>
             <div className="exam-class-scroll exam-responsive-table-wrap max-w-full overflow-x-hidden overscroll-x-contain sm:overflow-x-auto [scrollbar-width:thin] [touch-action:pan-x_pan-y]">
-              <table className="exam-responsive-table w-full border-collapse text-xs sm:text-sm" style={{ minWidth: tableMinWidth, tableLayout: 'fixed' }}>
+              <table className="exam-responsive-table w-full border-collapse text-xs sm:text-sm" style={{ minWidth: classTableMinWidth, tableLayout: 'fixed' }}>
               <thead>
                 <tr>
                   <th className="exam-fixed-col sticky left-0 z-20 w-44 border-b border-r border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] px-3 py-3 text-left text-[11px] font-extrabold uppercase tracking-wide text-[var(--color-text-tertiary)]">
                     Exam Date
                   </th>
-                  {rules.examShifts.map((shift, index) => (
-                    <Fragment key={`class-head-${index}`}>
-                      <th className="exam-shift-head border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
-                        <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
-                        <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
-                      </th>
-                      {index < rules.examShifts.length - 1 && (
-                        <th className="exam-break-col w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">Break</th>
-                      )}
-                    </Fragment>
-                  ))}
+                  {classShiftIndexes.map((index, position) => {
+                    const shift = rules.examShifts[index];
+                    return (
+                      <Fragment key={`class-head-${index}`}>
+                        <th className="exam-shift-head border-b border-r border-[var(--color-border-default)] bg-emerald-50 px-3 py-3 text-center dark:bg-emerald-950/20">
+                          <div className="font-extrabold text-emerald-700 dark:text-emerald-300">{shift.name || `Shift ${index + 1}`}</div>
+                          <div className="mt-0.5 text-[10px] font-semibold text-emerald-700/70 dark:text-emerald-300/70">{shift.startTime} – {shift.endTime}</div>
+                        </th>
+                        {position < classShiftIndexes.length - 1 && (
+                          <th className="exam-break-col w-28 border-b border-r border-[var(--color-border-default)] bg-amber-50 px-2 py-3 text-center dark:bg-amber-950/20">Break</th>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
                 {classRows.length === 0 ? (
                   <tr>
-                    <td colSpan={dynamicColumnCount + 1} className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No schedule has been saved for this class in {selectedPeriod.name} yet.</td>
+                    <td colSpan={classShiftIndexes.length * 2} className="px-4 py-12 text-center text-sm text-[var(--color-text-tertiary)]">No schedule has been saved for this class in {selectedPeriod.name} yet.</td>
                   </tr>
                 ) : classRows.map((row) => (
                   <tr key={row.date}>
@@ -4476,14 +4498,14 @@ function ExamTimetable({
                         {new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' })}
                       </div>
                     </th>
-                    {row.slots.map((slotExams, index) => (
+                    {classShiftIndexes.map((index, position) => (
                       <Fragment key={`class-row-${row.date}-${index}`}>
                         <td className="exam-shift-cell border-b border-r border-[var(--color-border-default)] p-2 align-top">
-                          <ExamTimetableCell exams={slotExams} onOpen={onOpen} />
+                          <ExamTimetableCell exams={row.slots[index] || []} onOpen={onOpen} />
                         </td>
-                        {index < rules.examShifts.length - 1 && (
+                        {position < classShiftIndexes.length - 1 && (
                           <td className="exam-break-col border-b border-r border-[var(--color-border-default)] p-2 align-middle">
-                            <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[index + 1].startTime} />
+                            <ExamBreakCell startTime={rules.examShifts[index].endTime} endTime={rules.examShifts[classShiftIndexes[position + 1]].startTime} />
                           </td>
                         )}
                       </Fragment>
