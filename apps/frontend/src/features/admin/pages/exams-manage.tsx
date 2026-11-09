@@ -546,7 +546,7 @@ function DepartmentalExamView({
     [allFixed],
   );
 
-  const schedules = useMemo(() => departmentDefinitions.map((department) => {
+  const allSchedules = useMemo(() => departmentDefinitions.map((department) => {
     const departmentExams = allFixed.filter((exam) => departmentOfExam(exam).key === department.key);
     const placedExams = departmentExams.filter((exam) => exam.schedulePlaced !== false && exam.examDate);
 
@@ -615,6 +615,14 @@ function DepartmentalExamView({
       cells,
     };
   }), [classes, dates, departmentDefinitions, allFixed, shifts]);
+
+  // Departments with no exam papers in this period (e.g. an unused or
+  // misconfigured department) are hidden from both the filter and the cards,
+  // so the page only lists timetables that actually have something on them.
+  const schedules = useMemo(
+    () => allSchedules.filter((schedule) => schedule.exams.length > 0),
+    [allSchedules],
+  );
 
   const selectedSchedules = useMemo(
     () => selectedDepartmentKeys === null
@@ -1131,7 +1139,11 @@ function DepartmentalExamView({
 
       {selectedSchedules.length === 0 ? (
         <section className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-8 text-center text-sm text-[var(--color-text-tertiary)]">
-          {schedules.length === 0 ? 'No departments were found for the active classes in this examination.' : 'Select at least one department to view its schedule.'}
+          {schedules.length === 0
+            ? allSchedules.length === 0
+              ? 'No departments were found for the active classes in this examination.'
+              : 'No department has exam papers in this examination yet.'
+            : 'Select at least one department to view its schedule.'}
         </section>
       ) : selectedSchedules.map((schedule) => {
         const selectedSchedule = schedule;
