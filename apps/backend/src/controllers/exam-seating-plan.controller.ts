@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import ExamSeatingPlan from '../models/exam-seating-plan.model';
+import ClassModel from '../models/class.model';
 import ExamRoom from '../models/exam-room.model';
 import Student from '../models/student.model';
 import ApiResponse from '../utils/api-response';
@@ -85,7 +86,9 @@ export const add = async (req: Request,res: Response) => {
     // Students in other exam shifts (e.g. Secondary vs Primary) reuse the
     // room's seats, so only students sitting in the same shifts count.
     const load=await savedSeatingShiftLoad(rules,{...scope,room:roomDoc._id});
-    const occupied=load.loadFor(String(roomDoc._id),classShiftIndexes(rules,student.class));
+    // Raw department id: the populated department is null if its document is gone.
+    const rawClass=student.class?._id?await ClassModel.findById(student.class._id).select('title section department').lean():null;
+    const occupied=load.loadFor(String(roomDoc._id),classShiftIndexes(rules,rawClass));
     if(occupied>=Number(roomDoc.capacity||0)){
       throw new BadRequestError(`${roomDoc.name} is full (${occupied}/${roomDoc.capacity} seats used)`);
     }

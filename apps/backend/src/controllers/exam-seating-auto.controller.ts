@@ -312,8 +312,17 @@ export const generate = async (req: Request, res: Response) => {
 
   // Exam shifts each class sits in (Department Shift Assignment). Classes in
   // different shifts never sit together, so they share rooms and seats.
+  // Resolved from the raw department id: Department Shift Assignment is keyed
+  // by id, and a populated department is null whenever its document is gone.
+  const rawDepartmentByClass = new Map(
+    (await ClassModel.find({ _id: { $in: targetClasses.map(cls => cls._id) } }).select('_id department').lean() as any[])
+      .map(cls => [String(cls._id), cls.department || null])
+  );
   const shiftsByClass = new Map<string, number[]>(
-    targetClasses.map(cls => [String(cls._id), classShiftIndexes(schedulingRules, cls)])
+    targetClasses.map(cls => [
+      String(cls._id),
+      classShiftIndexes(schedulingRules, { ...cls, department: rawDepartmentByClass.get(String(cls._id)) }),
+    ])
   );
   const allShiftIndexes = schedulingRules.examShifts.length
     ? schedulingRules.examShifts.map((_shift, index) => index)
