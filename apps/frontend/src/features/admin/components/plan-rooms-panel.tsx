@@ -1163,6 +1163,27 @@ export function PlanRoomsPanel({
       // or more grades than preferred.
     }
 
+    // Validate physical room exclusivity per configured shift. A room may
+    // appear in multiple department plans only when their shift sets are disjoint.
+    for (const row of planRows) {
+      const byShift = new Map<number, string>();
+      for (const allocation of row.allocations.filter(item => Number(item.quota) > 0)) {
+        const cls = classById.get(allocation.classId);
+        if (!cls) continue;
+        const rawDepartment = typeof cls.department === 'string' ? cls.department : cls.department?._id || '';
+        const departmentId = rawDepartment || departmentNameOf(cls).trim().toLowerCase() || '__unassigned__';
+        for (const shiftIndex of shiftsOfClass(cls._id)) {
+          const existingDepartment = byShift.get(shiftIndex);
+          if (existingDepartment && existingDepartment !== departmentId) {
+            const shiftName = shiftRules?.examShifts[shiftIndex]?.name || 'Shift ' + (shiftIndex + 1);
+            const room = roomById.get(row.roomId);
+            return (room?.name || 'This Room') + ' cannot contain different departments during ' + shiftName + '. Reuse is allowed only when department shifts do not overlap.';
+          }
+          byShift.set(shiftIndex, departmentId);
+        }
+      }
+    }
+
     for (const cls of activeClasses) {
       const expected = studentCounts[cls._id] || 0;
       const assigned = assignedByClass[cls._id] || 0;
