@@ -173,12 +173,9 @@ export function resolveClassShiftIndexes(
   if (classId && rules.classShiftAssignments.length) {
     const classAssignment = rules.classShiftAssignments.find((item) => String(item.classId) === classId);
     if (classAssignment) {
-      if (!classAssignment.shiftIndexes.length) {
-        return {
-          allowed: [],
-          error: `Class "${label}" has no allowed exam shifts. Select at least one shift in Class Shift Assignment.`,
-        };
-      }
+      // An empty/invalid class assignment is not allowed to reduce capacity
+      // or silently remove the class from planning; use every shift safely.
+      if (!classAssignment.shiftIndexes.length) return { allowed: all };
       return { allowed: [...classAssignment.shiftIndexes] };
     }
   }
