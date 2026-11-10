@@ -11,8 +11,14 @@ export interface DepartmentShiftAssignment {
   shiftIndexes: number[];
 }
 
+export interface ClassShiftAssignment {
+  classId: string;
+  shiftIndexes: number[];
+}
+
 export interface ExamSchedulingRules {
   departmentShiftAssignments: DepartmentShiftAssignment[];
+  classShiftAssignments: ClassShiftAssignment[];
   preventClassOverlap: boolean;
   allowSharedRooms: boolean;
   roomCapacityCheck: boolean;
@@ -33,6 +39,7 @@ export const DEFAULT_EXAM_SHIFTS: ExamShiftRule[] = [
 
 export const DEFAULT_EXAM_SCHEDULING_RULES: ExamSchedulingRules = {
   departmentShiftAssignments: [],
+  classShiftAssignments: [],
   preventClassOverlap: true,
   allowSharedRooms: true,
   roomCapacityCheck: true,
@@ -84,6 +91,19 @@ export function normalizeExamSchedulingRules(value: any): ExamSchedulingRules {
   const allowedExamDays: number[] = Array.from(new Set<number>(normalizedAllowedExamDays))
     .sort((a: number, b: number) => a - b);
 
+  const classShiftAssignments = Array.isArray(value?.classShiftAssignments)
+    ? value.classShiftAssignments
+        .filter((item: any) => item && typeof item.classId === 'string' && item.classId.trim())
+        .map((item: any) => ({
+          classId: item.classId.trim().slice(0, 64),
+          shiftIndexes: Array.from(new Set<number>(
+            (Array.isArray(item.shiftIndexes) ? item.shiftIndexes : [])
+              .map((index: unknown) => Number(index))
+              .filter((index: number) => Number.isInteger(index) && index >= 0 && index < examShiftCount)
+          )).sort((a, b) => a - b),
+        }))
+    : [];
+
   const departmentShiftAssignments = Array.isArray(value?.departmentShiftAssignments)
     ? value.departmentShiftAssignments
         .filter((item: any) => item && typeof item.departmentId === 'string' && item.departmentId.trim())
@@ -99,6 +119,7 @@ export function normalizeExamSchedulingRules(value: any): ExamSchedulingRules {
 
   return {
     departmentShiftAssignments,
+    classShiftAssignments,
     preventClassOverlap: typeof value?.preventClassOverlap === 'boolean'
       ? value.preventClassOverlap
       : DEFAULT_EXAM_SCHEDULING_RULES.preventClassOverlap,
@@ -137,20 +158,33 @@ export interface ClassShiftResolution {
 }
 
 /**
- * Which exam shifts a class may use. When no Department Shift Assignment is
- * configured every shift is allowed; once any department has an assignment it
- * is authoritative, so a class must belong to a department that has at least
- * one assigned shift. Shared by Auto Generate and every manual placement path
- * so the timetable can never drift away from the Scheduling Rules.
+ * Resolve a class's exam shifts. Class-level assignments take precedence;
+ * older department-level assignments remain supported as a backward-compatible
+ * default for classes without an explicit class assignment.
  */
 export function resolveClassShiftIndexes(
   rules: ExamSchedulingRules,
   cls: { _id?: unknown; title?: string; section?: string; department?: unknown } | null | undefined,
 ): ClassShiftResolution {
   const all = rules.examShifts.map((_shift, index) => index);
+  const classId = String(cls?._id || '');
+  const label = `${cls?.title || classId || 'Unknown'}${cls?.section ? ` - ${cls.section}` : ''}`;
+
+  if (classId && rules.classShiftAssignments.length) {
+    const classAssignment = rules.classShiftAssignments.find((item) => String(item.classId) === classId);
+    if (classAssignment) {
+      if (!classAssignment.shiftIndexes.length) {
+        return {
+          allowed: [],
+          error: `Class "${label}" has no allowed exam shifts. Select at least one shift in Class Shift Assignment.`,
+        };
+      }
+      return { allowed: [...classAssignment.shiftIndexes] };
+    }
+  }
+
   if (!rules.departmentShiftAssignments.length) return { allowed: all };
 
-  const label = `${cls?.title || String(cls?._id || 'Unknown')}${cls?.section ? ` - ${cls.section}` : ''}`;
   const rawDepartment = cls?.department as any;
   const departmentId = String(rawDepartment?._id || rawDepartment || '');
   if (!departmentId) {
@@ -170,7 +204,7 @@ export function resolveClassShiftIndexes(
   if (!assignment.shiftIndexes.length) {
     return {
       allowed: [],
-      error: `The department of class "${label}" has no allowed exam shifts. Select at least one shift in Scheduling Rules.`,
+      error: `The department of class "${label}" has no allowed exam shifts. Select its shifts in Scheduling Rules.`,
     };
   }
   return { allowed: [...assignment.shiftIndexes] };
