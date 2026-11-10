@@ -340,10 +340,9 @@ export function PlanRoomsPanel({
     return () => { cancelled = true; };
   }, [resolvedSchoolId]);
 
-  // Department Shift Assignment from the exam Scheduling Rules. Classes that
-  // sit their papers in different exam shifts (e.g. Primary Shift 1-2,
-  // Secondary Shift 3-4) never sit at the same time, so they reuse the same
-  // rooms and seats and are only mixed with classes from their own shifts.
+  // Department Shift Assignment controls both allowed shifts and room
+  // ownership. Departments keep separate room pools even when their shifts
+  // do not overlap; their students must never be mixed in the same room.
   const [shiftRules, setShiftRules] = useState<ShiftRules | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -382,25 +381,23 @@ export function PlanRoomsPanel({
     .map(index => shiftRules?.examShifts[index]?.name || 'Shift ' + (index + 1))
     .join(', ');
   const shiftGroups = useMemo(() => {
-    const groups = new Map<string, { key: string; shifts: number[]; classes: ClassItem[]; students: number }>();
+    const groups = new Map<string, { key: string; departmentId: string; departmentName: string; shifts: number[]; classes: ClassItem[]; students: number }>();
     activeClasses.forEach(cls => {
+      const departmentId = typeof cls.department === 'string' ? cls.department : cls.department?._id || '';
+      const departmentName = departmentNameOf(cls) || 'Unassigned Department';
       const shifts = shiftsByClassId.get(cls._id) || allShiftIndexes;
-      const groupKey = shifts.join(',');
-      const group = groups.get(groupKey) || { key: groupKey, shifts, classes: [], students: 0 };
+      const groupKey = departmentId || '__unassigned__';
+      const group = groups.get(groupKey) || { key: groupKey, departmentId, departmentName, shifts: [], classes: [], students: 0 };
       group.classes.push(cls);
       group.students += studentCounts[cls._id] || 0;
+      group.shifts = Array.from(new Set([...group.shifts, ...shifts])).sort((a, b) => a - b);
       groups.set(groupKey, group);
     });
-    return Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key));
+    return Array.from(groups.values()).sort((a, b) => a.departmentName.localeCompare(b.departmentName));
   }, [activeClasses, shiftsByClassId, allShiftIndexes, studentCounts]);
-  // Seats the school needs at once: the students sitting in the busiest shift.
-  const peakStudentDemand = useMemo(() => {
-    const perShift = new Map<number, number>();
-    shiftGroups.forEach(group => group.shifts.forEach(shift =>
-      perShift.set(shift, (perShift.get(shift) || 0) + group.students)
-    ));
-    return Math.max(0, ...perShift.values());
-  }, [shiftGroups]);
+  // Departments have separate room pools, so every active student needs a
+  // dedicated seat in the combined room plan, regardless of shift overlap.
+  const peakStudentDemand = activeStudentTotal;
 
   const classById = useMemo(() => new Map(activeClasses.map(c => [c._id, c])), [activeClasses]);
   const roomById = useMemo(() => new Map(sortedRooms.map(r => [r._id, r])), [sortedRooms]);
@@ -608,11 +605,10 @@ export function PlanRoomsPanel({
       );
     }
 
-    // Plan each exam-shift group on its own with every room available: groups
-    // in different shifts never sit together, so they reuse the same seats,
-    // and grades are only mixed with classes that sit alongside them.
-    const planShiftGroup = (groupClasses: ClassItem[], groupStudentTotal: number) => {
-      const roomsByCapacity = sortedRooms.slice().sort((a, b) =>
+    // Each department receives an exclusive room pool. Departments never
+    // share rooms, even when their configured exam shifts differ.
+    const planShiftGroup = (groupClasses: ClassItem[], groupStudentTotal: number, departmentRooms: Room[]) => {
+      const roomsByCapacity = departmentRooms.slice().sort((a, b) =>
         effectiveCapacity(b) - effectiveCapacity(a)
         || a.name.localeCompare(b.name, undefined, { numeric: true })
       );
@@ -714,8 +710,8 @@ export function PlanRoomsPanel({
 
       portions.sort((a, b) => b.count - a.count || (a.gradeNumber ?? 999) - (b.gradeNumber ?? 999) || a.id.localeCompare(b.id));
 
-      const generatedRows: PlanRoomRow[] = sortedRooms.map(room => ({ roomId: room._id, allocations: [] }));
-      const loadByRoom = new Map<string, number>(sortedRooms.map(room => [room._id, 0]));
+      const generatedRows: PlanRoomRow[] = departmentRooms.map(room => ({ roomId: room._id, allocations: [] }));
+      const loadByRoom = new Map<string, number>(departmentRooms.map(room => [room._id, 0]));
       let fallbackRoomsActivated = 0;
       let relaxedMixPlacements = 0;
       let rebalancedStudents = 0;
@@ -1060,9 +1056,23 @@ export function PlanRoomsPanel({
     let fallbackRoomsActivated = 0;
     let relaxedMixPlacements = 0;
     let rebalancedStudents = 0;
-    for (const group of shiftGroups) {
+    const roomsByCapacity = sortedRooms.slice().sort((a, b) =>
+      effectiveCapacity(b) - effectiveCapacity(a)
+      || a.name.localeCompare(b.name, undefined, { numeric: true })
+    );
+    const remainingRooms = new Map(roomsByCapacity.map(room => [room._id, room]));
+    const departmentGroups = shiftGroups.slice().sort((a, b) => b.students - a.students);
+    for (const group of departmentGroups) {
       if (!group.students) continue;
-      const result = planShiftGroup(group.classes, group.students);
+      const departmentRooms: Room[] = [];
+      let departmentCapacity = 0;
+      for (const room of Array.from(remainingRooms.values())) {
+        departmentRooms.push(room);
+        remainingRooms.delete(room._id);
+        departmentCapacity += effectiveCapacity(room);
+        if (departmentCapacity >= group.students) break;
+      }
+      const result = planShiftGroup(group.classes, group.students, departmentRooms);
       result.generatedRows.forEach(groupRow => {
         const row = generatedRows.find(item => item.roomId === groupRow.roomId);
         if (row) row.allocations.push(...groupRow.allocations.filter(item => item.quota > 0));
@@ -1901,9 +1911,9 @@ export function PlanRoomsPanel({
       </div>
 
       {activeClasses.some(cls => departmentNameOf(cls)) && (
-        <p className="text-xs text-[var(--color-text-tertiary)]">{shiftGroups.length > 1
-            ? 'Departments that sit in different exam shifts (' + shiftGroups.map(group => shiftNames(group.shifts)).join(' / ') + ') share every room and seat, and grades are only mixed with classes from the same shifts.'
-            : 'All classes sit in the same exam shifts, so every student needs their own seat and grades are mixed across the whole school.'}</p>
+        <p className="text-xs text-[var(--color-text-tertiary)]">
+          Each department has its own rooms and seats. Primary/Secondary or any other departments are never combined in the same room; configured shifts remain department-specific.
+        </p>
       )}
     </div>
   );
