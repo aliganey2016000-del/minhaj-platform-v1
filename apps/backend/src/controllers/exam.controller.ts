@@ -921,10 +921,10 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     for (const group of bandGroups) {
       const groupCourses = Array.from(group.coursesByClass.entries());
       const firstClass = classById.get(groupCourses[0]?.[0] || '');
+      const allowedShiftIndexes = group.allowedShiftIndexes;
       const rotationKey = hasShiftAssignments
         ? `${String(firstClass?.department || band)}::${allowedShiftIndexes.join(',')}`
         : band;
-      const allowedShiftIndexes = group.allowedShiftIndexes;
       const shiftOffset = nextShiftOffsetByGroup.get(rotationKey) || 0;
       const orderedShiftIndexes = [
         ...allowedShiftIndexes.slice(shiftOffset),
