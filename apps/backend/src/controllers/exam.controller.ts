@@ -314,6 +314,20 @@ export const updateScheduleRules = async (req: Request, res: Response): Promise<
     throw new BadRequestError('Select at least one allowed exam day');
   }
 
+  const assignedClassIds = next.classShiftAssignments.map((item) => String(item.classId));
+  if (new Set(assignedClassIds).size !== assignedClassIds.length) {
+    throw new BadRequestError('Each class can have only one Class Shift Assignment');
+  }
+  if (assignedClassIds.length) {
+    const matchingClasses = await ClassModel.countDocuments({
+      _id: { $in: assignedClassIds },
+      school: schoolId,
+    });
+    if (matchingClasses !== assignedClassIds.length) {
+      throw new BadRequestError('Class Shift Assignment contains a class outside the selected organization');
+    }
+  }
+
   for (let index = 0; index < next.examShifts.length; index += 1) {
     const shift = next.examShifts[index];
     const start = timeToMinutes(shift.startTime);
