@@ -601,6 +601,31 @@ export const generate = async (req: Request, res: Response) => {
 
   const selectedRoomSet = new Set(selectedRooms.map(room => String(room._id)));
   const lockedRows = existingRows.filter(row => row.locked === true);
+
+  // Existing locked seats are immutable. Reject a stale/inconsistent schedule
+  // if two departments now occupy the same physical room in an overlapping
+  // shift; silently allocating around that conflict would preserve an unsafe
+  // room assignment.
+  const lockedDepartmentByRoomShift = new Map<string, string>();
+  for (const row of lockedRows) {
+    const student = selected.find(item => String(item._id) === String(row.student));
+    if (!student) continue;
+    const classId = String(student.class?._id || student.class || '');
+    const departmentId = departmentOfClass(classId);
+    const roomId = String(row.room);
+    for (const shiftIndex of shiftsOfStudent(student)) {
+      const key = `${roomId}::${shiftIndex}`;
+      const existingDepartment = lockedDepartmentByRoomShift.get(key);
+      if (existingDepartment && existingDepartment !== departmentId) {
+        const room = selectedRooms.find(item => String(item._id) === roomId);
+        const shiftName = schedulingRules.examShifts[shiftIndex]?.name || `Shift ${shiftIndex + 1}`;
+        throw new BadRequestError(
+          `Locked assignments conflict: ${room?.name || 'A Room'} contains different departments during ${shiftName}. Unlock and correct the conflicting assignments before rebalancing.`
+        );
+      }
+      lockedDepartmentByRoomShift.set(key, departmentId);
+    }
+  }
   const existingByRoom = new Map<string, any[]>();
   for (const row of existingRows) {
     const roomId = String(row.room);
