@@ -350,6 +350,32 @@ export const generate = async (req: Request, res: Response) => {
   );
   if (!selected.length) throw new BadRequestError('No active students matched the selected Grade / Class selection');
 
+  // Legacy student records may carry the department name on Student rather
+  // than Class.department. Resolve one stable ownership key per class so the
+  // auto allocator never collapses Primary/Secondary into __unassigned__.
+  const departmentKeyByClass = new Map<string, string>();
+  for (const student of selected) {
+    const classId = String(student.class?._id || student.class || '');
+    if (!classId) continue;
+    const classDepartmentId = rawDepartmentByClass.get(classId);
+    const fallbackDepartment = norm(student?.department?.name || student?.department || '');
+    const departmentKey = classDepartmentId
+      ? `id:${String(classDepartmentId)}`
+      : fallbackDepartment
+        ? `name:${key(fallbackDepartment)}`
+        : '__unassigned__';
+    const existing = departmentKeyByClass.get(classId);
+    if (existing && existing !== departmentKey) {
+      throw new BadRequestError('Students in the same Grade / Class have inconsistent department ownership. Correct the class/student department records before allocating Rooms.');
+    }
+    departmentKeyByClass.set(classId, departmentKey);
+  }
+  const departmentOfClass = (classId: string) =>
+    departmentKeyByClass.get(String(classId))
+    || (rawDepartmentByClass.get(String(classId))
+      ? `id:${String(rawDepartmentByClass.get(String(classId)))}`
+      : '__unassigned__');
+
   let selectedRooms: any[] = [];
   if (normalizedRoomIds.length) {
     selectedRooms = await ExamRoom.find({
@@ -452,7 +478,7 @@ export const generate = async (req: Request, res: Response) => {
   // the departments sit in overlapping or separate exam shifts.
   const departmentByRoom = new Map<string, string>();
   for (const [classId, roomIds] of roomPlanMap.entries()) {
-    const departmentId = String(rawDepartmentByClass.get(classId) || '__unassigned__');
+    const departmentId = departmentOfClass(classId);
     for (const roomId of roomIds) {
       const existingDepartment = departmentByRoom.get(roomId);
       if (existingDepartment && existingDepartment !== departmentId) {
@@ -857,7 +883,7 @@ export const generate = async (req: Request, res: Response) => {
     const studentsByDepartment = new Map<string, any[]>();
     for (const student of availableStudents) {
       const classId = String(student.class?._id || student.class || '');
-      const departmentId = String(rawDepartmentByClass.get(classId) || '__unassigned__');
+      const departmentId = departmentOfClass(classId);
       const group = studentsByDepartment.get(departmentId) || [];
       group.push(student);
       studentsByDepartment.set(departmentId, group);
