@@ -447,6 +447,25 @@ export const generate = async (req: Request, res: Response) => {
     throw new BadRequestError('The same student cannot be manually assigned to more than one Room');
   }
 
+  // A Room Plan is department-isolated: one physical room may belong
+  // to only one department within this allocation, regardless of whether
+  // the departments sit in overlapping or separate exam shifts.
+  const departmentByRoom = new Map<string, string>();
+  for (const [classId, roomIds] of roomPlanMap.entries()) {
+    const departmentId = String(rawDepartmentByClass.get(classId) || '__unassigned__');
+    for (const roomId of roomIds) {
+      const existingDepartment = departmentByRoom.get(roomId);
+      if (existingDepartment && existingDepartment !== departmentId) {
+        const room = selectedRooms.find(item => String(item._id) === roomId);
+        const roomName = room?.name || 'A selected Room';
+        throw new BadRequestError(
+          `${roomName} cannot be shared by different departments. Assign separate Rooms to each department in Plan Rooms.`
+        );
+      }
+      departmentByRoom.set(roomId, departmentId);
+    }
+  }
+
   const selectedStudentById = new Map(selected.map(student => [String(student._id), student]));
   if (normalizedRoomPlan.length) {
     const classesWithStudents = new Set(selected.map(s => String(s.class?._id || s.class || '')));
