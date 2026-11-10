@@ -129,6 +129,68 @@ async function main() {
 
     // -------------------------------------------------------------------
     // -------------------------------------------------------------------
+    section('Class-level shifts — classes in one department may use different shifts');
+    // -------------------------------------------------------------------
+    await ExamSeatingPlan.deleteMany({ school: school._id });
+    await School.updateOne({ _id: school._id }, {
+      $set: {
+        examSchedulingRules: {
+          examShiftCount: 4,
+          examShifts: SHIFTS,
+          departmentShiftAssignments: [],
+          classShiftAssignments: [
+            { classId: String(g4._id), shiftIndexes: [0] },
+            { classId: String(g6._id), shiftIndexes: [1] },
+            { classId: String(g9._id), shiftIndexes: [0] },
+            { classId: String(g11._id), shiftIndexes: [2] },
+          ],
+        },
+      },
+    });
+    const classShiftPreview = await generate({
+      preview: true,
+      roomIds: [String(roomA._id), String(roomB._id)],
+    });
+    assert(
+      classShiftPreview.status === 200 && classShiftPreview.body?.data?.seatsNeeded === 30,
+      `class-level shift demand counts only simultaneous classes (status ${classShiftPreview.status}, seats ${classShiftPreview.body?.data?.seatsNeeded})`,
+    );
+
+    const classShiftPlan = [
+      { classId: String(g4._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+      { classId: String(g6._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+      { classId: String(g9._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
+      { classId: String(g11._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+    ];
+    const classShiftConfirm = await generate({
+      roomPlan: classShiftPlan,
+      roomIds: [String(roomA._id), String(roomB._id)],
+    });
+    assert(
+      classShiftConfirm.status === 200,
+      `Primary and Secondary classes can share a physical room across different shifts while same-shift classes use separate rooms (status ${classShiftConfirm.status}: ${classShiftConfirm.body?.message || ''})`,
+    );
+    const classShiftRows = await ExamSeatingPlan.find({ school: school._id }).populate('student', 'class').lean() as any[];
+    assert(
+      classShiftRows.length === 60 && classShiftRows.filter(row => String(row.room) === String(roomA._id)).length === 45,
+      'one room is reused by Primary Shift 1, Primary Shift 2 and Secondary Shift 3 classes',
+    );
+
+    await ExamSeatingPlan.deleteMany({ school: school._id });
+    const sameShiftClassConflict = await generate({
+      preview: true,
+      roomPlan: [
+        { classId: String(g4._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+        { classId: String(g9._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+      ],
+      roomIds: [String(roomA._id), String(roomB._id)],
+    });
+    assert(
+      sameShiftClassConflict.status === 400,
+      'Primary and Secondary classes assigned to the same shift cannot share one room',
+    );
+
+    // -------------------------------------------------------------------
     section('Manual add — a department uses an available room');
     // -------------------------------------------------------------------
     const extra = await mkClass('Grade 10', secondaryDept, 1);
