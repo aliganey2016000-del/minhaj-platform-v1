@@ -554,9 +554,13 @@ function DepartmentalExamView({
     const classIds = new Set(
       classes
         .filter((cls) => {
-          const department = cls.department;
-          const departmentId = typeof department === 'string' ? department : department?._id;
-          const departmentName = typeof department === 'string' ? '' : department?.name;
+          const classDepartment = cls.department;
+          const departmentId = typeof classDepartment === 'string'
+            ? classDepartment
+            : classDepartment?._id;
+          const departmentName = typeof classDepartment === 'string'
+            ? ''
+            : classDepartment?.name;
           return normalizeDepartmentKey(departmentId, departmentName) === department.key;
         })
         .map((cls) => cls._id)
