@@ -128,8 +128,8 @@ async function main() {
     assert(Array.from(savedLoad.values()).every(load => Math.max(...load.values()) <= 20), 'saved allocations never exceed operational capacity per shift');
 
     // -------------------------------------------------------------------
-    section('Manual add — a department uses an available room');    // -------------------------------------------------------------------
-    section('Manual add — a department uses its own allocated room');
+    // -------------------------------------------------------------------
+    section('Manual add — a department uses an available room');
     // -------------------------------------------------------------------
     const extra = await mkClass('Grade 10', secondaryDept, 1);
     const extraStudent = await Student.findOne({ class: extra._id }).lean() as any;
@@ -166,12 +166,43 @@ async function main() {
     await ExamSeatingPlan.deleteMany({ school: school._id });
 
     // -------------------------------------------------------------------
-    section('No Department Shift Assignment — departments remain isolated');    // -------------------------------------------------------------------
-    section('No Department Shift Assignment — departments remain isolated');
+    // -------------------------------------------------------------------
+    section('No Department Shift Assignment — safe fallback keeps departments isolated');
     // -------------------------------------------------------------------
     await School.updateOne({ _id: school._id }, { $set: { examSchedulingRules: rulesFor(null) } });
     const unassigned = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
     assert(unassigned.status === 200, `both departments still receive separate rooms without shift assignments (status ${unassigned.status}: ${unassigned.body?.message || ''})`);
+
+    // -------------------------------------------------------------------
+    section('Invalid/missing department assignment — safe all-shifts fallback');
+    // -------------------------------------------------------------------
+    await School.updateOne({ _id: school._id }, {
+      $set: {
+        examSchedulingRules: {
+          examShiftCount: 4,
+          examShifts: SHIFTS,
+          departmentShiftAssignments: [
+            { departmentId: String(primaryDept), shiftIndexes: [0, 1] },
+          ],
+        },
+      },
+    });
+    const invalidFallbackPlan = [
+      { classId: String(g4._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+      { classId: String(g9._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+      { classId: String(g6._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
+      { classId: String(g11._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
+    ];
+    const invalidFallbackRejected = await generate({
+      preview: true,
+      roomPlan: invalidFallbackPlan,
+      roomIds: [String(roomA._id), String(roomB._id)],
+    });
+    assert(
+      invalidFallbackRejected.status === 400,
+      `a department without a valid assignment falls back to all shifts and cannot share Primary rooms (status ${invalidFallbackRejected.status})`,
+    );
+    await ExamSeatingPlan.deleteMany({ school: school._id });
 
     // -------------------------------------------------------------------
     section('Legacy classes — fall back to Student.department for room ownership');
