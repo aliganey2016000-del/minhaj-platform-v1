@@ -146,6 +146,46 @@ async function main() {
     const unassigned = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
     assert(unassigned.status === 200, `both departments still receive separate rooms without shift assignments (status ${unassigned.status}: ${unassigned.body?.message || ''})`);
 
+    // -------------------------------------------------------------------
+    section('Legacy classes — fall back to Student.department for room ownership');
+    // -------------------------------------------------------------------
+    const mkLegacyClass = async (title: string, departmentName: string, count: number) => {
+      const cls = await ClassModel.create({ school: school._id, title, section: 'A', room: 'R' });
+      for (let i = 0; i < count; i += 1) {
+        seq += 1;
+        const user = await User.create({ email: `legacy${seq}@test.local`, password: 'Password123!', role: 'student', organizationId: school._id });
+        const profile = await Profile.create({ user: user._id, firstName: 'Legacy', lastName: String(seq), gender: 'male' });
+        await Student.create({
+          user: user._id, profile: profile._id, school: school._id, class: cls._id,
+          department: departmentName, studentId: `LG${String(seq).padStart(4, '0')}`,
+        });
+      }
+      return cls;
+    };
+    const legacyPrimary = await mkLegacyClass('Legacy Grade 3', 'Primary', 5);
+    const legacySecondary = await mkLegacyClass('Legacy Grade 10', 'Secondary', 5);
+    const legacyConfirm = await generate({
+      preview: false,
+      classIds: [String(legacyPrimary._id), String(legacySecondary._id)],
+      roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)],
+    });
+    assert(legacyConfirm.status === 200, `legacy students allocate using Student.department fallback (status ${legacyConfirm.status}: ${legacyConfirm.body?.message || ''})`);
+    const legacyRows = await ExamSeatingPlan.find({ school: school._id })
+      .populate({ path: 'student', select: 'department class', populate: { path: 'class', select: 'title' } })
+      .lean() as any[];
+    const departmentsByRoom = new Map<string, Set<string>>();
+    legacyRows.forEach(row => {
+      const roomId = String(row.room);
+      const departmentName = String(row.student?.department || 'Unassigned');
+      const departments = departmentsByRoom.get(roomId) || new Set<string>();
+      departments.add(departmentName);
+      departmentsByRoom.set(roomId, departments);
+    });
+    assert(
+      Array.from(departmentsByRoom.values()).every(departments => departments.size <= 1),
+      'no Room contains students from both Primary and Secondary when Class.department is missing',
+    );
+
     console.log(`\n${'='.repeat(60)}`);
     console.log(failures === 0 ? 'ALL CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
     console.log('='.repeat(60));
