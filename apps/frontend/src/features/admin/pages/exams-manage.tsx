@@ -553,7 +553,12 @@ function DepartmentalExamView({
 
     const classIds = new Set(
       classes
-        .filter((cls) => normalizeDepartmentKey(cls.department?._id, cls.department?.name) === department.key)
+        .filter((cls) => {
+          const department = cls.department;
+          const departmentId = typeof department === 'string' ? department : department?._id;
+          const departmentName = typeof department === 'string' ? '' : department?.name;
+          return normalizeDepartmentKey(departmentId, departmentName) === department.key;
+        })
         .map((cls) => cls._id)
         .filter(Boolean),
     );
@@ -5087,7 +5092,9 @@ export function ExamsManage() {
     return filterClasses
       .filter((cls) => {
         if (classFilters !== null && !classFilters.includes(cls._id)) return false;
-        const departmentId = String(cls.department?._id || '');
+        const departmentId = typeof cls.department === 'string'
+          ? cls.department
+          : String(cls.department?._id || '');
         if (departmentFilters !== null && !departmentFilters.includes(departmentId)) return false;
         return true;
       })
