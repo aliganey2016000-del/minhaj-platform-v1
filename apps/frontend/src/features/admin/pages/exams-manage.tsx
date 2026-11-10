@@ -3521,10 +3521,12 @@ function ExamTimetable({
       .map((_, index) => index)
       .filter((index) => classRows.some((row) => row.slots[index]?.length));
     if (used.length) return used;
-    const classAssigned = (rules.classShiftAssignments || [])
-      .find((item) => String(item.classId) === String(selectedClassId))?.shiftIndexes
-      .filter((index) => index < rules.examShifts.length);
-    if (classAssigned?.length) return classAssigned;
+    const classAssignment = (rules.classShiftAssignments || [])
+      .find((item) => String(item.classId) === String(selectedClassId));
+    if (classAssignment) {
+      const classAssigned = classAssignment.shiftIndexes.filter((index) => index < rules.examShifts.length);
+      return classAssigned.length ? classAssigned : rules.examShifts.map((_, index) => index);
+    }
     const department = selectedClass?.department as unknown;
     const departmentId = typeof department === 'string'
       ? department
