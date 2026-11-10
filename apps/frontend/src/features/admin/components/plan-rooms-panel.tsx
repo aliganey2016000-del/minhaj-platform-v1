@@ -397,7 +397,10 @@ export function PlanRoomsPanel({
   }, [activeClasses, shiftsByClassId, allShiftIndexes, studentCounts]);
   // Departments have separate room pools, so every active student needs a
   // dedicated seat in the combined room plan, regardless of shift overlap.
-  const peakStudentDemand = activeStudentTotal;
+  const peakStudentDemand = useMemo(
+    () => activeClasses.reduce((sum, cls) => sum + (studentCounts[cls._id] || 0), 0),
+    [activeClasses, studentCounts],
+  );
 
   const classById = useMemo(() => new Map(activeClasses.map(c => [c._id, c])), [activeClasses]);
   const roomById = useMemo(() => new Map(sortedRooms.map(r => [r._id, r])), [sortedRooms]);
