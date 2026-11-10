@@ -955,7 +955,7 @@ export const generate = async (req: Request, res: Response) => {
           (allowedCapacityByRoom.get(String(room._id)) || 0)
             - runningLoad.loadFor(String(room._id), group.shifts),
         ),
-      })).filter(room => room.capacity > 0);
+      })).filter(room => room.capacity > 0 && !frozenRoomIds.has(String(room._id)));
       const availableCapacity = departmentPlanningRooms.reduce((sum, room) => sum + room.capacity, 0);
       if (availableCapacity < group.students.length) {
         throw new BadRequestError(
@@ -963,12 +963,26 @@ export const generate = async (req: Request, res: Response) => {
         );
       }
 
+      // Do not spread one department across every eligible room. Reserve only
+      // the minimum-capacity room set needed for this group so another
+      // department with overlapping shifts can use the remaining rooms.
+      const allocationRooms: any[] = [];
+      let allocationCapacity = 0;
+      for (const room of departmentPlanningRooms.slice().sort((a, b) =>
+        b.capacity - a.capacity
+        || String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true })
+      )) {
+        allocationRooms.push(room);
+        allocationCapacity += room.capacity;
+        if (allocationCapacity >= group.students.length) break;
+      }
+
       const mixed = roundRobinMix(group.students, `${allocationSeed}|department:${group.departmentId}|shifts:${shiftSetKey(group.shifts)}`);
-      const groupCounts = new Map<string, number>(departmentPlanningRooms.map(room => [String(room._id), 0]));
-      const targets = balancedRoomTargets(departmentPlanningRooms, mixed.length, groupCounts, frozenRoomIds);
+      const groupCounts = new Map<string, number>(allocationRooms.map(room => [String(room._id), 0]));
+      const targets = balancedRoomTargets(allocationRooms, mixed.length, groupCounts, frozenRoomIds);
       let cursor = 0;
 
-      for (const room of departmentPlanningRooms) {
+      for (const room of allocationRooms) {
         const roomId = String(room._id);
         const needed = targets.get(roomId) || 0;
         const roomStudents = mixed.slice(cursor, cursor + needed);
