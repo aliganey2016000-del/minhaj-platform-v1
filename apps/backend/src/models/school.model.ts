@@ -72,8 +72,14 @@ export interface IDepartmentShiftAssignment {
   shiftIndexes: number[];
 }
 
+export interface IClassShiftAssignment {
+  classId: string;
+  shiftIndexes: number[];
+}
+
 export interface IExamSchedulingRules {
   departmentShiftAssignments: IDepartmentShiftAssignment[];
+  classShiftAssignments: IClassShiftAssignment[];
   preventClassOverlap: boolean;
   allowSharedRooms: boolean;
   roomCapacityCheck: boolean;
@@ -215,6 +221,7 @@ const examSchedulingRulesSchema = new Schema<IExamSchedulingRules>(
     minimumGapMinutes: { type: Number, default: 30, min: 0, max: 1440 },
     durationValidation: { type: Boolean, default: true },
     departmentShiftAssignments: { type: [departmentShiftAssignmentSchema], default: () => [] },
+    classShiftAssignments: { type: [classShiftAssignmentSchema], default: () => [] },
     examShiftCount: { type: Number, default: 2, min: 1, max: 4 },
     examShifts: {
       type: [examShiftRuleSchema],
