@@ -130,21 +130,21 @@ async function main() {
     assert(add.status === 200, `a Secondary student can use its department room (status ${add.status}: ${add.body?.message || ''})`);
 
     // -------------------------------------------------------------------
-    section('Overlapping shifts are counted together');
+    section('Overlapping shifts still keep departments in separate rooms');
     // -------------------------------------------------------------------
     await ExamSeatingPlan.deleteMany({ school: school._id });
     await ClassModel.deleteOne({ _id: extra._id });
     await Student.deleteMany({ class: extra._id });
     await School.updateOne({ _id: school._id }, { $set: { examSchedulingRules: rulesFor([1, 2]) } });
-    const overlap = await generate({ preview: true });
-    assert(overlap.status === 400 && /busiest exam shift/.test(overlap.body?.message || ''), `Shift 2 has all 60 students, which does not fit (status ${overlap.status}: ${overlap.body?.message || ''})`);
+    const overlap = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
+    assert(overlap.status === 200, `overlapping shifts still fit because departments have separate room pools (status ${overlap.status}: ${overlap.body?.message || ''})`);
 
     // -------------------------------------------------------------------
-    section('No Department Shift Assignment — one seat per student, as before');
+    section('No Department Shift Assignment — departments remain isolated');
     // -------------------------------------------------------------------
     await School.updateOne({ _id: school._id }, { $set: { examSchedulingRules: rulesFor(null) } });
-    const unassigned = await generate({ preview: true });
-    assert(unassigned.status === 400, `60 students do not fit 40 seats when everyone sits together (status ${unassigned.status})`);
+    const unassigned = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
+    assert(unassigned.status === 200, `both departments still receive separate rooms without shift assignments (status ${unassigned.status}: ${unassigned.body?.message || ''})`);
 
     console.log(`\n${'='.repeat(60)}`);
     console.log(failures === 0 ? 'ALL CHECKS PASSED (0 failures)' : `${failures} CHECK(S) FAILED`);
