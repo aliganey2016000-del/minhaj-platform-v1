@@ -209,6 +209,14 @@ const departmentShiftAssignmentSchema = new Schema<IDepartmentShiftAssignment>(
   { _id: false }
 );
 
+const classShiftAssignmentSchema = new Schema<IClassShiftAssignment>(
+  {
+    classId: { type: String, required: true, trim: true, maxlength: 64 },
+    shiftIndexes: { type: [Number], default: [], validate: (indexes: number[]) => indexes.every((index) => Number.isInteger(index) && index >= 0 && index <= 3) },
+  },
+  { _id: false }
+);
+
 const examSchedulingRulesSchema = new Schema<IExamSchedulingRules>(
   {
     preventClassOverlap: { type: Boolean, default: true },
