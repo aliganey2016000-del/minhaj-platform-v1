@@ -45,7 +45,7 @@ interface ClassBrief {
   title: string;
   section: string;
   academicYear?: string;
-  department?: { _id?: string; name?: string } | null;
+  department?: { _id?: string; name?: string } | string | null;
 }
 
 interface ExamPeriod {
