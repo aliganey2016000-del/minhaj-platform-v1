@@ -1,9 +1,6 @@
 /**
- * Room Plan — each department receives an exclusive set of rooms.
- *
- * With Department Shift Assignment (Primary: Shift 1-2, Secondary: Shift 3-4),
- * Primary and Secondary use separate rooms even though their shifts do not
- * overlap. The same isolation is enforced when shifts overlap or are unassigned.
+ * Room Plan and Auto Allocation share rooms only across disjoint department shifts.
+ * Overlapping shifts remain department-exclusive, including immutable locked seats.
  *
  * Repeatable: `npm run test:exam-seating-shift-groups`.
  */
@@ -87,39 +84,51 @@ async function main() {
     const g6 = await mkClass('Grade 6', primaryDept, 15);
     const g9 = await mkClass('Grade 9', secondaryDept, 15);
     const g11 = await mkClass('Grade 11', secondaryDept, 15);
-    // 60 students require 60 operational seats because departments cannot share rooms.
+    // 60 total students, but only 30 sit in any one shift (15 per class).
 
     const generate = (body: Record<string, unknown>) => request(app)
       .post('/api/v1/exams/seating-plan/auto-generate').set(auth)
       .send({ academicYear: '2026/27', examType: 'mid', ...body });
 
     // -------------------------------------------------------------------
-    section('Smart generate — departments require separate room pools');
+    section('Smart generate — two rooms are sufficient for the busiest shift');
     // -------------------------------------------------------------------
-    const insufficient = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id)] });
-    assert(insufficient.status === 400, `two rooms cannot serve 60 students across separate departments (status ${insufficient.status})`);
-    const preview = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
-    assert(preview.status === 200, `preview succeeds with four rooms (status ${preview.status}: ${preview.body?.message || ''})`);
-    const rooms = (preview.body?.data?.roomBreakdown || []) as any[];
-    assert(rooms.length === 4 && rooms.every(room => room.peakStudents <= 20), `each room stays within operational capacity (got ${rooms.map(r => `${r.room}:${r.peakStudents}/${r.students}`).join(', ')})`);
-    assert(rooms.reduce((sum, room) => sum + room.students, 0) === 60, 'all 60 students are placed');
-    assert((preview.body?.data?.issues || []).length === 0, `no capacity issues (got ${JSON.stringify(preview.body?.data?.issues)})`);
+    const twoRoomPreview = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id)] });
+    assert(twoRoomPreview.status === 200, `two rooms serve 60 students across non-overlapping shifts (status ${twoRoomPreview.status}: ${twoRoomPreview.body?.message || ''})`);
+    assert(twoRoomPreview.body?.data?.seatsNeeded === 30, `capacity is sized for 30 simultaneous students, not 60 total (needed ${twoRoomPreview.body?.data?.seatsNeeded})`);
+    const twoRoomBreakdown = (twoRoomPreview.body?.data?.roomBreakdown || []) as any[];
+    assert(twoRoomBreakdown.length === 2 && twoRoomBreakdown.every(room => room.peakStudents <= 20), `both rooms remain within operational capacity (got ${twoRoomBreakdown.map(r => `${r.room}:${r.peakStudents}/${r.students}`).join(', ')})`);
+    assert(twoRoomBreakdown.reduce((sum, room) => sum + room.students, 0) === 60, 'all 60 students are assigned exactly once in preview');
+    assert((twoRoomPreview.body?.data?.issues || []).length === 0, 'no capacity issues when non-overlapping departments reuse rooms');
 
     // -------------------------------------------------------------------
-    section('Exact reviewed plan — each department owns separate rooms');
+    section('Exact reviewed plan — Primary and Secondary reuse the same rooms');
     // -------------------------------------------------------------------
     const roomPlan = [
       { classId: String(g4._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
       { classId: String(g6._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
-      { classId: String(g9._id), quotas: [{ roomId: String(roomC._id), count: 15 }] },
-      { classId: String(g11._id), quotas: [{ roomId: String(roomD._id), count: 15 }] },
+      { classId: String(g9._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+      { classId: String(g11._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
     ];
-    const confirm = await generate({ roomPlan, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
-    assert(confirm.status === 200, `department-isolated room plan is accepted (status ${confirm.status}: ${confirm.body?.message || ''})`);
-    assert(await ExamSeatingPlan.countDocuments({ school: school._id, room: roomA._id }) === 15, 'Room A contains Primary students only');
-    assert(await ExamSeatingPlan.countDocuments({ school: school._id, room: roomC._id }) === 15, 'Room C contains Secondary students only');
+    const confirm = await generate({ roomPlan, roomIds: [String(roomA._id), String(roomB._id)] });
+    assert(confirm.status === 200, `Plan Rooms exact quotas are accepted by Auto Allocation (status ${confirm.status}: ${confirm.body?.message || ''})`);
+    assert(await ExamSeatingPlan.countDocuments({ school: school._id, room: roomA._id }) === 30, 'Room A is reused by Primary and Secondary across disjoint shifts');
+    assert(await ExamSeatingPlan.countDocuments({ school: school._id, room: roomB._id }) === 30, 'Room B is reused by Primary and Secondary across disjoint shifts');
+    const savedRows = await ExamSeatingPlan.find({ school: school._id }).populate('student', 'class').lean() as any[];
+    assert(savedRows.length === 60 && new Set(savedRows.map(row => String(row.student?._id))).size === 60, 'no student is omitted or duplicated');
+    const savedLoad = new Map<string, Map<number, number>>();
+    for (const row of savedRows) {
+      const classId = String(row.student?.class || '');
+      const shifts = classId === String(g4._id) || classId === String(g6._id) ? [0, 1] : [2, 3];
+      const roomId = String(row.room);
+      const perShift = savedLoad.get(roomId) || new Map<number, number>();
+      shifts.forEach(index => perShift.set(index, (perShift.get(index) || 0) + 1));
+      savedLoad.set(roomId, perShift);
+    }
+    assert(Array.from(savedLoad.values()).every(load => Math.max(...load.values()) <= 20), 'saved allocations never exceed operational capacity per shift');
 
     // -------------------------------------------------------------------
+    section('Manual add — a department uses an available room');    // -------------------------------------------------------------------
     section('Manual add — a department uses its own allocated room');
     // -------------------------------------------------------------------
     const extra = await mkClass('Grade 10', secondaryDept, 1);
@@ -130,16 +139,34 @@ async function main() {
     assert(add.status === 200, `a Secondary student can use its department room (status ${add.status}: ${add.body?.message || ''})`);
 
     // -------------------------------------------------------------------
-    section('Overlapping shifts still keep departments in separate rooms');
+    section('Overlapping shifts cannot share a room');
     // -------------------------------------------------------------------
     await ExamSeatingPlan.deleteMany({ school: school._id });
     await ClassModel.deleteOne({ _id: extra._id });
     await Student.deleteMany({ class: extra._id });
     await School.updateOne({ _id: school._id }, { $set: { examSchedulingRules: rulesFor([1, 2]) } });
-    const overlap = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
-    assert(overlap.status === 200, `overlapping shifts still fit because departments have separate room pools (status ${overlap.status}: ${overlap.body?.message || ''})`);
+    const overlappingPlan = [
+      { classId: String(g4._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+      { classId: String(g9._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
+      { classId: String(g6._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
+      { classId: String(g11._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
+    ];
+    const overlapRejected = await generate({ preview: true, roomPlan: overlappingPlan, roomIds: [String(roomA._id), String(roomB._id)] });
+    assert(overlapRejected.status === 400, `same room is rejected when department shifts overlap (status ${overlapRejected.status})`);
+
+    // Locked rows from two departments may not silently preserve a new shift conflict.
+    const primaryStudent = await Student.findOne({ class: g4._id }).lean() as any;
+    const secondaryStudent = await Student.findOne({ class: g9._id }).lean() as any;
+    await ExamSeatingPlan.create([
+      { student: primaryStudent._id, room: roomA._id, deskNumber: 'L-1', academicYear: '2026/27', examType: 'mid', school: school._id, locked: true },
+      { student: secondaryStudent._id, room: roomA._id, deskNumber: 'L-2', academicYear: '2026/27', examType: 'mid', school: school._id, locked: true },
+    ]);
+    const lockedConflict = await generate({ preview: true, overwrite: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
+    assert(lockedConflict.status === 400 && String(lockedConflict.body?.message || '').includes('Locked assignments conflict'), `locked cross-department overlap is rejected (status ${lockedConflict.status})`);
+    await ExamSeatingPlan.deleteMany({ school: school._id });
 
     // -------------------------------------------------------------------
+    section('No Department Shift Assignment — departments remain isolated');    // -------------------------------------------------------------------
     section('No Department Shift Assignment — departments remain isolated');
     // -------------------------------------------------------------------
     await School.updateOne({ _id: school._id }, { $set: { examSchedulingRules: rulesFor(null) } });
