@@ -71,6 +71,7 @@ type SchoolRef = { _id?: string; name?: string } | string;
 type ShiftRules = {
   examShifts: Array<{ name?: string; startTime?: string; endTime?: string }>;
   departmentShiftAssignments: Array<{ departmentId: string; shiftIndexes: number[] }>;
+  classShiftAssignments: Array<{ classId: string; shiftIndexes: number[] }>;
 };
 
 type ClassItem = {
@@ -352,6 +353,7 @@ export function PlanRoomsPanel({
         setShiftRules({
           examShifts: Array.isArray(rules.examShifts) ? rules.examShifts : [],
           departmentShiftAssignments: Array.isArray(rules.departmentShiftAssignments) ? rules.departmentShiftAssignments : [],
+          classShiftAssignments: Array.isArray(rules.classShiftAssignments) ? rules.classShiftAssignments : [],
         });
       })
       .catch(() => { if (!cancelled) setShiftRules(null); });
@@ -364,12 +366,15 @@ export function PlanRoomsPanel({
   );
   const shiftsByClassId = useMemo(() => {
     const map = new Map<string, number[]>();
-    const assignments = shiftRules?.departmentShiftAssignments || [];
+    const departmentAssignments = shiftRules?.departmentShiftAssignments || [];
+    const classAssignments = shiftRules?.classShiftAssignments || [];
     classes.forEach(cls => {
       const departmentId = typeof cls.department === 'string' ? cls.department : cls.department?._id || '';
-      const assignment = assignments.find(item => String(item.departmentId) === String(departmentId));
-      const shifts = assignments.length && assignment?.shiftIndexes?.length
-        ? assignment.shiftIndexes.filter(index => index < allShiftIndexes.length)
+      const classAssignment = classAssignments.find(item => String(item.classId) === String(cls._id));
+      const departmentAssignment = departmentAssignments.find(item => String(item.departmentId) === String(departmentId));
+      const configured = classAssignment || departmentAssignment;
+      const shifts = configured?.shiftIndexes?.length
+        ? configured.shiftIndexes.filter(index => index < allShiftIndexes.length)
         : allShiftIndexes;
       map.set(cls._id, shifts.length ? shifts : allShiftIndexes);
     });
@@ -385,7 +390,9 @@ export function PlanRoomsPanel({
       const departmentId = typeof cls.department === 'string' ? cls.department : cls.department?._id || '';
       const departmentName = departmentNameOf(cls) || 'Unassigned Department';
       const shifts = shiftsByClassId.get(cls._id) || allShiftIndexes;
-      const groupKey = departmentId || '__unassigned__';
+      // Keep each department's distinct class shift-set as a separate planning group.
+      // This lets classes in one department reuse rooms when their shifts differ.
+      const groupKey = (departmentId || '__unassigned__') + '::' + shifts.join(',');
       const group = groups.get(groupKey) || { key: groupKey, departmentId, departmentName, shifts: [], classes: [], students: 0 };
       group.classes.push(cls);
       group.students += studentCounts[cls._id] || 0;
