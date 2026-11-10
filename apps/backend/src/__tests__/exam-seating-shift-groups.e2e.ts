@@ -96,7 +96,7 @@ async function main() {
     // -------------------------------------------------------------------
     section('Smart generate — departments require separate room pools');
     // -------------------------------------------------------------------
-    const insufficient = await generate({ preview: true });
+    const insufficient = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id)] });
     assert(insufficient.status === 400, `two rooms cannot serve 60 students across separate departments (status ${insufficient.status})`);
     const preview = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
     assert(preview.status === 200, `preview succeeds with four rooms (status ${preview.status}: ${preview.body?.message || ''})`);
