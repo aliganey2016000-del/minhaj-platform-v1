@@ -340,9 +340,8 @@ export function PlanRoomsPanel({
     return () => { cancelled = true; };
   }, [resolvedSchoolId]);
 
-  // Department Shift Assignment controls both allowed shifts and room
-  // ownership. Departments keep separate room pools even when their shifts
-  // do not overlap; their students must never be mixed in the same room.
+  // Department Shift Assignment controls which sessions may reuse rooms.
+  // Different departments may share a room only when their shifts are disjoint.
   const [shiftRules, setShiftRules] = useState<ShiftRules | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -395,12 +394,18 @@ export function PlanRoomsPanel({
     });
     return Array.from(groups.values()).sort((a, b) => a.departmentName.localeCompare(b.departmentName));
   }, [activeClasses, shiftsByClassId, allShiftIndexes, studentCounts]);
-  // Departments have separate room pools, so every active student needs a
-  // dedicated seat in the combined room plan, regardless of shift overlap.
-  const peakStudentDemand = useMemo(
-    () => activeClasses.reduce((sum, cls) => sum + (studentCounts[cls._id] || 0), 0),
-    [activeClasses, studentCounts],
-  );
+  // Room capacity is based on the busiest configured shift. Departments
+  // with disjoint shifts can reuse the same rooms and seats.
+  const peakStudentDemand = useMemo(() => {
+    const demandByShift = new Map<number, number>();
+    activeClasses.forEach(cls => {
+      const count = studentCounts[cls._id] || 0;
+      (shiftsByClassId.get(cls._id) || allShiftIndexes).forEach(shiftIndex => {
+        demandByShift.set(shiftIndex, (demandByShift.get(shiftIndex) || 0) + count);
+      });
+    });
+    return Math.max(0, ...demandByShift.values());
+  }, [activeClasses, studentCounts, shiftsByClassId, allShiftIndexes]);
 
   const classById = useMemo(() => new Map(activeClasses.map(c => [c._id, c])), [activeClasses]);
   const roomById = useMemo(() => new Map(sortedRooms.map(r => [r._id, r])), [sortedRooms]);
@@ -571,8 +576,9 @@ export function PlanRoomsPanel({
   const roomShiftBreakdown = (roomId: string) => shiftGroups.length > 1
     ? shiftGroups
         .map(group => {
+          const departmentClassIds = new Set(group.classes.map(cls => cls._id));
           const load = (rowOf(roomId).allocations || [])
-            .filter(allocation => shiftsOfClass(allocation.classId).join(',') === group.key)
+            .filter(allocation => departmentClassIds.has(allocation.classId))
             .reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
           return load > 0 ? shiftNames(group.shifts) + ': ' + load : '';
         })
@@ -604,12 +610,12 @@ export function PlanRoomsPanel({
     }
     if (totalOperationalCapacity < peakStudentDemand) {
       setSettingsMessage(
-        'Operational capacity is below the student total. The smart plan will keep the safe allocation and show the remaining students for manual Room selection and approved overrides.'
+        'Operational capacity is below the busiest-shift demand. The smart plan will keep the safe allocation and show the remaining students for manual Room selection and approved overrides.'
       );
     }
 
-    // Each department receives an exclusive room pool. Departments never
-    // share rooms, even when their configured exam shifts differ.
+    // A department may reuse rooms already used by another department when
+    // the assigned shift sets do not overlap.
     const planShiftGroup = (groupClasses: ClassItem[], groupStudentTotal: number, departmentRooms: Room[]) => {
       const roomsByCapacity = departmentRooms.slice().sort((a, b) =>
         effectiveCapacity(b) - effectiveCapacity(a)
@@ -1059,26 +1065,27 @@ export function PlanRoomsPanel({
     let fallbackRoomsActivated = 0;
     let relaxedMixPlacements = 0;
     let rebalancedStudents = 0;
-    const roomsByCapacity = sortedRooms.slice().sort((a, b) =>
-      effectiveCapacity(b) - effectiveCapacity(a)
-      || a.name.localeCompare(b.name, undefined, { numeric: true })
-    );
-    const remainingRooms = new Map(roomsByCapacity.map(room => [room._id, room]));
+    const roomShiftDepartments = new Map<string, Array<{ departmentId: string; shifts: number[] }>>();
     const departmentGroups = shiftGroups.slice().sort((a, b) => b.students - a.students);
     for (const group of departmentGroups) {
       if (!group.students) continue;
-      const departmentRooms: Room[] = [];
-      let departmentCapacity = 0;
-      for (const room of Array.from(remainingRooms.values())) {
-        departmentRooms.push(room);
-        remainingRooms.delete(room._id);
-        departmentCapacity += effectiveCapacity(room);
-        if (departmentCapacity >= group.students) break;
-      }
+      const departmentRooms = sortedRooms.filter(room => {
+        const existing = roomShiftDepartments.get(room._id) || [];
+        return existing.every(item =>
+          item.departmentId === group.departmentId
+          || !item.shifts.some(shiftIndex => group.shifts.includes(shiftIndex))
+        );
+      });
       const result = planShiftGroup(group.classes, group.students, departmentRooms);
       result.generatedRows.forEach(groupRow => {
         const row = generatedRows.find(item => item.roomId === groupRow.roomId);
+        const used = groupRow.allocations.some(item => item.quota > 0);
         if (row) row.allocations.push(...groupRow.allocations.filter(item => item.quota > 0));
+        if (used) {
+          const entries = roomShiftDepartments.get(groupRow.roomId) || [];
+          entries.push({ departmentId: group.departmentId, shifts: group.shifts });
+          roomShiftDepartments.set(groupRow.roomId, entries);
+        }
       });
       result.unresolvedByClass.forEach((count, classId) =>
         unresolvedByClass.set(classId, (unresolvedByClass.get(classId) || 0) + count)
@@ -1155,6 +1162,27 @@ export function PlanRoomsPanel({
       // Grade-mix counts are smart-planning preferences, not hard save blockers.
       // A complete capacity-safe plan may end with a fallback room that has fewer
       // or more grades than preferred.
+    }
+
+    // Validate physical room exclusivity per configured shift. A room may
+    // appear in multiple department plans only when their shift sets are disjoint.
+    for (const row of planRows) {
+      const byShift = new Map<number, string>();
+      for (const allocation of row.allocations.filter(item => Number(item.quota) > 0)) {
+        const cls = classById.get(allocation.classId);
+        if (!cls) continue;
+        const rawDepartment = typeof cls.department === 'string' ? cls.department : cls.department?._id || '';
+        const departmentId = rawDepartment || departmentNameOf(cls).trim().toLowerCase() || '__unassigned__';
+        for (const shiftIndex of shiftsOfClass(cls._id)) {
+          const existingDepartment = byShift.get(shiftIndex);
+          if (existingDepartment && existingDepartment !== departmentId) {
+            const shiftName = shiftRules?.examShifts[shiftIndex]?.name || 'Shift ' + (shiftIndex + 1);
+            const room = roomById.get(row.roomId);
+            return (room?.name || 'This Room') + ' cannot contain different departments during ' + shiftName + '. Reuse is allowed only when department shifts do not overlap.';
+          }
+          byShift.set(shiftIndex, departmentId);
+        }
+      }
     }
 
     for (const cls of activeClasses) {
@@ -1915,7 +1943,7 @@ export function PlanRoomsPanel({
 
       {activeClasses.some(cls => departmentNameOf(cls)) && (
         <p className="text-xs text-[var(--color-text-tertiary)]">
-          Each department has its own rooms and seats. Primary/Secondary or any other departments are never combined in the same room; configured shifts remain department-specific.
+          Rooms are reused across departments when their assigned exam shifts do not overlap. Departments are never placed together in the same room during an overlapping shift.
         </p>
       )}
     </div>
