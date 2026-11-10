@@ -576,8 +576,9 @@ export function PlanRoomsPanel({
   const roomShiftBreakdown = (roomId: string) => shiftGroups.length > 1
     ? shiftGroups
         .map(group => {
+          const departmentClassIds = new Set(group.classes.map(cls => cls._id));
           const load = (rowOf(roomId).allocations || [])
-            .filter(allocation => shiftsOfClass(allocation.classId).join(',') === group.key)
+            .filter(allocation => departmentClassIds.has(allocation.classId))
             .reduce((sum, allocation) => sum + Math.max(0, Number(allocation.quota) || 0), 0);
           return load > 0 ? shiftNames(group.shifts) + ': ' + load : '';
         })
@@ -609,7 +610,7 @@ export function PlanRoomsPanel({
     }
     if (totalOperationalCapacity < peakStudentDemand) {
       setSettingsMessage(
-        'Operational capacity is below the student total. The smart plan will keep the safe allocation and show the remaining students for manual Room selection and approved overrides.'
+        'Operational capacity is below the busiest-shift demand. The smart plan will keep the safe allocation and show the remaining students for manual Room selection and approved overrides.'
       );
     }
 
