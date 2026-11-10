@@ -1749,13 +1749,30 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
     })
       .then(({ data }) => setDepartments(data.data || []))
       .catch(() => setDepartments([]));
-    api.get('/classes', {
-      params: isSuperAdmin
-        ? { schoolId: schoolId, status: 'active', limit: 500 }
-        : { status: 'active', limit: 500 },
-    })
-      .then(({ data }) => setClassesForShift(data.data || []))
-      .catch(() => setClassesForShift([]));
+    let cancelled = false;
+    const loadClasses = async () => {
+      const all: ClassBrief[] = [];
+      try {
+        for (let page = 1; page <= 50; page += 1) {
+          const { data } = await api.get('/classes', {
+            params: {
+              ...(isSuperAdmin ? { schoolId } : {}),
+              status: 'active',
+              page,
+              limit: 200,
+            },
+          });
+          const batch = (data.data || []) as ClassBrief[];
+          all.push(...batch);
+          if (batch.length < 200) break;
+        }
+        if (!cancelled) setClassesForShift(all);
+      } catch {
+        if (!cancelled) setClassesForShift([]);
+      }
+    };
+    void loadClasses();
+    return () => { cancelled = true; };
   }, [isSuperAdmin, schoolId]);
 
   const loadRules = useCallback(async (targetSchool?: string) => {
