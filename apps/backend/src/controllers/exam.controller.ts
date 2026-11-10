@@ -691,13 +691,12 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
 
   const classById = new Map(classes.map((cls) => [String(cls._id), cls]));
 
-  // Department shift assignments are authoritative when configured. Resolve
-  // them once per class so no generated slot can fall back to another
-  // department's shifts. Only classes that actually have courses to schedule
+  // Class-level assignments override department defaults. Resolve once per class
+  // so generated slots and seating allocation use the same configured shifts. Only classes that actually have courses to schedule
   // are checked: an empty helper class (e.g. a "Public Class" with no
   // department and no subjects) must not block the whole timetable. Every
   // problem is reported at once so the admin can fix them in one pass.
-  const hasDepartmentShiftAssignments = rules.departmentShiftAssignments.length > 0;
+  const hasShiftAssignments = rules.departmentShiftAssignments.length > 0 || rules.classShiftAssignments.length > 0;
   const allShiftIndexes = rules.examShifts.map((_shift, index) => index);
   const classShiftIndexesById = new Map<string, number[]>();
   const classesWithCourses = new Set(courses.map((course) => String(course.class || '')));
@@ -766,7 +765,7 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     const allowedShiftIndexes = classShiftIndexesById.get(classId) || allShiftIndexes;
     // Do not combine same-named subjects across departments with different
     // shift assignments; each department must be scheduled independently.
-    const groupKey = `${hasDepartmentShiftAssignments ? `department:${departmentId}` : band}::${subjectKey}`;
+    const groupKey = `${hasShiftAssignments ? `department:${departmentId}:shifts:${allowedShiftIndexes.join(',')}` : band}::${subjectKey}`;
     const group = grouped.get(groupKey) || {
       band,
       subjectKey,
@@ -922,8 +921,8 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     for (const group of bandGroups) {
       const groupCourses = Array.from(group.coursesByClass.entries());
       const firstClass = classById.get(groupCourses[0]?.[0] || '');
-      const rotationKey = hasDepartmentShiftAssignments
-        ? String(firstClass?.department || band)
+      const rotationKey = hasShiftAssignments
+        ? `${String(firstClass?.department || band)}::${allowedShiftIndexes.join(',')}`
         : band;
       const allowedShiftIndexes = group.allowedShiftIndexes;
       const shiftOffset = nextShiftOffsetByGroup.get(rotationKey) || 0;
