@@ -1,12 +1,9 @@
 /**
- * Room Plan — departments in different exam shifts share rooms and seats.
+ * Room Plan — each department receives an exclusive set of rooms.
  *
  * With Department Shift Assignment (Primary: Shift 1-2, Secondary: Shift 3-4),
- * Primary and Secondary never sit at the same time, so a room's seats are
- * reused by both. Capacity is therefore checked per exam shift, not against
- * every student assigned to the room. Departments whose shifts overlap are
- * counted together, and without any assignment the old one-seat-per-student
- * rule still applies.
+ * Primary and Secondary use separate rooms even though their shifts do not
+ * overlap. The same isolation is enforced when shifts overlap or are unassigned.
  *
  * Repeatable: `npm run test:exam-seating-shift-groups`.
  */
@@ -69,9 +66,11 @@ async function main() {
     const orgAdmin = await User.create({ email: 'org@test.local', password: 'Password123!', role: 'org_admin', organizationId: school._id });
     const auth = { Authorization: `Bearer ${generateAccessToken({ userId: orgAdmin._id.toString(), role: 'org_admin', permissions: [], organizationId: school._id.toString() })}` };
 
-    // Two rooms of 22 seats (20 operational after the default 2 reserve seats).
+    // Four rooms of 22 seats (20 operational after the default 2 reserve seats).
     const roomA = await ExamRoom.create({ name: 'Room A', capacity: 22, school: school._id, createdBy: admin._id });
     const roomB = await ExamRoom.create({ name: 'Room B', capacity: 22, school: school._id, createdBy: admin._id });
+    const roomC = await ExamRoom.create({ name: 'Room C', capacity: 22, school: school._id, createdBy: admin._id });
+    const roomD = await ExamRoom.create({ name: 'Room D', capacity: 22, school: school._id, createdBy: admin._id });
 
     let seq = 0;
     const mkClass = async (title: string, department: mongoose.Types.ObjectId, count: number) => {
@@ -88,45 +87,47 @@ async function main() {
     const g6 = await mkClass('Grade 6', primaryDept, 15);
     const g9 = await mkClass('Grade 9', secondaryDept, 15);
     const g11 = await mkClass('Grade 11', secondaryDept, 15);
-    // 60 students, 40 operational seats: only fits because each shift has 30.
+    // 60 students require 60 operational seats because departments cannot share rooms.
 
     const generate = (body: Record<string, unknown>) => request(app)
       .post('/api/v1/exams/seating-plan/auto-generate').set(auth)
       .send({ academicYear: '2026/27', examType: 'mid', ...body });
 
     // -------------------------------------------------------------------
-    section('Smart generate — Primary and Secondary share both rooms');
+    section('Smart generate — departments require separate room pools');
     // -------------------------------------------------------------------
-    const preview = await generate({ preview: true });
-    assert(preview.status === 200, `preview succeeds (status ${preview.status}: ${preview.body?.message || ''})`);
-    assert(preview.body?.data?.seatsNeeded === 30, `seats needed is the busiest shift, 30 (got ${preview.body?.data?.seatsNeeded})`);
+    const insufficient = await generate({ preview: true });
+    assert(insufficient.status === 400, `two rooms cannot serve 60 students across separate departments (status ${insufficient.status})`);
+    const preview = await generate({ preview: true, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
+    assert(preview.status === 200, `preview succeeds with four rooms (status ${preview.status}: ${preview.body?.message || ''})`);
     const rooms = (preview.body?.data?.roomBreakdown || []) as any[];
-    assert(rooms.length === 2 && rooms.every(room => room.peakStudents <= 20), `each room fits 20 per shift (got ${rooms.map(r => `${r.room}:${r.peakStudents}/${r.students}`).join(', ')})`);
+    assert(rooms.length === 4 && rooms.every(room => room.peakStudents <= 20), `each room stays within operational capacity (got ${rooms.map(r => `${r.room}:${r.peakStudents}/${r.students}`).join(', ')})`);
     assert(rooms.reduce((sum, room) => sum + room.students, 0) === 60, 'all 60 students are placed');
     assert((preview.body?.data?.issues || []).length === 0, `no capacity issues (got ${JSON.stringify(preview.body?.data?.issues)})`);
 
     // -------------------------------------------------------------------
-    section('Exact reviewed plan — a room holds 15 Primary + 15 Secondary');
+    section('Exact reviewed plan — each department owns separate rooms');
     // -------------------------------------------------------------------
     const roomPlan = [
       { classId: String(g4._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
-      { classId: String(g9._id), quotas: [{ roomId: String(roomA._id), count: 15 }] },
       { classId: String(g6._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
-      { classId: String(g11._id), quotas: [{ roomId: String(roomB._id), count: 15 }] },
+      { classId: String(g9._id), quotas: [{ roomId: String(roomC._id), count: 15 }] },
+      { classId: String(g11._id), quotas: [{ roomId: String(roomD._id), count: 15 }] },
     ];
-    const confirm = await generate({ roomPlan, roomIds: [String(roomA._id), String(roomB._id)] });
-    assert(confirm.status === 200, `30 students in a 20-seat room is accepted across shifts (status ${confirm.status}: ${confirm.body?.message || ''})`);
-    assert(await ExamSeatingPlan.countDocuments({ school: school._id, room: roomA._id }) === 30, 'Room A holds 30 assignments (15 per shift)');
+    const confirm = await generate({ roomPlan, roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)] });
+    assert(confirm.status === 200, `department-isolated room plan is accepted (status ${confirm.status}: ${confirm.body?.message || ''})`);
+    assert(await ExamSeatingPlan.countDocuments({ school: school._id, room: roomA._id }) === 15, 'Room A contains Primary students only');
+    assert(await ExamSeatingPlan.countDocuments({ school: school._id, room: roomC._id }) === 15, 'Room C contains Secondary students only');
 
     // -------------------------------------------------------------------
-    section('Manual add — capacity counts only students in the same shifts');
+    section('Manual add — a department uses its own allocated room');
     // -------------------------------------------------------------------
     const extra = await mkClass('Grade 10', secondaryDept, 1);
     const extraStudent = await Student.findOne({ class: extra._id }).lean() as any;
     const add = await request(app).post('/api/v1/exams/seating-plan').set(auth).send({
-      studentId: extraStudent.studentId, room: 'Room A', academicYear: '2026/27', examType: 'mid',
+      studentId: extraStudent.studentId, room: 'Room C', academicYear: '2026/27', examType: 'mid',
     });
-    assert(add.status === 200, `a Secondary student fits next to 15 Secondary in a 22-seat room (status ${add.status}: ${add.body?.message || ''})`);
+    assert(add.status === 200, `a Secondary student can use its department room (status ${add.status}: ${add.body?.message || ''})`);
 
     // -------------------------------------------------------------------
     section('Overlapping shifts are counted together');
