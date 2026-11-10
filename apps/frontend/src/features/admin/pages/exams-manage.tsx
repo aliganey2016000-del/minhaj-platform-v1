@@ -3521,15 +3521,19 @@ function ExamTimetable({
       .map((_, index) => index)
       .filter((index) => classRows.some((row) => row.slots[index]?.length));
     if (used.length) return used;
+    const classAssigned = (rules.classShiftAssignments || [])
+      .find((item) => String(item.classId) === String(selectedClassId))?.shiftIndexes
+      .filter((index) => index < rules.examShifts.length);
+    if (classAssigned?.length) return classAssigned;
     const department = selectedClass?.department as unknown;
     const departmentId = typeof department === 'string'
       ? department
       : String((department as { _id?: string } | null | undefined)?._id || '');
-    const assigned = (rules.departmentShiftAssignments || [])
+    const departmentAssigned = (rules.departmentShiftAssignments || [])
       .find((item) => String(item.departmentId) === departmentId)?.shiftIndexes
       .filter((index) => index < rules.examShifts.length) || [];
-    return assigned.length ? assigned : rules.examShifts.map((_, index) => index);
-  }, [classRows, rules.departmentShiftAssignments, rules.examShifts, selectedClass]);
+    return departmentAssigned.length ? departmentAssigned : rules.examShifts.map((_, index) => index);
+  }, [classRows, rules.classShiftAssignments, rules.departmentShiftAssignments, rules.examShifts, selectedClass, selectedClassId]);
   const classTableMinWidth = Math.max(720, 190 + classShiftIndexes.length * 230 + Math.max(0, classShiftIndexes.length - 1) * 105);
 
   const selectedClassExamIds = useMemo(
