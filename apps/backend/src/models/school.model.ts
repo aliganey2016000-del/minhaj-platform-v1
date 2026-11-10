@@ -79,7 +79,7 @@ export interface IClassShiftAssignment {
 
 export interface IExamSchedulingRules {
   departmentShiftAssignments: IDepartmentShiftAssignment[];
-  classShiftAssignments: IClassShiftAssignment[];
+  classShiftAssignments?: IClassShiftAssignment[];
   preventClassOverlap: boolean;
   allowSharedRooms: boolean;
   roomCapacityCheck: boolean;
