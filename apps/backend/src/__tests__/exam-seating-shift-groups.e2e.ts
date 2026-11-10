@@ -166,7 +166,6 @@ async function main() {
     await ExamSeatingPlan.deleteMany({ school: school._id });
 
     // -------------------------------------------------------------------
-    // -------------------------------------------------------------------
     section('No Department Shift Assignment — safe fallback keeps departments isolated');
     // -------------------------------------------------------------------
     await School.updateOne({ _id: school._id }, { $set: { examSchedulingRules: rulesFor(null) } });
@@ -196,11 +195,12 @@ async function main() {
     const invalidFallbackRejected = await generate({
       preview: true,
       roomPlan: invalidFallbackPlan,
-      roomIds: [String(roomA._id), String(roomB._id)],
+      roomIds: [String(roomA._id), String(roomB._id), String(roomC._id), String(roomD._id)],
     });
     assert(
-      invalidFallbackRejected.status === 400,
-      `a department without a valid assignment falls back to all shifts and cannot share Primary rooms (status ${invalidFallbackRejected.status})`,
+      invalidFallbackRejected.status === 400
+        && String(invalidFallbackRejected.body?.message || '').includes('different departments during'),
+      `a department without a valid assignment falls back to all shifts and cannot share Primary rooms (status ${invalidFallbackRejected.status}: ${invalidFallbackRejected.body?.message || ''})`,
     );
     await ExamSeatingPlan.deleteMany({ school: school._id });
 
