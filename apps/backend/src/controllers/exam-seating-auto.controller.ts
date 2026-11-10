@@ -473,22 +473,26 @@ export const generate = async (req: Request, res: Response) => {
     throw new BadRequestError('The same student cannot be manually assigned to more than one Room');
   }
 
-  // A Room Plan is department-isolated: one physical room may belong
-  // to only one department within this allocation, regardless of whether
-  // the departments sit in overlapping or separate exam shifts.
-  const departmentByRoom = new Map<string, string>();
+  // A room may be reused by different departments in non-overlapping shifts.
+  // It must remain exclusive when their assigned shifts overlap.
+  const departmentByRoomShift = new Map<string, string>();
   for (const [classId, roomIds] of roomPlanMap.entries()) {
     const departmentId = departmentOfClass(classId);
+    const classShifts = shiftsOfClass(classId);
     for (const roomId of roomIds) {
-      const existingDepartment = departmentByRoom.get(roomId);
-      if (existingDepartment && existingDepartment !== departmentId) {
-        const room = selectedRooms.find(item => String(item._id) === roomId);
-        const roomName = room?.name || 'A selected Room';
-        throw new BadRequestError(
-          `${roomName} cannot be shared by different departments. Assign separate Rooms to each department in Plan Rooms.`
-        );
+      for (const shiftIndex of classShifts) {
+        const key = `${roomId}::${shiftIndex}`;
+        const existingDepartment = departmentByRoomShift.get(key);
+        if (existingDepartment && existingDepartment !== departmentId) {
+          const room = selectedRooms.find(item => String(item._id) === roomId);
+          const roomName = room?.name || 'A selected Room';
+          const shiftName = schedulingRules.examShifts[shiftIndex]?.name || `Shift ${shiftIndex + 1}`;
+          throw new BadRequestError(
+            `${roomName} is assigned to different departments during ${shiftName}. Reuse is allowed only when department shifts do not overlap.`
+          );
+        }
+        departmentByRoomShift.set(key, departmentId);
       }
-      departmentByRoom.set(roomId, departmentId);
     }
   }
 
@@ -877,72 +881,80 @@ export const generate = async (req: Request, res: Response) => {
       }
     }
   } else {
-    // Allocate an exclusive set of rooms to each department. Shift differences
-    // do not permit departments to share a physical room or its seats.
+    // Allocate by department and shift set. Different departments may reuse
+    // the same physical rooms when their shifts do not overlap, but a room
+    // already occupied by another department in any shared shift is excluded.
     const runningLoad = lockedLoad.clone();
-    const studentsByDepartment = new Map<string, any[]>();
+    const groupsByKey = new Map<string, { departmentId: string; shifts: number[]; students: any[] }>();
     for (const student of availableStudents) {
       const classId = String(student.class?._id || student.class || '');
       const departmentId = departmentOfClass(classId);
-      const group = studentsByDepartment.get(departmentId) || [];
-      group.push(student);
-      studentsByDepartment.set(departmentId, group);
+      const shifts = shiftsOfStudent(student);
+      const groupKey = `${departmentId}::${shiftSetKey(shifts)}`;
+      const group = groupsByKey.get(groupKey) || { departmentId, shifts, students: [] };
+      group.students.push(student);
+      groupsByKey.set(groupKey, group);
     }
 
-    const roomOwner = new Map<string, string>();
+    const roomDepartmentsByShift = new Map<string, Map<number, Set<string>>>();
+    const markRoomUse = (roomId: string, departmentId: string, shifts: number[]) => {
+      const perShift = roomDepartmentsByShift.get(roomId) || new Map<number, Set<string>>();
+      shifts.forEach(shiftIndex => {
+        const departments = perShift.get(shiftIndex) || new Set<string>();
+        departments.add(departmentId);
+        perShift.set(shiftIndex, departments);
+      });
+      roomDepartmentsByShift.set(roomId, perShift);
+    };
     for (const row of lockedRows) {
       const student = studentById.get(String(row.student));
       if (!student) continue;
       const classId = String(student.class?._id || student.class || '');
-      const departmentId = departmentOfClass(classId);
-      const roomId = String(row.room);
-      const existingOwner = roomOwner.get(roomId);
-      if (existingOwner && existingOwner !== departmentId) {
-        throw new BadRequestError('A locked Room already contains students from different departments. Separate those assignments before generating a department-isolated allocation.');
-      }
-      roomOwner.set(roomId, departmentId);
+      markRoomUse(String(row.room), departmentOfClass(classId), shiftsOfStudent(student));
     }
 
-    const departmentEntries = Array.from(studentsByDepartment.entries())
-      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
-    const availableRooms = selectedRooms.filter(room => !roomOwner.has(String(room._id)));
-    for (const [departmentId, departmentStudents] of departmentEntries) {
-      const departmentRooms = selectedRooms.filter(room => roomOwner.get(String(room._id)) === departmentId);
-      let capacity = departmentRooms.reduce((sum, room) => sum + Math.max(0, (allowedCapacityByRoom.get(String(room._id)) || 0) - lockedLoad.peak(String(room._id))), 0);
-      for (const room of availableRooms) {
-        if (capacity >= departmentStudents.length) break;
-        if (roomOwner.has(String(room._id))) continue;
-        departmentRooms.push(room);
-        roomOwner.set(String(room._id), departmentId);
-        capacity += allowedCapacityByRoom.get(String(room._id)) || 0;
-      }
-      if (capacity < departmentStudents.length) {
+    const departmentEntries = Array.from(groupsByKey.values())
+      .sort((a, b) => b.students.length - a.students.length || a.departmentId.localeCompare(b.departmentId));
+    for (const group of departmentEntries) {
+      const departmentRooms = selectedRooms.filter(room => {
+        const perShift = roomDepartmentsByShift.get(String(room._id));
+        if (!perShift) return true;
+        return group.shifts.every(shiftIndex =>
+          Array.from(perShift.get(shiftIndex) || []).every(departmentId => departmentId === group.departmentId)
+        );
+      });
+      const departmentPlanningRooms = departmentRooms.map(room => ({
+        ...room,
+        capacity: Math.max(
+          0,
+          (allowedCapacityByRoom.get(String(room._id)) || 0)
+            - runningLoad.loadFor(String(room._id), group.shifts),
+        ),
+      })).filter(room => room.capacity > 0);
+      const availableCapacity = departmentPlanningRooms.reduce((sum, room) => sum + room.capacity, 0);
+      if (availableCapacity < group.students.length) {
         throw new BadRequestError(
-          `Department allocation needs ${departmentStudents.length} seats in its own Rooms, but only ${capacity} are available. Select more Rooms; departments cannot share Rooms.`
+          `Department/shift allocation needs ${group.students.length} seats, but only ${availableCapacity} are available in rooms that are free during its shifts. Add Rooms or review Department Shift Assignment.`
         );
       }
 
-      const departmentRoomIds = new Set(departmentRooms.map(room => String(room._id)));
-      const departmentPlanningRooms = planningRooms.filter(room => departmentRoomIds.has(String(room._id)));
-      const mixed = roundRobinMix(departmentStudents, `${allocationSeed}|department:${departmentId}`);
-      const groupCounts = new Map<string, number>(
-        departmentRooms.map(room => [String(room._id), runningLoad.loadFor(String(room._id), allShiftIndexes)])
-      );
+      const mixed = roundRobinMix(group.students, `${allocationSeed}|department:${group.departmentId}|shifts:${shiftSetKey(group.shifts)}`);
+      const groupCounts = new Map<string, number>(departmentPlanningRooms.map(room => [String(room._id), 0]));
       const targets = balancedRoomTargets(departmentPlanningRooms, mixed.length, groupCounts, frozenRoomIds);
       let cursor = 0;
 
-      for (const room of departmentRooms) {
+      for (const room of departmentPlanningRooms) {
         const roomId = String(room._id);
-        const startCount = groupCounts.get(roomId) || 0;
-        const finalTarget = targets.get(roomId) || startCount;
-        const needed = Math.max(0, finalTarget - startCount);
-        const group = mixed.slice(cursor, cursor + needed);
-        cursor += group.length;
-        runningLoad.add(roomId, allShiftIndexes, group.length);
-        group.forEach(student => assignments.push({ roomId: room._id, student, locked: false }));
+        const needed = targets.get(roomId) || 0;
+        const roomStudents = mixed.slice(cursor, cursor + needed);
+        cursor += roomStudents.length;
+        if (!roomStudents.length) continue;
+        runningLoad.add(roomId, group.shifts, roomStudents.length);
+        markRoomUse(roomId, group.departmentId, group.shifts);
+        roomStudents.forEach(student => assignments.push({ roomId: room._id, student, locked: false }));
       }
       if (cursor !== mixed.length) {
-        throw new BadRequestError('Could not place every student in the Rooms reserved for their department.');
+        throw new BadRequestError('Could not place every student in rooms available during the assigned department shifts.');
       }
     }
   }
