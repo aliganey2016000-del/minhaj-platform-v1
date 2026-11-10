@@ -894,7 +894,7 @@ export const generate = async (req: Request, res: Response) => {
       const student = studentById.get(String(row.student));
       if (!student) continue;
       const classId = String(student.class?._id || student.class || '');
-      const departmentId = String(rawDepartmentByClass.get(classId) || '__unassigned__');
+      const departmentId = departmentOfClass(classId);
       const roomId = String(row.room);
       const existingOwner = roomOwner.get(roomId);
       if (existingOwner && existingOwner !== departmentId) {
