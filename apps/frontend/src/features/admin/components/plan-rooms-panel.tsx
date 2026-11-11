@@ -193,6 +193,8 @@ export function PlanRoomsPanel({
   const [classExtraDrafts, setClassExtraDrafts] = useState<Record<string, number>>({});
   const [expandedClassRooms, setExpandedClassRooms] = useState<Record<string, boolean>>({});
   const [resolutionTab, setResolutionTab] = useState<'plan' | 'room' | 'class'>('plan');
+  // Room Resolution is shown one exam shift at a time ('' = first shift, 'all' = every shift).
+  const [roomShiftTab, setRoomShiftTab] = useState('');
   const [actionsOpen, setActionsOpen] = useState(false);
   const [confirmingPlan, setConfirmingPlan] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
@@ -648,6 +650,9 @@ export function PlanRoomsPanel({
   const usedShiftColumns = shiftColumns.filter(column =>
     planRows.some(row => roomColumnLoad(row.roomId, column) > 0)
   );
+  const activeShiftColumn = usedShiftColumns.length > 1 && roomShiftTab !== 'all'
+    ? usedShiftColumns.find(column => column.key === roomShiftTab) || usedShiftColumns[0]
+    : null;
   const roomShiftBreakdown = (roomId: string) => usedShiftColumns.length > 1
     ? usedShiftColumns
         .map(column => {
@@ -1348,7 +1353,9 @@ export function PlanRoomsPanel({
   );
   const hasGeneratedPlan = planRows.some(row => row.allocations.some(allocation => Number(allocation.quota) > 0));
   const classResolutionRows = unresolvedClassSummary.length > 0 ? unresolvedClassSummary : classSummary;
-  const roomResolutionRows = sortedRooms.filter(room => roomUsed(room._id) > 0);
+  const roomResolutionRows = sortedRooms.filter(room =>
+    (activeShiftColumn ? roomColumnLoad(room._id, activeShiftColumn) : roomUsed(room._id)) > 0
+  );
 
   const updateClassExtra = (classId: string, roomId: string, requested: number) => {
     const key = classId + '::' + roomId;
@@ -1933,6 +1940,35 @@ export function PlanRoomsPanel({
           </div>
         ) : (
           <div className="overflow-x-auto">
+            {usedShiftColumns.length > 1 && (
+              <div className="flex flex-wrap gap-2 border-b px-4 py-3" role="tablist" aria-label="Exam shift">
+                {usedShiftColumns.map(column => (
+                  <button
+                    key={column.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeShiftColumn?.key === column.key}
+                    onClick={() => setRoomShiftTab(column.key)}
+                    className={'rounded-lg border px-3 py-1.5 text-xs font-bold ' + (activeShiftColumn?.key === column.key
+                      ? 'border-emerald-600 bg-emerald-600 text-white'
+                      : 'bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')}
+                  >
+                    {column.name} · {column.time}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!activeShiftColumn}
+                  onClick={() => setRoomShiftTab('all')}
+                  className={'rounded-lg border px-3 py-1.5 text-xs font-bold ' + (!activeShiftColumn
+                    ? 'border-emerald-600 bg-emerald-600 text-white'
+                    : 'bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')}
+                >
+                  All shifts
+                </button>
+              </div>
+            )}
             <table className="w-full min-w-[980px] text-sm">
               <thead className="bg-[var(--color-surface-secondary)]">
                 <tr>
@@ -1945,8 +1981,11 @@ export function PlanRoomsPanel({
               <tbody>
                 {roomResolutionRows.map(room => {
                   const row = rowOf(room._id);
-                  const allocations = row.allocations.filter(allocation => Number(allocation.quota) > 0);
-                  const used = roomUsed(room._id);
+                  const allocations = row.allocations.filter(allocation =>
+                    Number(allocation.quota) > 0
+                    && (!activeShiftColumn || classSitsInColumn(allocation.classId, activeShiftColumn))
+                  );
+                  const used = activeShiftColumn ? roomColumnLoad(room._id, activeShiftColumn) : roomUsed(room._id);
                   const capacity = Math.max(0, Number(room.capacity) || 0);
                   const free = capacity - used;
                   const overridden = capacityOverrideRoomIds.includes(room._id);
@@ -1964,7 +2003,7 @@ export function PlanRoomsPanel({
                       </td>
                       <td className="px-4 py-4">
                         <p className="text-lg font-bold">{used}/{capacity}</p>
-                        {roomShiftBreakdown(room._id) && (
+                        {!activeShiftColumn && roomShiftBreakdown(room._id) && (
                           <p className="mt-0.5 text-[11px] font-semibold text-[var(--color-text-tertiary)]">{roomShiftBreakdown(room._id)}</p>
                         )}
                       </td>
