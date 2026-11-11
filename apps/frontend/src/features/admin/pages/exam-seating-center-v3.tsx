@@ -136,8 +136,8 @@ type AutoPreview = {
   issues: string[];
 };
 
-const columns = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Seat'];
-const roomAssignmentColumns = ['Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Lock'];
+const columns = ['Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room'];
+const roomAssignmentColumns = columns;
 const card = 'rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] shadow-card';
 const input = 'w-full rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] px-3.5 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20';
 const readonly = `${input} bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)]`;
@@ -462,7 +462,7 @@ function ImportModal({close,onImported}:{close:()=>void;onImported:(info:{academ
       <div className="rounded-2xl border bg-[var(--color-surface-secondary)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-semibold">Legacy Excel import remains supported</p>
+            <p className="font-semibold">Standard Excel format — 8 columns</p>
             <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{columns.join(' · ')}</p>
           </div>
           <button onClick={template} type="button" className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm"><FileSpreadsheet size={16}/>Download Template</button>
@@ -473,16 +473,18 @@ function ImportModal({close,onImported}:{close:()=>void;onImported:(info:{academ
       {rows.length>0&&<div className="overflow-x-auto rounded-2xl border">
         <table className="min-w-[1000px] w-full text-xs">
           <thead className="bg-[var(--color-surface-secondary)]">
-            <tr>{['Row','Student ID','Student Name','Academic Year','Exam Type','Room','Seat','Status'].map(c=><th key={c} className="px-3 py-2 text-left">{c}</th>)}</tr>
+            <tr>{['Row','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Status'].map(c=><th key={c} className="px-3 py-2 text-left">{c}</th>)}</tr>
           </thead>
           <tbody>{rows.slice(0,100).map(r=><tr key={r.row} className="border-t">
             <td className="px-3 py-2">{r.row}</td>
+            <td className="px-3 py-2">{r.department}</td>
+            <td className="px-3 py-2">{r.className}</td>
+            <td className="px-3 py-2">{r.shift}</td>
             <td className="px-3 py-2">{r.studentId}</td>
             <td className="px-3 py-2">{r.studentName}</td>
             <td className="px-3 py-2">{r.academicYear}</td>
             <td className="px-3 py-2">{r.examType}</td>
             <td className="px-3 py-2">{r.room}</td>
-            <td className="px-3 py-2">{r.seat||'—'}</td>
             <td className="px-3 py-2">{r.status==='error'
               ?<div className="space-y-1">
                 <p className="font-semibold text-red-600">{r.message}</p>
@@ -1103,7 +1105,6 @@ export function ExamSeatingCenterV3() {
       a.academicYear,
       a.examType,
       a.room?.name||'',
-      a.locked?'Locked':'',
     ]),
   ]);
 
