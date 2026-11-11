@@ -88,3 +88,64 @@ export async function savedSeatingShiftLoad(
   }
   return load;
 }
+
+export interface ExamTimeSlot {
+  /** `YYYY-MM-DD|HH:MM` — one real sitting (a day + a start time). */
+  key: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  label: string;
+}
+
+export interface ClassSlotMap {
+  slots: ExamTimeSlot[];
+  /** classId -> indexes into `slots` the class really sits papers in. */
+  classSlots: Map<string, number[]>;
+}
+
+/**
+ * Real sittings of an exam period, taken from the placed papers of its
+ * timetable. Two classes can only clash for seats/rooms when they share an
+ * actual (day, start time) sitting — department-level shift sets are far too
+ * coarse because a department uses Shift 1 on some days and Shift 2 on others.
+ * Returns null when the period has no placed papers.
+ */
+export async function loadClassSlotMap(periodId: unknown): Promise<ClassSlotMap | null> {
+  if (!periodId) return null;
+  const { default: Exam } = await import('../models/exam.model');
+  const exams = await Exam.find({
+    period: periodId,
+    schedulePlaced: { $ne: false },
+    status: { $ne: 'cancelled' },
+    examDate: { $ne: null },
+    startTime: { $nin: [null, ''] },
+  })
+    .select('examDate startTime endTime course')
+    .populate({ path: 'course', select: 'class' })
+    .lean() as any[];
+
+  const slotByKey = new Map<string, ExamTimeSlot>();
+  const classKeys = new Map<string, Set<string>>();
+  for (const exam of exams) {
+    const classId = exam.course?.class ? String(exam.course.class) : '';
+    if (!classId || !exam.examDate || !exam.startTime) continue;
+    const date = new Date(exam.examDate).toISOString().slice(0, 10);
+    const key = `${date}|${exam.startTime}`;
+    if (!slotByKey.has(key)) {
+      slotByKey.set(key, { key, date, startTime: exam.startTime, endTime: exam.endTime || '', label: `${date} ${exam.startTime}` });
+    }
+    const keys = classKeys.get(classId) || new Set<string>();
+    keys.add(key);
+    classKeys.set(classId, keys);
+  }
+  if (!slotByKey.size) return null;
+
+  const slots = Array.from(slotByKey.values()).sort((a, b) => a.key.localeCompare(b.key));
+  const indexByKey = new Map(slots.map((slot, index) => [slot.key, index]));
+  const classSlots = new Map<string, number[]>();
+  for (const [classId, keys] of classKeys) {
+    classSlots.set(classId, Array.from(keys).map(k => indexByKey.get(k)!).sort((a, b) => a - b));
+  }
+  return { slots, classSlots };
+}

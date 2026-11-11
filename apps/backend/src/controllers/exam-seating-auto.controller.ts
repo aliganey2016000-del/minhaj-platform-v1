@@ -13,7 +13,7 @@ import {
   getExamRoomPlanSettingsForSchool,
 } from '../utils/exam-room-plan-settings';
 import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules';
-import { classShiftIndexes, peakShiftDemand, shiftSetKey, ShiftRoomLoad } from '../utils/exam-shift-groups';
+import { classShiftIndexes, loadClassSlotMap, peakShiftDemand, shiftSetKey, ShiftRoomLoad } from '../utils/exam-shift-groups';
 import { resolveSeatingScope, seatingScopeFilter } from '../utils/exam-seating-scope';
 
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
@@ -226,7 +226,18 @@ export const generate = async (req: Request, res: Response) => {
   const school = await School.findById(targetSchoolId).select('_id').lean();
   if (!school) throw new BadRequestError('Selected Organization was not found');
   const roomPlanSettings = await getExamRoomPlanSettingsForSchool(targetSchoolId);
-  const schedulingRules = await getExamSchedulingRulesForSchool(targetSchoolId);
+  const configuredRules = await getExamSchedulingRulesForSchool(targetSchoolId);
+  // Real sittings (day + start time) from the exam timetable. When the exam
+  // has a timetable, classes only clash when they share an actual sitting, so
+  // "shifts" below are those sittings. Without one, fall back to the
+  // department/class shift assignment.
+  const slotMap = seatingScope.period ? await loadClassSlotMap(seatingScope.period) : null;
+  const schedulingRules = slotMap
+    ? {
+        ...configuredRules,
+        examShifts: slotMap.slots.map(slot => ({ name: slot.label, startTime: slot.startTime, endTime: slot.endTime })),
+      }
+    : configuredRules;
 
   const normalizedDepartmentIds = Array.isArray(departmentIds)
     ? departmentIds.filter((id: unknown) => mongoose.isValidObjectId(String(id))).map(String)
@@ -316,7 +327,11 @@ export const generate = async (req: Request, res: Response) => {
   const shiftsByClass = new Map<string, number[]>(
     targetClasses.map(cls => [
       String(cls._id),
-      classShiftIndexes(schedulingRules, { ...cls, department: rawDepartmentByClass.get(String(cls._id)) }),
+      slotMap
+        // A class without a placed paper is treated as sitting in every
+        // sitting (never double-books); the response warns about it.
+        ? (slotMap.classSlots.get(String(cls._id)) || schedulingRules.examShifts.map((_s, i) => i))
+        : classShiftIndexes(schedulingRules, { ...cls, department: rawDepartmentByClass.get(String(cls._id)) }),
     ])
   );
   const allShiftIndexes = schedulingRules.examShifts.length
@@ -966,15 +981,27 @@ export const generate = async (req: Request, res: Response) => {
       // Do not spread one department across every eligible room. Reserve only
       // the minimum-capacity room set needed for this group so another
       // department with overlapping shifts can use the remaining rooms.
+      const sharesSittingWithOtherDepartment = departmentEntries.some(other =>
+        other !== group
+        && other.departmentId !== group.departmentId
+        && other.shifts.some(shiftIndex => group.shifts.includes(shiftIndex))
+      );
       const allocationRooms: any[] = [];
       let allocationCapacity = 0;
-      for (const room of departmentPlanningRooms.slice().sort((a, b) =>
+      // Nobody else sits at the same time: use every available room so the
+      // students are spread across all rooms instead of filling the first few.
+      const roomsToConsider = sharesSittingWithOtherDepartment
+        ? departmentPlanningRooms.slice().sort((a, b) =>
         b.capacity - a.capacity
         || String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true })
-      )) {
+        )
+        : departmentPlanningRooms.slice().sort((a, b) =>
+          String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true })
+        );
+      for (const room of roomsToConsider) {
         allocationRooms.push(room);
         allocationCapacity += room.capacity;
-        if (allocationCapacity >= group.students.length) break;
+        if (sharesSittingWithOtherDepartment && allocationCapacity >= group.students.length) break;
       }
 
       const mixed = roundRobinMix(group.students, `${allocationSeed}|department:${group.departmentId}|shifts:${shiftSetKey(group.shifts)}`);
@@ -1034,6 +1061,13 @@ export const generate = async (req: Request, res: Response) => {
       shiftNames: group.shifts.map(index => schedulingRules.examShifts[index]?.name || `Shift ${index + 1}`),
       students: group.count,
     })),
+    usesExamTimetable: Boolean(slotMap),
+    // Classes with no placed paper are planned as sitting in every sitting.
+    classesWithoutSchedule: slotMap
+      ? targetClasses
+          .filter(c => !slotMap.classSlots.has(String(c._id)))
+          .map(c => norm([c.title, c.section].filter(Boolean).join(' ')))
+      : [],
     capacityOverrideRooms: Array.from(capacityOverrideSet),
     manuallyResolvedStudents: normalizedStudentRoomOverrides.length,
     roomPlanSettings,
