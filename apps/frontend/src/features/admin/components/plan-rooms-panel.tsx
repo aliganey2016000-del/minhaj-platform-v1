@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import api from '../../../lib/axios';
 import { AcademicYearSelect } from '../../shared/components/academic-year-select';
+import { ImportedRoomPlanReports, type ImportedRoomAssignment } from './imported-room-plan-reports';
 
 export type PlanAllocation = {
   classId: string;
@@ -99,6 +100,7 @@ type Props = {
   year: string;
   type: string;
   planRows: PlanRoomRow[];
+  importedAllocations: ImportedRoomAssignment[];
   schoolId?: string;
   /** Exam (period) whose timetable defines the real sittings classes share. */
   periodId?: string;
@@ -171,6 +173,7 @@ export function PlanRoomsPanel({
   year,
   type,
   planRows,
+  importedAllocations,
   schoolId,
   periodId,
   hideExamSelectors = false,
@@ -1438,6 +1441,7 @@ export function PlanRoomsPanel({
   };
 
   const currentPlanError = Boolean(validatePlan());
+  const hasImportedAssignments = importedAllocations.length > 0;
 
   const NumberSetting = ({
     label,
@@ -1519,6 +1523,27 @@ export function PlanRoomsPanel({
         className="mt-1 h-4 w-4"
       />
     </label>
+  );
+
+
+  if (hasImportedAssignments) return (
+    <div className="space-y-5">
+      <div className={card + ' overflow-hidden'}>
+        <div className="border-b p-4 sm:p-5">
+          <h2 className="text-lg font-bold">Smart Mixed-Grade Room Plan</h2>
+          <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">Reports are based on the saved student-level room assignments imported for this examination.</p>
+        </div>
+        <div className="grid grid-cols-3 border-b bg-[var(--color-surface-secondary)]/50 p-2">
+          {(['plan','room','class'] as const).map(tab => (
+            <button key={tab} type="button" onClick={() => setResolutionTab(tab)}
+              className={'rounded-xl px-2 py-3 text-xs font-bold transition sm:px-3 sm:text-sm ' + (resolutionTab === tab ? 'bg-[var(--color-surface-primary)] text-primary-700 shadow-sm dark:text-primary-300' : 'text-[var(--color-text-secondary)]')}>
+              {tab === 'plan' ? 'Room Plan' : tab === 'room' ? 'Room Resolution' : 'Class Resolution'}
+            </button>
+          ))}
+        </div>
+        <ImportedRoomPlanReports tab={resolutionTab} assignments={importedAllocations} rooms={sortedRooms} />
+      </div>
+    </div>
   );
 
   return (
