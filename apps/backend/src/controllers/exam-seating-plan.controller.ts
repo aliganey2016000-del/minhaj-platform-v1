@@ -21,7 +21,7 @@ const examTypeValue = (v: string) => { const x=key(v); if(x==='mid'||x==='mid ex
 
 async function schoolForStudent(req: Request, student: any) { if(student.school){assertOwnOrg(req,student,'school');return student.school;} return null; }
 async function populate(q: any) { return q.populate('room','name building capacity').populate({path:'student',populate:[{path:'profile',select:'firstName lastName'},{path:'class',select:'title section academicYear shiftMode department',populate:{path:'department',select:'name'}},{path:'school',select:'name'}],select:'studentId profile school class department shiftMode status'}).lean(); }
-function payload(a: any) { const s=a?.student; return {...a,student:s?{...s,organization:s.school?.name||'',department:s.class?.department?.name||s.department||'',className:classOf(s),shift:s.class?.shiftMode||s.shiftMode||'',academicYear:s.class?.academicYear||''}:s}; }
+function payload(a: any) { const s=a?.student; return {...a,student:s?{...s,organization:s.school?.name||'',department:s.class?.department?.name||s.department||'',className:classOf(s),shift:a.shift||s.class?.shiftMode||s.shiftMode||'',academicYear:s.class?.academicYear||''}:s}; }
 
 // Rows whose student was deleted or is no longer active (e.g. test data,
 // graduated students) are not part of the live allocation: they are hidden
@@ -120,7 +120,7 @@ export const add = async (req: Request,res: Response) => {
     }
   }
 
-  const created=await ExamSeatingPlan.create({student:student._id,room:roomDoc._id,deskNumber:seatValue,academicYear:seatingScope.academicYear,examType:seatingScope.examType,period:seatingScope.period,school:schoolId});
+  const created=await ExamSeatingPlan.create({student:student._id,room:roomDoc._id,deskNumber:seatValue,shift:String(student.class?.shiftMode||student.shiftMode||''),academicYear:seatingScope.academicYear,examType:seatingScope.examType,period:seatingScope.period,school:schoolId});
   const row=await populate(ExamSeatingPlan.findById(created._id));
   return ApiResponse.success(res,payload(row),'Room assignment added');
 };
@@ -281,7 +281,7 @@ async function validateRows(req: Request, rows: Record<string, unknown>[], seati
       // chairs, etc). Only a genuine room+seat collision above is blocked;
       // see the module comment and seating-import-smart-fix.e2e.ts.
       if (row.seat) seenSeats.add(seatKey);
-      docs.push({ student: student._id, room: roomDoc._id, deskNumber: seatValue, academicYear: rowYear, examType: t, period: seatingScope?.period || null, school: school?._id || null });
+      docs.push({ student: student._id, room: roomDoc._id, deskNumber: seatValue, shift: row.shift, academicYear: rowYear, examType: t, period: seatingScope?.period || null, school: school?._id || null });
     } catch (e: any) {
       row.status = 'error';
       row.message = e.message;
