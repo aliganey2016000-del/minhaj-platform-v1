@@ -194,7 +194,7 @@ export function PlanRoomsPanel({
   const [expandedClassRooms, setExpandedClassRooms] = useState<Record<string, boolean>>({});
   const [resolutionTab, setResolutionTab] = useState<'plan' | 'room' | 'class'>('plan');
   // Room Resolution is shown one exam shift at a time ('' = first shift, 'all' = every shift).
-  const [roomShiftTab, setRoomShiftTab] = useState('');
+  const [roomShiftTab, setRoomShiftTab] = useState('all');
   const [actionsOpen, setActionsOpen] = useState(false);
   const [confirmingPlan, setConfirmingPlan] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
@@ -1351,6 +1351,35 @@ export function PlanRoomsPanel({
       key.startsWith(item.cls._id + '::') && Number(value) > 0
     )
   );
+  const shiftTabBar = usedShiftColumns.length > 1 ? (
+              <div className="flex flex-wrap gap-2 border-b px-4 py-3" role="tablist" aria-label="Exam shift">
+                {usedShiftColumns.map(column => (
+                  <button
+                    key={column.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeShiftColumn?.key === column.key}
+                    onClick={() => setRoomShiftTab(column.key)}
+                    className={'rounded-lg border px-3 py-1.5 text-xs font-bold ' + (activeShiftColumn?.key === column.key
+                      ? 'border-emerald-600 bg-emerald-600 text-white'
+                      : 'bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')}
+                  >
+                    {column.name} · {column.time}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!activeShiftColumn}
+                  onClick={() => setRoomShiftTab('all')}
+                  className={'rounded-lg border px-3 py-1.5 text-xs font-bold ' + (!activeShiftColumn
+                    ? 'border-emerald-600 bg-emerald-600 text-white'
+                    : 'bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')}
+                >
+                  All shifts
+                </button>
+              </div>
+  ) : null;
   const hasGeneratedPlan = planRows.some(row => row.allocations.some(allocation => Number(allocation.quota) > 0));
   const classResolutionRows = unresolvedClassSummary.length > 0 ? unresolvedClassSummary : classSummary;
   const roomResolutionRows = sortedRooms.filter(room =>
@@ -1756,25 +1785,26 @@ export function PlanRoomsPanel({
           </div>
         ) : resolutionTab === 'plan' ? (
           <div className="overflow-x-auto">
+            {shiftTabBar}
             <table className="w-full min-w-[680px] text-sm">
               <thead className="bg-[var(--color-surface-secondary)]">
                 <tr>
                   <th className="px-4 py-3 text-left">Room</th>
                   <th className="px-4 py-3 text-left">Capacity</th>
-                  {usedShiftColumns.length > 1 && usedShiftColumns.map(column => (
+                  {!activeShiftColumn && usedShiftColumns.length > 1 && usedShiftColumns.map(column => (
                     <th key={column.key} className="px-4 py-3 text-left">
                       {column.name}
                       <span className="mt-0.5 block text-[10px] font-medium normal-case tracking-normal text-[var(--color-text-tertiary)]">{column.time}</span>
                     </th>
                   ))}
-                  <th className="px-4 py-3 text-left">{usedShiftColumns.length > 1 ? 'Seats Needed' : 'Assigned Seats'}</th>
+                  <th className="px-4 py-3 text-left">{activeShiftColumn ? activeShiftColumn.name + ' Students' : usedShiftColumns.length > 1 ? 'Seats Needed' : 'Assigned Seats'}</th>
                   <th className="px-4 py-3 text-left">Seat Balance</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedRooms.map(room => {
                   const capacity = Math.max(0, Number(room.capacity) || 0);
-                  const assigned = roomUsed(room._id);
+                  const assigned = activeShiftColumn ? roomColumnLoad(room._id, activeShiftColumn) : roomUsed(room._id);
                   const balance = capacity - assigned;
                   const overridden = capacityOverrideRoomIds.includes(room._id);
 
@@ -1785,7 +1815,7 @@ export function PlanRoomsPanel({
                         <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">{room.building || 'Main'}</p>
                       </td>
                       <td className="px-4 py-4 text-lg font-bold">{capacity}</td>
-                      {usedShiftColumns.length > 1 && usedShiftColumns.map(column => {
+                      {!activeShiftColumn && usedShiftColumns.length > 1 && usedShiftColumns.map(column => {
                         const load = roomColumnLoad(room._id, column);
                         return (
                           <td key={column.key} className="px-4 py-4">
@@ -1940,35 +1970,7 @@ export function PlanRoomsPanel({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            {usedShiftColumns.length > 1 && (
-              <div className="flex flex-wrap gap-2 border-b px-4 py-3" role="tablist" aria-label="Exam shift">
-                {usedShiftColumns.map(column => (
-                  <button
-                    key={column.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeShiftColumn?.key === column.key}
-                    onClick={() => setRoomShiftTab(column.key)}
-                    className={'rounded-lg border px-3 py-1.5 text-xs font-bold ' + (activeShiftColumn?.key === column.key
-                      ? 'border-emerald-600 bg-emerald-600 text-white'
-                      : 'bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')}
-                  >
-                    {column.name} · {column.time}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!activeShiftColumn}
-                  onClick={() => setRoomShiftTab('all')}
-                  className={'rounded-lg border px-3 py-1.5 text-xs font-bold ' + (!activeShiftColumn
-                    ? 'border-emerald-600 bg-emerald-600 text-white'
-                    : 'bg-[var(--color-surface-primary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-secondary)]')}
-                >
-                  All shifts
-                </button>
-              </div>
-            )}
+            {shiftTabBar}
             <table className="w-full min-w-[980px] text-sm">
               <thead className="bg-[var(--color-surface-secondary)]">
                 <tr>
