@@ -314,6 +314,20 @@ export const updateScheduleRules = async (req: Request, res: Response): Promise<
     throw new BadRequestError('Select at least one allowed exam day');
   }
 
+  const assignedClassIds = next.classShiftAssignments.map((item) => String(item.classId));
+  if (new Set(assignedClassIds).size !== assignedClassIds.length) {
+    throw new BadRequestError('Each class can have only one Class Shift Assignment');
+  }
+  if (assignedClassIds.length) {
+    const matchingClasses = await ClassModel.countDocuments({
+      _id: { $in: assignedClassIds },
+      school: schoolId,
+    });
+    if (matchingClasses !== assignedClassIds.length) {
+      throw new BadRequestError('Class Shift Assignment contains a class outside the selected organization');
+    }
+  }
+
   for (let index = 0; index < next.examShifts.length; index += 1) {
     const shift = next.examShifts[index];
     const start = timeToMinutes(shift.startTime);
@@ -677,13 +691,12 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
 
   const classById = new Map(classes.map((cls) => [String(cls._id), cls]));
 
-  // Department shift assignments are authoritative when configured. Resolve
-  // them once per class so no generated slot can fall back to another
-  // department's shifts. Only classes that actually have courses to schedule
+  // Class-level assignments override department defaults. Resolve once per class
+  // so generated slots and seating allocation use the same configured shifts. Only classes that actually have courses to schedule
   // are checked: an empty helper class (e.g. a "Public Class" with no
   // department and no subjects) must not block the whole timetable. Every
   // problem is reported at once so the admin can fix them in one pass.
-  const hasDepartmentShiftAssignments = rules.departmentShiftAssignments.length > 0;
+  const hasShiftAssignments = rules.departmentShiftAssignments.length > 0 || rules.classShiftAssignments.length > 0;
   const allShiftIndexes = rules.examShifts.map((_shift, index) => index);
   const classShiftIndexesById = new Map<string, number[]>();
   const classesWithCourses = new Set(courses.map((course) => String(course.class || '')));
@@ -752,7 +765,7 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     const allowedShiftIndexes = classShiftIndexesById.get(classId) || allShiftIndexes;
     // Do not combine same-named subjects across departments with different
     // shift assignments; each department must be scheduled independently.
-    const groupKey = `${hasDepartmentShiftAssignments ? `department:${departmentId}` : band}::${subjectKey}`;
+    const groupKey = `${hasShiftAssignments ? `department:${departmentId}:shifts:${allowedShiftIndexes.join(',')}` : band}::${subjectKey}`;
     const group = grouped.get(groupKey) || {
       band,
       subjectKey,
@@ -908,10 +921,10 @@ export const autoGeneratePeriodSchedule = async (req: Request, res: Response): P
     for (const group of bandGroups) {
       const groupCourses = Array.from(group.coursesByClass.entries());
       const firstClass = classById.get(groupCourses[0]?.[0] || '');
-      const rotationKey = hasDepartmentShiftAssignments
-        ? String(firstClass?.department || band)
-        : band;
       const allowedShiftIndexes = group.allowedShiftIndexes;
+      const rotationKey = hasShiftAssignments
+        ? `${String(firstClass?.department || band)}::${allowedShiftIndexes.join(',')}`
+        : band;
       const shiftOffset = nextShiftOffsetByGroup.get(rotationKey) || 0;
       const orderedShiftIndexes = [
         ...allowedShiftIndexes.slice(shiftOffset),

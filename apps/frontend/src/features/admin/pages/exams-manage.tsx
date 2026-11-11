@@ -45,7 +45,7 @@ interface ClassBrief {
   title: string;
   section: string;
   academicYear?: string;
-  department?: { _id?: string; name?: string } | null;
+  department?: { _id?: string; name?: string } | string | null;
 }
 
 interface ExamPeriod {
@@ -553,7 +553,16 @@ function DepartmentalExamView({
 
     const classIds = new Set(
       classes
-        .filter((cls) => normalizeDepartmentKey(cls.department?._id, cls.department?.name) === department.key)
+        .filter((cls) => {
+          const classDepartment = cls.department;
+          const departmentId = typeof classDepartment === 'string'
+            ? classDepartment
+            : classDepartment?._id;
+          const departmentName = typeof classDepartment === 'string'
+            ? ''
+            : classDepartment?.name;
+          return normalizeDepartmentKey(departmentId, departmentName) === department.key;
+        })
         .map((cls) => cls._id)
         .filter(Boolean),
     );
@@ -1637,8 +1646,14 @@ interface DepartmentShiftAssignment {
   shiftIndexes: number[];
 }
 
+interface ClassShiftAssignment {
+  classId: string;
+  shiftIndexes: number[];
+}
+
 interface ExamScheduleRules {
   departmentShiftAssignments: DepartmentShiftAssignment[];
+  classShiftAssignments: ClassShiftAssignment[];
   preventClassOverlap: boolean;
   allowSharedRooms: boolean;
   roomCapacityCheck: boolean;
@@ -1668,6 +1683,7 @@ const DEFAULT_EXAM_SCHEDULE_RULES: ExamScheduleRules = {
   examShifts: DEFAULT_EXAM_SHIFTS.slice(0, 2).map((shift) => ({ ...shift })),
   allowedExamDays: [0, 1, 2, 3, 4, 5, 6],
   departmentShiftAssignments: [],
+  classShiftAssignments: [],
 };
 
 const EXAM_DAY_OPTIONS = [
@@ -1716,6 +1732,7 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
   const isSuperAdmin = user?.role === 'admin';
   const [schools, setSchools] = useState<SchoolBrief[]>([]);
   const [departments, setDepartments] = useState<DepartmentBrief[]>([]);
+  const [classesForShift, setClassesForShift] = useState<ClassBrief[]>([]);
   const [schoolId, setSchoolId] = useState('');
   const [rules, setRules] = useState<ExamScheduleRules>(DEFAULT_EXAM_SCHEDULE_RULES);
   const [loading, setLoading] = useState(!isSuperAdmin);
@@ -1733,6 +1750,7 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (isSuperAdmin && !schoolId) {
       setDepartments([]);
+      setClassesForShift([]);
       return;
     }
     api.get('/departments', {
@@ -1740,6 +1758,30 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
     })
       .then(({ data }) => setDepartments(data.data || []))
       .catch(() => setDepartments([]));
+    let cancelled = false;
+    const loadClasses = async () => {
+      const all: ClassBrief[] = [];
+      try {
+        for (let page = 1; page <= 50; page += 1) {
+          const { data } = await api.get('/classes', {
+            params: {
+              ...(isSuperAdmin ? { schoolId } : {}),
+              status: 'active',
+              page,
+              limit: 200,
+            },
+          });
+          const batch = (data.data || []) as ClassBrief[];
+          all.push(...batch);
+          if (batch.length < 200) break;
+        }
+        if (!cancelled) setClassesForShift(all);
+      } catch {
+        if (!cancelled) setClassesForShift([]);
+      }
+    };
+    void loadClasses();
+    return () => { cancelled = true; };
   }, [isSuperAdmin, schoolId]);
 
   const loadRules = useCallback(async (targetSchool?: string) => {
@@ -1808,6 +1850,10 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
         ...assignment,
         shiftIndexes: assignment.shiftIndexes.filter((index) => index < count),
       })),
+      classShiftAssignments: (prev.classShiftAssignments || []).map((assignment) => ({
+        ...assignment,
+        shiftIndexes: assignment.shiftIndexes.filter((index) => index < count),
+      })),
     }));
   };
 
@@ -1824,6 +1870,26 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
           : [...assignments, { departmentId, shiftIndexes }],
       };
     });
+  };
+
+  const updateClassShifts = (classId: string, shiftIndexes: number[]) => {
+    setRules((prev) => {
+      const assignments = prev.classShiftAssignments || [];
+      const existing = assignments.some((item) => item.classId === classId);
+      return {
+        ...prev,
+        classShiftAssignments: existing
+          ? assignments.map((item) => item.classId === classId ? { ...item, shiftIndexes } : item)
+          : [...assignments, { classId, shiftIndexes }],
+      };
+    });
+  };
+
+  const clearClassShiftOverride = (classId: string) => {
+    setRules((prev) => ({
+      ...prev,
+      classShiftAssignments: (prev.classShiftAssignments || []).filter((item) => item.classId !== classId),
+    }));
   };
 
   const updateShift = (index: number, key: keyof ExamShiftRule, value: string) => {
@@ -2026,15 +2092,89 @@ function ExamScheduleRulesModal({ onClose }: { onClose: () => void }) {
                 )}
               </div>
 
+              <div className="rounded-2xl border border-primary-200 bg-primary-50/40 p-4 dark:border-primary-900/40 dark:bg-primary-950/10">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
+                      <Building2 className="h-4 w-4 text-primary-600" />
+                      Class Shift Assignment
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
+                      Assign shifts independently to each class. A class-level assignment overrides its department's default, so classes in the same department may use different shifts.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-primary-100 px-2.5 py-1 text-[10px] font-bold text-primary-800 dark:bg-primary-950/50 dark:text-primary-200">
+                    {classesForShift.length} classes
+                  </span>
+                </div>
+                {classesForShift.length === 0 ? (
+                  <p className="mt-3 rounded-xl border border-dashed border-[var(--color-border-default)] p-3 text-xs text-[var(--color-text-tertiary)]">
+                    No active classes found for this organization.
+                  </p>
+                ) : (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {classesForShift.map((cls) => {
+                      const explicit = (rules.classShiftAssignments || []).find(item => item.classId === cls._id);
+                      const departmentId = typeof cls.department === 'string' ? cls.department : cls.department?._id || '';
+                      const inherited = (rules.departmentShiftAssignments || []).find(item => item.departmentId === departmentId)?.shiftIndexes;
+                      const selected = explicit?.shiftIndexes ?? inherited ?? rules.examShifts.slice(0, rules.examShiftCount).map((_shift, index) => index);
+                      const departmentName = typeof cls.department === 'string' ? '' : cls.department?.name || '';
+                      return (
+                        <div key={cls._id} className="min-w-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-surface-primary)] p-3">
+                          <div className="mb-3 flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-bold text-[var(--color-text-primary)]">{cls.title}{cls.section ? ` · ${cls.section}` : ''}</p>
+                              <p className="mt-0.5 truncate text-[10px] text-[var(--color-text-tertiary)]">{departmentName || 'No department'} · {explicit ? 'Class override' : inherited ? 'Department default' : 'All shifts by default'}</p>
+                            </div>
+                            {explicit && (
+                              <button type="button" onClick={() => clearClassShiftOverride(cls._id)} className="shrink-0 text-[10px] font-semibold text-primary-700 hover:underline dark:text-primary-300">
+                                Use default
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label={`Exam shifts for ${cls.title}`}>
+                            {rules.examShifts.slice(0, rules.examShiftCount).map((shift, index) => {
+                              const checked = selected.includes(index);
+                              return (
+                                <label key={index} className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${checked
+                                  ? 'border-primary-500 bg-primary-50 text-primary-800 dark:border-primary-700 dark:bg-primary-950/30 dark:text-primary-200'
+                                  : 'border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]'}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(event) => {
+                                      const next = event.target.checked ? [...selected, index] : selected.filter(value => value !== index);
+                                      updateClassShifts(cls._id, [...new Set(next)].sort((a, b) => a - b));
+                                    }}
+                                    className="h-4 w-4 shrink-0 rounded border-[var(--color-border-default)] accent-[var(--color-primary-600)]"
+                                  />
+                                  <span>{shift.name}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <span className="mt-3 block text-[10px] text-[var(--color-text-tertiary)]">
+                            {selected.length ? `${selected.length} shift(s): ${selected.map(index => rules.examShifts[index]?.name).filter(Boolean).join(', ')}` : 'No shifts selected — safe fallback applies'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="mt-3 text-[11px] text-[var(--color-text-tertiary)]">
+                  Classes without an explicit override inherit their department assignment. If neither is configured, all shifts remain available.
+                </p>
+              </div>
+
               <div className="rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-surface-secondary)] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-primary)]">
                       <Building2 className="h-4 w-4 text-primary-600" />
-                      Department Shift Assignment
+                      Department Shift Assignment (Legacy Default)
                     </p>
                     <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
-                      Choose which configured exam shifts each department can use. Select multiple shifts for a department.
+                      Optional fallback shifts for classes that do not have their own Class Shift Assignment.
                     </p>
                   </div>
                   <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
@@ -3407,15 +3547,21 @@ function ExamTimetable({
       .map((_, index) => index)
       .filter((index) => classRows.some((row) => row.slots[index]?.length));
     if (used.length) return used;
+    const classAssignment = (rules.classShiftAssignments || [])
+      .find((item) => String(item.classId) === String(selectedClassId));
+    if (classAssignment) {
+      const classAssigned = classAssignment.shiftIndexes.filter((index) => index < rules.examShifts.length);
+      return classAssigned.length ? classAssigned : rules.examShifts.map((_, index) => index);
+    }
     const department = selectedClass?.department as unknown;
     const departmentId = typeof department === 'string'
       ? department
       : String((department as { _id?: string } | null | undefined)?._id || '');
-    const assigned = (rules.departmentShiftAssignments || [])
+    const departmentAssigned = (rules.departmentShiftAssignments || [])
       .find((item) => String(item.departmentId) === departmentId)?.shiftIndexes
       .filter((index) => index < rules.examShifts.length) || [];
-    return assigned.length ? assigned : rules.examShifts.map((_, index) => index);
-  }, [classRows, rules.departmentShiftAssignments, rules.examShifts, selectedClass]);
+    return departmentAssigned.length ? departmentAssigned : rules.examShifts.map((_, index) => index);
+  }, [classRows, rules.classShiftAssignments, rules.departmentShiftAssignments, rules.examShifts, selectedClass, selectedClassId]);
   const classTableMinWidth = Math.max(720, 190 + classShiftIndexes.length * 230 + Math.max(0, classShiftIndexes.length - 1) * 105);
 
   const selectedClassExamIds = useMemo(
@@ -4950,7 +5096,9 @@ export function ExamsManage() {
     return filterClasses
       .filter((cls) => {
         if (classFilters !== null && !classFilters.includes(cls._id)) return false;
-        const departmentId = String(cls.department?._id || '');
+        const departmentId = typeof cls.department === 'string'
+          ? cls.department
+          : String(cls.department?._id || '');
         if (departmentFilters !== null && !departmentFilters.includes(departmentId)) return false;
         return true;
       })
