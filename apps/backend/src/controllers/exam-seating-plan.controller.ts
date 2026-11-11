@@ -13,7 +13,7 @@ import { getExamSchedulingRulesForSchool } from '../utils/exam-scheduling-rules'
 import { savedSeatingShiftLoad, classShiftIndexes } from '../utils/exam-shift-groups';
 import { resolveSeatingScope, seatingScopeFilter, SeatingScope } from '../utils/exam-seating-scope';
 
-const COLUMNS = ['Organization','Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room','Seat'];
+const COLUMNS = ['Department','Class','Shift','Student ID','Student Name','Academic Year','Exam Type','Room'];
 const norm = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
 const key = (v: unknown) => norm(v).toLowerCase();
 const classOf = (s: any) => norm([s?.class?.title, s?.class?.section].filter(Boolean).join(' '));
@@ -200,6 +200,8 @@ function readRowsFromFile(req: Request): Record<string, unknown>[] {
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheet], { defval: '' });
   if (!rows.length) throw new BadRequestError('The uploaded file has no data rows');
   const headers = Object.keys(rows[0]);
+  // Canonical Room Allocation workbook uses exactly eight columns. Older
+  // workbooks with Organization and Seat remain accepted as optional fields.
   const missing = COLUMNS.filter((c) => !headers.some((h) => key(h) === key(c)));
   if (missing.length) throw new BadRequestError(`Missing required columns: ${missing.join(', ')}`);
   return rows;
@@ -247,7 +249,7 @@ async function validateRows(req: Request, rows: Record<string, unknown>[], seati
       if (!student) throw new Error(`Student ${studentId} was not found`);
       // Imported into an exam period, the period decides the year and type,
       // so those two columns are optional and ignored.
-      if (!row.organization || !row.department || !row.className || !row.shift || !row.studentName || (!seatingScope && (!row.academicYear || !row.examType)) || !row.room || !row.seat) throw new Error('All 10 columns are required');
+      if (!row.department || !row.className || !row.shift || !row.studentName || (!seatingScope && (!row.academicYear || !row.examType)) || !row.room) throw new Error('Department, Class, Shift, Student ID, Student Name, Academic Year, Exam Type, and Room are required');
       const t = seatingScope ? seatingScope.examType : examTypeValue(row.examType);
       if (!t) throw new Error('Exam Type must be Mid Exam or Final');
       const rowYear = seatingScope ? seatingScope.academicYear : row.academicYear;
@@ -258,14 +260,18 @@ async function validateRows(req: Request, rows: Record<string, unknown>[], seati
         school = student.school;
       }
       if (school && allRooms.length === 0) allRooms = await ExamRoom.find({ school: school._id || school, capacityMode: { $ne: 'auto' }, allocationEnabled: { $ne: false } }).sort({ name: 1 }).lean();
-      if (school?.name && key(row.organization) !== key(school.name)) throw new Error('Organization does not match the student school');
+      if (row.organization && school?.name && key(row.organization) !== key(school.name)) throw new Error('Organization does not match the student school');
       if (seenStudents.has(studentId)) throw new Error('Duplicate Student ID in file');
       seenStudents.add(studentId);
       const roomDoc = await ExamRoom.findOne({ name: row.room, capacityMode: { $ne: 'auto' }, allocationEnabled: { $ne: false }, ...(school ? { school: school._id || school } : {}) });
       if (!roomDoc) throw new Error(`Room "${row.room}" was not found`);
       assertOwnOrg(req, roomDoc, 'school');
-      const seatKey = `${roomDoc._id.toString()}::${key(row.seat)}`;
-      if (seenSeats.has(seatKey)) {
+      // The standard eight-column workbook assigns a room, not a numbered
+      // seat. Give room-only rows a stable per-student internal seat key so
+      // they remain unique without requiring an extra spreadsheet column.
+      const seatValue = row.seat || `__ROOM_ONLY__${String(student._id)}`;
+      const seatKey = `${roomDoc._id.toString()}::${key(seatValue)}`;
+      if (row.seat && seenSeats.has(seatKey)) {
         const suggestion = suggestSeat(allRooms, seenSeats);
         if (suggestion) { row.suggestion = { room: suggestion.room, seat: suggestion.seat }; seenSeats.add(suggestion.seatKey); }
         throw new Error(`Duplicate seat ${row.seat} in ${row.room}`);
@@ -274,8 +280,8 @@ async function validateRows(req: Request, rows: Record<string, unknown>[], seati
       // admin may deliberately exceed it (overflow seating, temporary extra
       // chairs, etc). Only a genuine room+seat collision above is blocked;
       // see the module comment and seating-import-smart-fix.e2e.ts.
-      seenSeats.add(seatKey);
-      docs.push({ student: student._id, room: roomDoc._id, deskNumber: row.seat, academicYear: rowYear, examType: t, period: seatingScope?.period || null, school: school?._id || null });
+      if (row.seat) seenSeats.add(seatKey);
+      docs.push({ student: student._id, room: roomDoc._id, deskNumber: seatValue, academicYear: rowYear, examType: t, period: seatingScope?.period || null, school: school?._id || null });
     } catch (e: any) {
       row.status = 'error';
       row.message = e.message;
@@ -318,4 +324,4 @@ export const reset = async (req: Request, res: Response) => {
   const result = await ExamSeatingPlan.deleteMany(scopedPlanFilter(req, scope));
   return ApiResponse.success(res, { deleted: result.deletedCount }, `Removed ${result.deletedCount} room assignment(s)${scope.periodName ? ` from ${scope.periodName}` : ''}`);
 };
-export const downloadTemplate=async(_req:Request,res:Response)=>{const sample=[['Minhaj','Department','Class A','Morning','ST001','Ahmed Ali','2026/27','Mid Exam','Room 01','A01']];const buffer=buildXlsxBuffer(COLUMNS,sample,'Exam Seating');res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');res.setHeader('Content-Disposition','attachment; filename=exam-seating-master-template.xlsx');res.end(buffer);};
+export const downloadTemplate=async(_req:Request,res:Response)=>{const sample=[['Primary','Grade 2 A','1,2','3045138','Khadija Abbas Ibrahim Hassan','2026/27','MONTHLY EXAM 1','Room 1']];const buffer=buildXlsxBuffer(COLUMNS,sample,'Exam Seating');res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');res.setHeader('Content-Disposition','attachment; filename=exam-room-allocation-template.xlsx');res.end(buffer);};
