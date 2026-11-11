@@ -158,7 +158,7 @@ async function buildPayload(courses: CourseDoc[], selectedCourseId?: string, sel
   const studentIds = students.map((student) => student._id);
   const [contents, quizAttempts, gates, progressDocs] = await Promise.all([
     CourseContent.find({ course: { $in: courseIds } }).lean(),
-    QuizAttempt.find({ student: { $in: studentIds }, course: { $in: courseIds } }).sort({ createdAt: -1 }).lean(),
+    QuizAttempt.find({ student: { $in: studentIds }, course: { $in: courseIds } }).sort({ createdAt: -1, _id: -1 }).lean(),
     LessonBlockProgress.find({ student: { $in: studentIds }, course: { $in: courseIds } }).lean(),
     Progress.find({ student: { $in: studentIds }, course: { $in: courseIds } }).lean(),
   ]);
