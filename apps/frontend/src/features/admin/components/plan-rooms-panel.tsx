@@ -1441,6 +1441,11 @@ export function PlanRoomsPanel({
   };
 
   const currentPlanError = Boolean(validatePlan());
+  const importedClassTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    activeClasses.forEach(cls => { totals[classNameOf(cls)] = studentCounts[cls._id] || 0; });
+    return totals;
+  }, [activeClasses, studentCounts]);
   const hasImportedAssignments = importedAllocations.length > 0;
 
   const NumberSetting = ({
@@ -1541,7 +1546,7 @@ export function PlanRoomsPanel({
             </button>
           ))}
         </div>
-        <ImportedRoomPlanReports tab={resolutionTab} assignments={importedAllocations} rooms={sortedRooms} />
+        <ImportedRoomPlanReports tab={resolutionTab} assignments={importedAllocations} rooms={sortedRooms} classTotals={importedClassTotals} />
       </div>
     </div>
   );
