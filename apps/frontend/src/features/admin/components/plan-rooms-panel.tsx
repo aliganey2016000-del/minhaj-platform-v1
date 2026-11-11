@@ -100,6 +100,8 @@ type Props = {
   type: string;
   planRows: PlanRoomRow[];
   schoolId?: string;
+  /** Exam (period) whose timetable defines the real sittings classes share. */
+  periodId?: string;
   hideExamSelectors?: boolean;
   draftKey?: string;
   setYear: (value: string) => void;
@@ -170,6 +172,7 @@ export function PlanRoomsPanel({
   type,
   planRows,
   schoolId,
+  periodId,
   hideExamSelectors = false,
   draftKey,
   setYear,
@@ -360,15 +363,40 @@ export function PlanRoomsPanel({
     return () => { cancelled = true; };
   }, [resolvedSchoolId]);
 
+  // Real sittings (day + start time) from the exam timetable. When present
+  // they replace the coarse department shift sets, so only classes that truly
+  // sit at the same time are kept out of each other's rooms.
+  const [timetableSlots, setTimetableSlots] = useState<{ labels: string[]; classSlots: Record<string, number[]> } | null>(null);
+  useEffect(() => {
+    if (!periodId) { setTimetableSlots(null); return; }
+    let cancelled = false;
+    api.get('/exams/periods/' + periodId + '/class-slots')
+      .then(response => {
+        if (cancelled) return;
+        const data = response.data?.data || {};
+        const slots = Array.isArray(data.slots) ? data.slots : [];
+        setTimetableSlots(slots.length
+          ? { labels: slots.map((slot: { label: string }) => slot.label), classSlots: data.classSlots || {} }
+          : null);
+      })
+      .catch(() => { if (!cancelled) setTimetableSlots(null); });
+    return () => { cancelled = true; };
+  }, [periodId]);
+
   const allShiftIndexes = useMemo(
-    () => Array.from({ length: Math.max(1, shiftRules?.examShifts.length || 1) }, (_, index) => index),
-    [shiftRules],
+    () => Array.from({ length: Math.max(1, timetableSlots?.labels.length || shiftRules?.examShifts.length || 1) }, (_, index) => index),
+    [shiftRules, timetableSlots],
   );
   const shiftsByClassId = useMemo(() => {
     const map = new Map<string, number[]>();
     const departmentAssignments = shiftRules?.departmentShiftAssignments || [];
     const classAssignments = shiftRules?.classShiftAssignments || [];
     classes.forEach(cls => {
+      const slotted = timetableSlots?.classSlots[cls._id];
+      if (timetableSlots) {
+        map.set(cls._id, slotted?.length ? slotted : allShiftIndexes);
+        return;
+      }
       const departmentId = typeof cls.department === 'string' ? cls.department : cls.department?._id || '';
       const classAssignment = classAssignments.find(item => String(item.classId) === String(cls._id));
       const departmentAssignment = departmentAssignments.find(item => String(item.departmentId) === String(departmentId));
@@ -379,10 +407,10 @@ export function PlanRoomsPanel({
       map.set(cls._id, shifts.length ? shifts : allShiftIndexes);
     });
     return map;
-  }, [classes, shiftRules, allShiftIndexes]);
+  }, [classes, shiftRules, allShiftIndexes, timetableSlots]);
   const shiftsOfClass = (classId: string) => shiftsByClassId.get(classId) || allShiftIndexes;
   const shiftNames = (shifts: number[]) => shifts
-    .map(index => shiftRules?.examShifts[index]?.name || 'Shift ' + (index + 1))
+    .map(index => timetableSlots?.labels[index] || shiftRules?.examShifts[index]?.name || 'Shift ' + (index + 1))
     .join(', ');
   const shiftGroups = useMemo(() => {
     const groups = new Map<string, { key: string; departmentId: string; departmentName: string; shifts: number[]; classes: ClassItem[]; students: number }>();
@@ -623,7 +651,7 @@ export function PlanRoomsPanel({
 
     // A department may reuse rooms already used by another department when
     // the assigned shift sets do not overlap.
-    const planShiftGroup = (groupClasses: ClassItem[], groupStudentTotal: number, departmentRooms: Room[]) => {
+    const planShiftGroup = (groupClasses: ClassItem[], groupStudentTotal: number, departmentRooms: Room[], spreadAllRooms = false) => {
       const roomsByCapacity = departmentRooms.slice().sort((a, b) =>
         effectiveCapacity(b) - effectiveCapacity(a)
         || a.name.localeCompare(b.name, undefined, { numeric: true })
@@ -634,10 +662,10 @@ export function PlanRoomsPanel({
       for (const room of roomsByCapacity) {
         usedRooms.push(room);
         selectedCapacity += effectiveCapacity(room);
-        if (selectedCapacity >= groupStudentTotal) break;
+        if (!spreadAllRooms && selectedCapacity >= groupStudentTotal) break;
       }
 
-      if (!settings.useMinimumRooms) {
+      if (!settings.useMinimumRooms && !spreadAllRooms) {
         let targetCapacity = usedRooms.reduce((sum, room) =>
           sum + Math.max(1, Math.floor(effectiveCapacity(room) * settings.targetRoomOccupancyPercent / 100)), 0);
         for (const room of roomsByCapacity) {
@@ -1083,7 +1111,15 @@ export function PlanRoomsPanel({
           || !item.shifts.some(shiftIndex => group.shifts.includes(shiftIndex))
         );
       });
-      const result = planShiftGroup(group.classes, group.students, departmentRooms);
+      // Nobody from another department sits at the same time: spread this
+      // group across every available room instead of filling the first few.
+      const sharesSitting = departmentGroups.some(other =>
+        other !== group
+        && other.students > 0
+        && other.departmentId !== group.departmentId
+        && other.shifts.some(shiftIndex => group.shifts.includes(shiftIndex))
+      );
+      const result = planShiftGroup(group.classes, group.students, departmentRooms, !sharesSitting);
       result.generatedRows.forEach(groupRow => {
         const row = generatedRows.find(item => item.roomId === groupRow.roomId);
         const used = groupRow.allocations.some(item => item.quota > 0);
@@ -1183,7 +1219,7 @@ export function PlanRoomsPanel({
         for (const shiftIndex of shiftsOfClass(cls._id)) {
           const existingDepartment = byShift.get(shiftIndex);
           if (existingDepartment && existingDepartment !== departmentId) {
-            const shiftName = shiftRules?.examShifts[shiftIndex]?.name || 'Shift ' + (shiftIndex + 1);
+            const shiftName = timetableSlots?.labels[shiftIndex] || shiftRules?.examShifts[shiftIndex]?.name || 'Shift ' + (shiftIndex + 1);
             const room = roomById.get(row.roomId);
             return (room?.name || 'This Room') + ' cannot contain different departments during ' + shiftName + '. Reuse is allowed only when department shifts do not overlap.';
           }

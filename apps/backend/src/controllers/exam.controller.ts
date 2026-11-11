@@ -16,6 +16,7 @@ import ExamEligibility from '../models/exam-eligibility.model';
 import ExamIncident from '../models/exam-incident.model';
 import ExamInvigilatorAssignment from '../models/exam-invigilator-assignment.model';
 import Result from '../models/result.model';
+import { loadClassSlotMap } from '../utils/exam-shift-groups';
 import { getAutoScheduleWindow } from '../utils/exam-eligibility';
 import ApiResponse from '../utils/api-response';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/api-error';
@@ -300,6 +301,22 @@ export const getScheduleRules = async (req: Request, res: Response): Promise<Res
   return ApiResponse.success(res, {
     school: { _id: school._id, name: school.name },
     rules: normalizeExamSchedulingRules(school.examSchedulingRules),
+  });
+};
+
+// GET /exams/periods/:periodId/class-slots
+// Real sittings (day + start time) each class has papers in, used by room
+// planning so only classes that truly sit together share a time slot.
+export const getPeriodClassSlots = async (req: Request, res: Response): Promise<Response> => {
+  const schoolId = scheduleRulesSchoolId(req);
+  const periodId = String(req.params.periodId || '');
+  if (!/^[a-f\d]{24}$/i.test(periodId)) throw new BadRequestError('A valid Exam is required');
+  const period = await ExamPeriod.findOne({ _id: periodId, school: schoolId }).select('_id').lean();
+  if (!period) throw new NotFoundError('Exam');
+  const map = await loadClassSlotMap(periodId);
+  return ApiResponse.success(res, {
+    slots: map?.slots || [],
+    classSlots: map ? Object.fromEntries(map.classSlots) : {},
   });
 };
 

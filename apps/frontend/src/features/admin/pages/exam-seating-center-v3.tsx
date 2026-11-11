@@ -1300,6 +1300,7 @@ export function ExamSeatingCenterV3() {
             type={type}
             planRows={planRows}
             schoolId={orgForAuto}
+            periodId={contextPeriodId||undefined}
             hideExamSelectors={hasExamContext}
             draftKey={planDraftId}
             setYear={setYear}
