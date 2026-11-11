@@ -10,6 +10,7 @@ export interface IExamSeatingPlan extends Document {
   student: mongoose.Types.ObjectId;
   room: mongoose.Types.ObjectId;
   deskNumber: string;
+  shift?: string;
   academicYear: string;
   examType: 'mid' | 'final';
   period?: mongoose.Types.ObjectId | null;
@@ -23,6 +24,7 @@ const schema = new Schema<IExamSeatingPlan>({
   student: { type: Schema.Types.ObjectId, ref: 'Student', required: true, index: true },
   room: { type: Schema.Types.ObjectId, ref: 'ExamRoom', required: true, index: true },
   deskNumber: { type: String, required: true, trim: true },
+  shift: { type: String, default: '', trim: true },
   academicYear: { type: String, required: true, trim: true, index: true },
   examType: { type: String, enum: ['mid', 'final'], required: true, index: true },
   period: { type: Schema.Types.ObjectId, ref: 'ExamPeriod', default: null, index: true },
