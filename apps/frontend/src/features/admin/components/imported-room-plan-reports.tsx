@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 
 export type ImportedRoomAssignment = {
   _id: string;
@@ -16,10 +16,9 @@ type Props = {
   tab: 'plan' | 'room' | 'class';
   assignments: ImportedRoomAssignment[];
   rooms: Array<{ _id: string; name: string; building?: string; capacity: number }>;
+  classTotals?: Record<string, number>;
 };
 
-const studentName = (row: ImportedRoomAssignment) =>
-  [row.student?.profile?.firstName, row.student?.profile?.lastName].filter(Boolean).join(' ') || '—';
 const classLabel = (row: ImportedRoomAssignment) => row.student?.className?.trim() || 'Unclassified';
 const departmentLabel = (row: ImportedRoomAssignment) => row.student?.department?.trim() || 'Unassigned department';
 const shiftLabels = (raw?: string) => {
@@ -30,7 +29,7 @@ const shiftLabels = (raw?: string) => {
   );
 };
 
-export function ImportedRoomPlanReports({ tab, assignments, rooms }: Props) {
+export function ImportedRoomPlanReports({ tab, assignments, rooms, classTotals = {} }: Props) {
   const roomRows = useMemo(() => rooms.map(room => {
     const rows = assignments.filter(item => item.room?._id === room._id);
     const byShift = new Map<string, number>();
@@ -114,7 +113,7 @@ export function ImportedRoomPlanReports({ tab, assignments, rooms }: Props) {
       <div className="border-b px-4 py-3"><p className="font-bold">Imported Class Resolution</p><p className="text-xs text-[var(--color-text-tertiary)]">Class → shift → room distribution</p></div>
       <table className="w-full min-w-[850px] text-sm">
         <thead className="bg-[var(--color-surface-secondary)]"><tr><th className="px-4 py-3 text-left">Department</th><th className="px-4 py-3 text-left">Class</th><th className="px-4 py-3 text-left">Shift(s)</th><th className="px-4 py-3 text-left">Assigned / Total</th><th className="px-4 py-3 text-left">Room Allocation</th></tr></thead>
-        <tbody>{classRows.map(item => <tr key={item.name} className="border-t align-top"><td className="px-4 py-3">{item.department}</td><td className="px-4 py-3 font-bold">{item.name}</td><td className="px-4 py-3">{Array.from(item.shifts).join(', ')}</td><td className="px-4 py-3 font-bold">{item.rows.length}/{item.rows.length}</td><td className="px-4 py-3">{Array.from(item.rooms.entries()).map(([room,count]) => <span key={room} className="mr-2 mb-1 inline-flex rounded-lg bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-semibold">{room}: {count}</span>)}</td></tr>)}</tbody>
+        <tbody>{classRows.map(item => <tr key={item.name} className="border-t align-top"><td className="px-4 py-3">{item.department}</td><td className="px-4 py-3 font-bold">{item.name}</td><td className="px-4 py-3">{Array.from(item.shifts).join(', ')}</td><td className="px-4 py-3 font-bold">{item.rows.length}/{Math.max(item.rows.length, Number(classTotals[item.name]) || 0)}</td><td className="px-4 py-3">{Array.from(item.rooms.entries()).map(([room,count]) => <span key={room} className="mr-2 mb-1 inline-flex rounded-lg bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs font-semibold">{room}: {count}</span>)}</td></tr>)}</tbody>
       </table>
     </div>
   );
